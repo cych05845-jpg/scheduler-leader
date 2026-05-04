@@ -861,42 +861,44 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 <body>
 
 <!-- ======== LOGIN OVERLAY (for Leader edition only) ======== -->
-<div id="leader-login-overlay" style="display: none; position: fixed; inset: 0; z-index: 99999; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); align-items: center; justify-content: center;">
-  <div style="background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 400px; width: 90%;">
+<div id="leader-login-overlay" style="display: none; position: fixed; inset: 0; z-index: 99999; background: linear-gradient(135deg, #faf8f5 0%, #f0ebe1 100%); align-items: center; justify-content: center;">
+  <div style="background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 20px 60px rgba(194, 59, 34, 0.15); max-width: 400px; width: 90%; border: 1px solid #e6e1d8;">
     <div style="text-align: center; margin-bottom: 1.5rem;">
       <div style="font-size: 3rem; margin-bottom: 0.5rem">🏥</div>
-      <h2 style="margin: 0; color: #1f2937; font-size: 1.4rem">急診排班輔助工具</h2>
-      <p style="color: #6b7280; font-size: 0.92rem; margin-top: 0.5rem">Leader 專用版 · CYCH ED</p>
+      <h2 style="margin: 0; color: #1a1a1a; font-size: 1.4rem">急診排班輔助工具</h2>
+      <p style="color: #8a8a8a; font-size: 0.92rem; margin-top: 0.5rem">Leader 專用版 · CYCH ED</p>
     </div>
 
     <div style="margin-bottom: 1rem">
-      <label style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: #374151">帳號</label>
+      <label style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: #4a4a4a">帳號</label>
       <input type="text" id="login-username" placeholder="請輸入帳號" autocomplete="username"
-             style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 1rem; box-sizing: border-box"
+             style="width: 100%; padding: 10px 12px; border: 1px solid #e6e1d8; border-radius: 6px; font-size: 1rem; box-sizing: border-box; background: #faf8f5"
              onkeydown="if(event.key === 'Enter') document.getElementById('login-password').focus()">
     </div>
 
     <div style="margin-bottom: 1rem">
-      <label style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: #374151">密碼</label>
+      <label style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: #4a4a4a">密碼</label>
       <input type="password" id="login-password" placeholder="請輸入密碼" autocomplete="current-password"
-             style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 1rem; box-sizing: border-box"
+             style="width: 100%; padding: 10px 12px; border: 1px solid #e6e1d8; border-radius: 6px; font-size: 1rem; box-sizing: border-box; background: #faf8f5"
              onkeydown="if(event.key === 'Enter') tryLogin()">
     </div>
 
     <div style="margin-bottom: 1rem">
-      <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #6b7280; font-size: 0.92rem">
+      <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #8a8a8a; font-size: 0.92rem">
         <input type="checkbox" id="login-remember" checked>
         記住登入(7 天免登入)
       </label>
     </div>
 
-    <button onclick="tryLogin()" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; font-size: 1.05rem; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3)">
+    <button onclick="tryLogin()" style="width: 100%; padding: 12px; background: #c23b22; color: white; border: none; border-radius: 6px; font-size: 1.05rem; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(194, 59, 34, 0.25); transition: background 0.2s"
+            onmouseover="this.style.background='#a32e1a'"
+            onmouseout="this.style.background='#c23b22'">
       🔓 登入
     </button>
 
-    <div id="login-error" style="margin-top: 1rem; color: #dc2626; font-size: 0.9rem; text-align: center; min-height: 1.2rem"></div>
+    <div id="login-error" style="margin-top: 1rem; color: #c23b22; font-size: 0.9rem; text-align: center; min-height: 1.2rem"></div>
 
-    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; font-size: 0.82rem; color: #9ca3af; text-align: center">
+    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e6e1d8; font-size: 0.82rem; color: #8a8a8a; text-align: center">
       忘記帳號密碼?請聯絡 翁護理長
     </div>
   </div>
@@ -913,6 +915,54 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     <button onclick="openImportModal()">📥 匯入 Excel</button>
     <button onclick="exportXlsx()" class="primary">⬇ 匯出班表</button>
     <button onclick="leaderLogout()" id="logout-btn" style="display: none; background: #ef4444; color: white; border-color: #ef4444">🚪 登出</button>
+  </div>
+</div>
+
+<!-- Monthly Responsibility Bar (Leader Edition only) -->
+<div id="monthly-status-bar" style="display: none; background: linear-gradient(90deg, #f4e4df 0%, #faf8f5 100%); border-bottom: 1px solid #e6e1d8; padding: 0.6rem 1.2rem; font-size: 0.95rem; align-items: center; gap: 1.2rem; flex-wrap: wrap;">
+  <span style="font-weight: 700; color: #c23b22">📌 本月排班</span>
+  <span>月份:<strong id="status-month">2026/06</strong></span>
+  <span>負責人:<strong id="status-owner" style="color: #1e4a7a">─ 未指定 ─</strong></span>
+  <span>階段:<strong id="status-stage" style="color: #4a4a4a">─ 未開始 ─</strong></span>
+  <button id="status-edit-btn" onclick="openMonthlyStatusEdit()" style="margin-left: auto; padding: 4px 12px; font-size: 0.88rem; background: white; border: 1px solid #c23b22; color: #c23b22; border-radius: 4px; cursor: pointer; display: none">📝 修改</button>
+</div>
+
+<!-- Monthly Status Edit Modal -->
+<div class="modal-backdrop" id="monthly-status-modal">
+  <div class="modal" style="max-width: 500px">
+    <div class="modal-header">
+      <h3>📌 本月排班狀態</h3>
+      <button onclick="closeModal('monthly-status-modal')" style="background:transparent;color:white;border:none;font-size:1.2rem">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom: 1rem">
+        <label style="display: block; font-weight: 600; margin-bottom: 0.4rem">月份</label>
+        <input type="month" id="ms-month" style="width: 100%; padding: 8px; box-sizing: border-box">
+      </div>
+      <div style="margin-bottom: 1rem">
+        <label style="display: block; font-weight: 600; margin-bottom: 0.4rem">本月排班負責人</label>
+        <input type="text" id="ms-owner" placeholder="例:Leader A" style="width: 100%; padding: 8px; box-sizing: border-box">
+        <div style="font-size: 0.85rem; color: var(--ink-mute); margin-top: 0.3rem">寫人名,讓所有 Leader 知道這個月誰在排</div>
+      </div>
+      <div style="margin-bottom: 1rem">
+        <label style="display: block; font-weight: 600; margin-bottom: 0.4rem">目前階段</label>
+        <select id="ms-stage" style="width: 100%; padding: 8px; box-sizing: border-box; font-size: 1rem">
+          <option value="">─ 未開始 ─</option>
+          <option value="📝 Leader 排班中">📝 Leader 排班中</option>
+          <option value="🔍 HN 審查中">🔍 HN 審查中</option>
+          <option value="📤 已送 SV 確認">📤 已送 SV 確認</option>
+          <option value="✅ SV 已同意,待公告">✅ SV 已同意,待公告</option>
+          <option value="📢 已公告">📢 已公告</option>
+        </select>
+      </div>
+      <div style="background: #fffbeb; padding: 0.6rem; border-radius: 4px; font-size: 0.88rem; color: #78350f; border: 1px solid #fde68a">
+        ⚠ 這只是「狀態提醒」,不會自動鎖定編輯權限。請依規定流程進行。
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal('monthly-status-modal')">取消</button>
+      <button onclick="saveMonthlyStatus()" class="primary">儲存</button>
+    </div>
   </div>
 </div>
 
@@ -1878,13 +1928,11 @@ const LEADER_GEMINI_API_KEY = 'AIzaSy_AIzaSyB9isR-ECzPLENRRWrTyFgDRU4Qkoh4h5A';
 //   leader2 / cych2026 (副護理長 2)
 //   admin / cych2026admin (你自己)
 const LEADER_ACCOUNTS = {
-  '06843': '06843',
-  '03746': '03746',
-  '11872': '11872',
-  '12346': '12346',
-  '15896': '15896',
-  '11562': '11562',
-  'admin': 'cych05845',
+  // 修改下方密碼為你想要的
+  // 帳號為左邊小寫,密碼為右邊
+  'admin': 'cyched2026admin',  // 你自己 (HN 翁護理長)
+  'ahn1': 'cychahn0426',       // 副護理長 1
+  'ahn2': 'cychahn0427',       // 副護理長 2 (備用)
 };
 
 // ============================================================
@@ -1945,6 +1993,73 @@ function leaderLogout() {
 function showWelcomeMessage(username) {
   // Optional: log who's using
   console.log(`[Leader Edition] Welcome ${username}, logged in at ${new Date().toLocaleString()}`);
+  // Show monthly status bar
+  initMonthlyStatusBar(username);
+}
+
+// ============================================================
+// Monthly Status Bar (Leader Edition feature)
+// ============================================================
+
+function initMonthlyStatusBar(username) {
+  if (!IS_LEADER_EDITION) return;
+  const bar = document.getElementById('monthly-status-bar');
+  if (!bar) return;
+  bar.style.display = 'flex';
+
+  // Only admin can edit
+  if (username === 'admin') {
+    document.getElementById('status-edit-btn').style.display = '';
+  }
+
+  refreshMonthlyStatus();
+
+  // Periodic refresh from localStorage (in case admin changes from another tab)
+  setInterval(refreshMonthlyStatus, 30000);
+}
+
+function getMonthlyStatus() {
+  try {
+    const raw = localStorage.getItem('monthlyStatus');
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return { month: '', owner: '', stage: '' };
+}
+
+function refreshMonthlyStatus() {
+  const s = getMonthlyStatus();
+  document.getElementById('status-month').textContent = s.month || '─';
+  document.getElementById('status-owner').textContent = s.owner || '─ 未指定 ─';
+  document.getElementById('status-stage').textContent = s.stage || '─ 未開始 ─';
+}
+
+function openMonthlyStatusEdit() {
+  const s = getMonthlyStatus();
+  document.getElementById('ms-month').value = s.month || (state.month || '2026-06');
+  document.getElementById('ms-owner').value = s.owner || '';
+  document.getElementById('ms-stage').value = s.stage || '';
+  document.getElementById('monthly-status-modal').classList.add('active');
+}
+
+function saveMonthlyStatus() {
+  const status = {
+    month: document.getElementById('ms-month').value,
+    owner: document.getElementById('ms-owner').value.trim(),
+    stage: document.getElementById('ms-stage').value,
+    updatedAt: new Date().toISOString(),
+    updatedBy: getCurrentUser(),
+  };
+  localStorage.setItem('monthlyStatus', JSON.stringify(status));
+  refreshMonthlyStatus();
+  closeModal('monthly-status-modal');
+}
+
+function getCurrentUser() {
+  try {
+    const session = localStorage.getItem('leaderSession');
+    if (session) return JSON.parse(session).username || '';
+  } catch (e) {}
+  return '';
 }
 
 function showLoginScreen() {
@@ -1957,6 +2072,9 @@ window.addEventListener('DOMContentLoaded', () => {
   if (IS_LEADER_EDITION) {
     if (checkLeaderAuth()) {
       document.getElementById('logout-btn').style.display = '';
+      // Already logged in - show monthly status bar with current user
+      const username = getCurrentUser();
+      initMonthlyStatusBar(username);
     } else {
       showLoginScreen();
     }
