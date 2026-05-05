@@ -2116,12 +2116,14 @@ function initMonthlyStatusBar() {
     document.getElementById('status-assign-btn').style.display = '';
   }
 
-  refreshMonthlyStatus();
-  // Also load assignments for personal notification
-  checkMyAssignments();
+  // 並行載入(同時 fetch 狀態 + 分配,而不是序列)
+  Promise.all([
+    refreshMonthlyStatus(),
+    checkMyAssignments(),
+  ]);
 
-  // Periodic refresh (in case admin changes from another tab/device)
-  setInterval(refreshMonthlyStatus, 60000); // every 60s
+  // ⚠ 拿掉 setInterval(原本每 60 秒 refresh 一次,太頻繁)
+  // 只有「打開 Modal」「換頁」時才 refresh
 }
 
 async function refreshMonthlyStatus() {
@@ -2140,13 +2142,52 @@ async function refreshMonthlyStatus() {
   }
 }
 
-function openMonthlyStatusEdit() {
+async function openMonthlyStatusEdit() {
   // Use cache to populate form
   const s = _monthlyStatusCache;
-  document.getElementById('ms-month').value = s.month || (state.month || '2026-06');
-  document.getElementById('ms-owner').value = s.owner || '';
-  document.getElementById('ms-stage').value = s.stage || '';
+  const monthInput = document.getElementById('ms-month');
+  const ownerInput = document.getElementById('ms-owner');
+  const stageInput = document.getElementById('ms-stage');
+
+  monthInput.value = s.month || (state.month || '2026-06');
+  ownerInput.value = s.owner || '';
+  stageInput.value = s.stage || '';
+
+  // 如果負責人是空的,根據月份從分配表自動帶入
+  if (!ownerInput.value && monthInput.value) {
+    await tryFillOwnerFromAssignment(monthInput.value);
+  }
+
+  // 月份改變時也要重新查分配表
+  monthInput.onchange = async () => {
+    await tryFillOwnerFromAssignment(monthInput.value);
+  };
+
   document.getElementById('monthly-status-modal').classList.add('active');
+}
+
+async function tryFillOwnerFromAssignment(month) {
+  if (!month) return;
+  const ownerInput = document.getElementById('ms-owner');
+  const stageInput = document.getElementById('ms-stage');
+
+  // 用 cache 不重新 fetch
+  try {
+    const assignments = await loadAssignments();
+    const found = assignments.find(a => a.month === month);
+    if (found && found.assignedToName) {
+      if (!ownerInput.value) {
+        ownerInput.value = found.assignedToName;
+        ownerInput.style.background = '#fef3c7';
+        setTimeout(() => { ownerInput.style.background = ''; }, 2000);
+      }
+      if (!stageInput.value) {
+        stageInput.value = '📝 Leader 排班中';
+      }
+    }
+  } catch (e) {
+    console.warn('tryFillOwnerFromAssignment failed:', e);
+  }
 }
 
 async function saveMonthlyStatus() {
@@ -2195,25 +2236,54 @@ async function saveMonthlyStatus() {
 // Schedule Assignments (HN 指派誰排哪個月)
 // ============================================================
 let _usersCache = null;
+let _usersCacheTime = 0;
+let _assignmentsCache = null;
+let _assignmentsCacheTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 分鐘
 
-async function loadUsers() {
-  if (_usersCache) return _usersCache;
+async function loadUsers(forceRefresh) {
+  // 5 分鐘內用 cache
+  if (!forceRefresh && _usersCache && (Date.now() - _usersCacheTime < CACHE_TTL)) {
+    return _usersCache;
+  }
   const token = getAuthToken();
   if (!token) return [];
   try {
     const result = await apiCall('listUsers', { token });
     if (result.ok) {
       _usersCache = result.users;
+      _usersCacheTime = Date.now();
       return result.users;
     }
   } catch (e) {
     console.warn('loadUsers failed:', e);
   }
-  return [];
+  return _usersCache || [];
+}
+
+async function loadAssignments(forceRefresh) {
+  // 5 分鐘內用 cache
+  if (!forceRefresh && _assignmentsCache && (Date.now() - _assignmentsCacheTime < CACHE_TTL)) {
+    return _assignmentsCache;
+  }
+  const token = getAuthToken();
+  if (!token) return [];
+  try {
+    const result = await apiCall('listAssignments', { token });
+    if (result.ok) {
+      _assignmentsCache = result.assignments || [];
+      _assignmentsCacheTime = Date.now();
+      return _assignmentsCache;
+    }
+  } catch (e) {
+    console.warn('loadAssignments failed:', e);
+  }
+  return _assignmentsCache || [];
 }
 
 async function openAssignments() {
-  document.getElementById('assignments-modal').classList.add('active');
+  const modal = document.getElementById('assignments-modal');
+  modal.classList.add('active');
 
   // Set default month to next month
   const now = new Date();
@@ -2221,20 +2291,21 @@ async function openAssignments() {
   const monthStr = nextMonth.toISOString().slice(0, 7);
   document.getElementById('new-assignment-month').value = monthStr;
 
-  // Load users for dropdown
-  const users = await loadUsers();
+  // 並行載入(同時拿 users + assignments,不要序列)
+  const [users] = await Promise.all([
+    loadUsers(),
+    refreshAssignments(),  // 這個會用 cache
+  ]);
+
   const select = document.getElementById('new-assignment-user');
   select.innerHTML = '<option value="">選擇負責人...</option>' +
-    users.filter(u => u.role !== 'sv')  // 不含 SV
+    users.filter(u => u.role !== 'sv')
       .map(u => `<option value="${u.employeeId}">${u.name} (${u.employeeId})</option>`).join('');
-
-  // Load current assignments
-  await refreshAssignments();
 }
 
-async function refreshAssignments() {
+async function refreshAssignments(forceRefresh) {
   const listEl = document.getElementById('assignments-list');
-  listEl.innerHTML = '<p style="color: var(--ink-mute); text-align: center; padding: 1rem">載入中...</p>';
+  listEl.innerHTML = '<p style="color: var(--ink-mute); text-align: center; padding: 1rem">⏳ 載入中...</p>';
 
   const token = getAuthToken();
   if (!token) {
@@ -2243,13 +2314,7 @@ async function refreshAssignments() {
   }
 
   try {
-    const result = await apiCall('listAssignments', { token });
-    if (!result.ok) {
-      listEl.innerHTML = `<p style="color: var(--err); text-align: center">載入失敗: ${result.error}</p>`;
-      return;
-    }
-
-    const assignments = result.assignments || [];
+    const assignments = await loadAssignments(forceRefresh);
     if (assignments.length === 0) {
       listEl.innerHTML = '<p style="color: var(--ink-mute); text-align: center; padding: 1rem">尚未指派任何月份</p>';
       return;
@@ -2293,10 +2358,19 @@ async function addAssignment() {
   }
 
   const token = getAuthToken();
+  // 找按鈕,顯示處理中
+  const addBtn = document.querySelector('#assignments-modal button[onclick="addAssignment()"]');
+  if (addBtn) {
+    addBtn.disabled = true;
+    addBtn.textContent = '⏳ 處理中...';
+  }
+
   try {
     const result = await apiCall('setAssignment', { token, month, assignedTo });
     if (result.ok) {
-      await refreshAssignments();
+      // 寫入後 invalidate cache
+      _assignmentsCache = null;
+      await refreshAssignments(true);  // force refresh
       // Reset form
       document.getElementById('new-assignment-user').value = '';
       // ⭐ 如果有自動更新本月狀態,刷新狀態列
@@ -2308,6 +2382,11 @@ async function addAssignment() {
     }
   } catch (e) {
     alert('錯誤: ' + e.message);
+  } finally {
+    if (addBtn) {
+      addBtn.disabled = false;
+      addBtn.textContent = '+ 新增';
+    }
   }
 }
 
@@ -2317,7 +2396,8 @@ async function deleteAssignment(month) {
   try {
     const result = await apiCall('deleteAssignment', { token, month });
     if (result.ok) {
-      await refreshAssignments();
+      _assignmentsCache = null;
+      await refreshAssignments(true);
     } else {
       alert('刪除失敗: ' + (result.error || '未知'));
     }
@@ -2328,20 +2408,16 @@ async function deleteAssignment(month) {
 
 // 個人通知:登入時看到「我的排班月份」
 async function checkMyAssignments() {
-  const token = getAuthToken();
   const myId = getCurrentUserId();
-  if (!token || !myId) return;
+  if (!myId) return;
 
   try {
-    const result = await apiCall('listAssignments', { token });
-    if (!result.ok) return;
-
-    const myAssignments = (result.assignments || []).filter(a =>
+    const assignments = await loadAssignments();
+    const myAssignments = assignments.filter(a =>
       String(a.assignedTo) === String(myId)
     );
 
     if (myAssignments.length > 0) {
-      // Show top notification
       const months = myAssignments.map(a => a.month).join('、');
       const banner = document.createElement('div');
       banner.id = 'my-assignment-banner';
