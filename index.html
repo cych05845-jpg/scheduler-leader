@@ -870,15 +870,15 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     </div>
 
     <div style="margin-bottom: 1rem">
-      <label style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: #4a4a4a">帳號</label>
-      <input type="text" id="login-username" placeholder="請輸入帳號" autocomplete="username"
+      <label style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: #4a4a4a">員工編號</label>
+      <input type="text" id="login-username" placeholder="例:05845" autocomplete="username"
              style="width: 100%; padding: 10px 12px; border: 1px solid #e6e1d8; border-radius: 6px; font-size: 1rem; box-sizing: border-box; background: #faf8f5"
              onkeydown="if(event.key === 'Enter') document.getElementById('login-password').focus()">
     </div>
 
     <div style="margin-bottom: 1rem">
-      <label style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: #4a4a4a">密碼</label>
-      <input type="password" id="login-password" placeholder="請輸入密碼" autocomplete="current-password"
+      <label style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: #4a4a4a">PIN 碼</label>
+      <input type="password" id="login-password" placeholder="預設為員工編號" autocomplete="current-password"
              style="width: 100%; padding: 10px 12px; border: 1px solid #e6e1d8; border-radius: 6px; font-size: 1rem; box-sizing: border-box; background: #faf8f5"
              onkeydown="if(event.key === 'Enter') tryLogin()">
     </div>
@@ -1913,83 +1913,140 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 // ============================================================
 // LEADER EDITION CONFIG
 // ============================================================
-// 設為 true → Leader 版(API key 寫死,需登入)
-// 設為 false → 個人版(原本的)
+// 設為 true → Leader 版(後端驗證 + 雲端 AI)
+// 設為 false → 個人版(原本的,localStorage 帳密)
 const IS_LEADER_EDITION = true;
 
-// Leader 版的內建 Gemini API Key (Tier 1)
-// ⚠️ 部署到 GitHub 前請在這裡填入你的 key
-const LEADER_GEMINI_API_KEY = 'AIzaSy_AIzaSyB9isR-ECzPLENRRWrTyFgDRU4Qkoh4h5A';
-
-// Leader 帳號密碼清單 (用 SHA-256 hash 簡單保護)
-// 帳號小寫、密碼大小寫敏感
-// 預設帳密(請部署前修改):
-//   06843/ 06843 (副護理長 1)
-//   03746 / 03746 (leader2)
-//   11872 /11872 (leader3)
-//   12346 /12346  (leader4)
-//   11562 /11562 (leader5)
-//   15896 /15896 (recorder)
-//   05845 / 05845 (你自己)
-const LEADER_ACCOUNTS = {
-  // 修改下方密碼為你想要的
-  // 帳號為左邊小寫,密碼為右邊
-  '05845': '05845',  // 你自己 (HN 翁護理長)
-  '06843': '06843',       // 副護理長 1
-  '03746': '03746',       // leader 2
-  '11562': '11562',    // leader 3
-  '11872': '11872',        // leader 4
-  '12346': '12346',   // leader 5
-  '15896': '15896',     //事務員
-  //
-};
+// ⚠️ Apps Script 後端 URL
+// 部署 Apps Script 後在這裡填入 Web App URL
+const BACKEND_URL = 'PASTE_YOUR_BACKEND_URL_HERE';
 
 // ============================================================
-// LOGIN SYSTEM (Leader Edition only)
+// BACKEND API HELPER
+// ============================================================
+async function apiCall(action, payload = {}) {
+  if (!BACKEND_URL || BACKEND_URL.indexOf('PASTE_YOUR') === 0) {
+    throw new Error('後端 URL 未設定,請在 BACKEND_URL 填入 Apps Script Web App URL');
+  }
+  try {
+    const response = await fetch(BACKEND_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // text/plain 避免 CORS preflight
+      body: JSON.stringify({ action, ...payload }),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return await response.json();
+  } catch (e) {
+    return { ok: false, error: '網路錯誤: ' + e.message };
+  }
+}
+
+function getAuthToken() {
+  try {
+    const session = localStorage.getItem('leaderSession');
+    if (session) {
+      const s = JSON.parse(session);
+      if (s.token && s.expiresAt && new Date(s.expiresAt) > new Date()) {
+        return s.token;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+function getCurrentUserName() {
+  try {
+    const session = localStorage.getItem('leaderSession');
+    if (session) {
+      const s = JSON.parse(session);
+      return s.name || '';
+    }
+  } catch (e) {}
+  return '';
+}
+
+function getCurrentUserRole() {
+  try {
+    const session = localStorage.getItem('leaderSession');
+    if (session) {
+      const s = JSON.parse(session);
+      return s.role || '';
+    }
+  } catch (e) {}
+  return '';
+}
+
+function getCurrentUserId() {
+  try {
+    const session = localStorage.getItem('leaderSession');
+    if (session) {
+      const s = JSON.parse(session);
+      return s.employeeId || '';
+    }
+  } catch (e) {}
+  return '';
+}
+
+// ============================================================
+// LOGIN SYSTEM (Backend version)
 // ============================================================
 function checkLeaderAuth() {
   if (!IS_LEADER_EDITION) return true;
-
-  // Check existing session
-  const session = localStorage.getItem('leaderSession');
-  if (session) {
-    try {
-      const s = JSON.parse(session);
-      const now = Date.now();
-      // 7 days = 7 * 24 * 60 * 60 * 1000 = 604800000
-      if (s.username && s.expires && s.expires > now) {
-        return true;
-      }
-    } catch (e) {}
-  }
-  return false;
+  return !!getAuthToken();
 }
 
-function tryLogin() {
-  const username = document.getElementById('login-username').value.trim().toLowerCase();
-  const password = document.getElementById('login-password').value;
-  const remember = document.getElementById('login-remember').checked;
+async function tryLogin() {
+  const employeeIdEl = document.getElementById('login-username');
+  const pinEl = document.getElementById('login-password');
+  const rememberEl = document.getElementById('login-remember');
   const errEl = document.getElementById('login-error');
+  const loginBtn = document.querySelector('#leader-login-overlay button');
 
-  if (!username || !password) {
-    errEl.textContent = '請輸入帳號和密碼';
+  const employeeId = employeeIdEl.value.trim();
+  const pin = pinEl.value;
+  const remember = rememberEl.checked;
+
+  if (!employeeId || !pin) {
+    errEl.textContent = '請輸入員工編號和 PIN 碼';
     return;
   }
 
-  if (LEADER_ACCOUNTS[username] && LEADER_ACCOUNTS[username] === password) {
-    // Login successful
-    const expires = remember ? Date.now() + 7 * 24 * 60 * 60 * 1000 : Date.now() + 24 * 60 * 60 * 1000;
-    localStorage.setItem('leaderSession', JSON.stringify({
-      username,
-      expires,
-      loginAt: Date.now(),
-    }));
-    document.getElementById('leader-login-overlay').style.display = 'none';
-    document.getElementById('logout-btn').style.display = '';
-    showWelcomeMessage(username);
-  } else {
-    errEl.textContent = '❌ 帳號或密碼錯誤';
-    document.getElementById('login-password').value = '';
+  // Disable button during login
+  if (loginBtn) {
+    loginBtn.disabled = true;
+    loginBtn.textContent = '🔄 登入中...';
+  }
+  errEl.textContent = '';
+
+  try {
+    const result = await apiCall('login', { employeeId, pin, remember });
+
+    if (result.ok) {
+      // Save session
+      localStorage.setItem('leaderSession', JSON.stringify({
+        token: result.token,
+        expiresAt: result.expiresAt,
+        employeeId,
+        name: result.name,
+        role: result.role,
+        loginAt: new Date().toISOString(),
+      }));
+      document.getElementById('leader-login-overlay').style.display = 'none';
+      document.getElementById('logout-btn').style.display = '';
+      showWelcomeMessage(result.name);
+    } else {
+      errEl.textContent = '❌ ' + (result.error || '登入失敗');
+      pinEl.value = '';
+    }
+  } catch (e) {
+    errEl.textContent = '❌ 登入錯誤: ' + e.message;
+  } finally {
+    if (loginBtn) {
+      loginBtn.disabled = false;
+      loginBtn.textContent = '🔓 登入';
+    }
   }
 }
 
@@ -1999,76 +2056,101 @@ function leaderLogout() {
   location.reload();
 }
 
-function showWelcomeMessage(username) {
-  // Optional: log who's using
-  console.log(`[Leader Edition] Welcome ${username}, logged in at ${new Date().toLocaleString()}`);
-  // Show monthly status bar
-  initMonthlyStatusBar(username);
+function showWelcomeMessage(name) {
+  console.log(`[Leader Edition] Welcome ${name}, logged in at ${new Date().toLocaleString()}`);
+  initMonthlyStatusBar();
 }
 
 // ============================================================
-// Monthly Status Bar (Leader Edition feature)
+// Monthly Status Bar (Leader Edition feature - cloud synced)
 // ============================================================
 
-function initMonthlyStatusBar(username) {
+// Cache to avoid hitting backend too often
+let _monthlyStatusCache = { month: '', owner: '', stage: '' };
+
+function initMonthlyStatusBar() {
   if (!IS_LEADER_EDITION) return;
   const bar = document.getElementById('monthly-status-bar');
   if (!bar) return;
   bar.style.display = 'flex';
 
-  // Only admin can edit
-  if (username === 'admin') {
+  // Only HN/admin can edit
+  const role = getCurrentUserRole();
+  if (role === 'hn' || role === 'admin') {
     document.getElementById('status-edit-btn').style.display = '';
   }
 
   refreshMonthlyStatus();
 
-  // Periodic refresh from localStorage (in case admin changes from another tab)
-  setInterval(refreshMonthlyStatus, 30000);
+  // Periodic refresh (in case admin changes from another tab/device)
+  setInterval(refreshMonthlyStatus, 60000); // every 60s
 }
 
-function getMonthlyStatus() {
+async function refreshMonthlyStatus() {
+  const token = getAuthToken();
+  if (!token) return;
   try {
-    const raw = localStorage.getItem('monthlyStatus');
-    if (raw) return JSON.parse(raw);
-  } catch (e) {}
-  return { month: '', owner: '', stage: '' };
-}
-
-function refreshMonthlyStatus() {
-  const s = getMonthlyStatus();
-  document.getElementById('status-month').textContent = s.month || '─';
-  document.getElementById('status-owner').textContent = s.owner || '─ 未指定 ─';
-  document.getElementById('status-stage').textContent = s.stage || '─ 未開始 ─';
+    const result = await apiCall('getMonthlyStatus', { token });
+    if (result.ok && result.status) {
+      _monthlyStatusCache = result.status;
+      document.getElementById('status-month').textContent = result.status.month || '─';
+      document.getElementById('status-owner').textContent = result.status.owner || '─ 未指定 ─';
+      document.getElementById('status-stage').textContent = result.status.stage || '─ 未開始 ─';
+    }
+  } catch (e) {
+    console.warn('refreshMonthlyStatus failed:', e);
+  }
 }
 
 function openMonthlyStatusEdit() {
-  const s = getMonthlyStatus();
+  // Use cache to populate form
+  const s = _monthlyStatusCache;
   document.getElementById('ms-month').value = s.month || (state.month || '2026-06');
   document.getElementById('ms-owner').value = s.owner || '';
   document.getElementById('ms-stage').value = s.stage || '';
   document.getElementById('monthly-status-modal').classList.add('active');
 }
 
-function saveMonthlyStatus() {
-  const status = {
-    month: document.getElementById('ms-month').value,
-    owner: document.getElementById('ms-owner').value.trim(),
-    stage: document.getElementById('ms-stage').value,
-    updatedAt: new Date().toISOString(),
-    updatedBy: getCurrentUser(),
-  };
-  localStorage.setItem('monthlyStatus', JSON.stringify(status));
-  refreshMonthlyStatus();
-  closeModal('monthly-status-modal');
-}
+async function saveMonthlyStatus() {
+  const token = getAuthToken();
+  if (!token) {
+    alert('未登入');
+    return;
+  }
 
-function getCurrentUser() {
+  const month = document.getElementById('ms-month').value;
+  const owner = document.getElementById('ms-owner').value.trim();
+  const stage = document.getElementById('ms-stage').value;
+
+  // Disable save button during request
+  const saveBtn = document.querySelector('#monthly-status-modal .modal-footer .primary');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = '儲存中...';
+  }
+
   try {
-    const session = localStorage.getItem('leaderSession');
-    if (session) return JSON.parse(session).username || '';
-  } catch (e) {}
-  return '';
+    const result = await apiCall('setMonthlyStatus', { token, month, owner, stage });
+    if (result.ok) {
+      await refreshMonthlyStatus();
+      closeModal('monthly-status-modal');
+    } else {
+      if (result.error && result.error.indexOf('Token') >= 0) {
+        localStorage.removeItem('leaderSession');
+        alert('登入已過期,請重新登入');
+        location.reload();
+        return;
+      }
+      alert('儲存失敗: ' + (result.error || '未知錯誤'));
+    }
+  } catch (e) {
+    alert('儲存失敗: ' + e.message);
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = '儲存';
+    }
+  }
 }
 
 function showLoginScreen() {
@@ -2081,9 +2163,8 @@ window.addEventListener('DOMContentLoaded', () => {
   if (IS_LEADER_EDITION) {
     if (checkLeaderAuth()) {
       document.getElementById('logout-btn').style.display = '';
-      // Already logged in - show monthly status bar with current user
-      const username = getCurrentUser();
-      initMonthlyStatusBar(username);
+      // Already logged in - show monthly status bar
+      initMonthlyStatusBar();
     } else {
       showLoginScreen();
     }
@@ -6870,13 +6951,14 @@ function buildScheduleSummary() {
 
 async function askAI(mode) {
   const provider = getCurrentProvider();
-  // In Leader edition, use the built-in API key
-  const key = IS_LEADER_EDITION
-    ? LEADER_GEMINI_API_KEY
-    : localStorage.getItem(getKeyName());
-  if (!key) {
-    alert(`請先設定 ${provider === 'gemini' ? 'Gemini' : 'Claude'} API Key`);
-    return;
+  // In Leader edition, AI calls go through backend (no key needed in frontend)
+  let key = null;
+  if (!IS_LEADER_EDITION) {
+    key = localStorage.getItem(getKeyName());
+    if (!key) {
+      alert(`請先設定 ${provider === 'gemini' ? 'Gemini' : 'Claude'} API Key`);
+      return;
+    }
   }
 
   const summary = buildScheduleSummary();
@@ -7096,6 +7178,39 @@ ${historyText}
     if (provider === 'gemini') {
       // Determine model order based on user choice
       const modelChoice = getGeminiModelChoice();
+
+      // ========== LEADER EDITION: route through backend ==========
+      if (IS_LEADER_EDITION) {
+        const token = getAuthToken();
+        if (!token) {
+          throw new Error('未登入或 token 已過期,請重新登入');
+        }
+        const result = await apiCall('ai', { token, prompt, model: modelChoice });
+        if (!result.ok) {
+          if (result.error && result.error.indexOf('Token') >= 0) {
+            // Token expired - force re-login
+            localStorage.removeItem('leaderSession');
+            alert('登入已過期,請重新登入');
+            location.reload();
+            return;
+          }
+          if (result.retryAfter) {
+            throw new Error(`⏱ Gemini 限制中,請等 ${result.retryAfter} 秒`);
+          }
+          throw new Error(result.error || 'AI 呼叫失敗');
+        }
+        aiText = result.text;
+        inputTokens = result.usage?.input || 0;
+        outputTokens = result.usage?.output || 0;
+        usedModel = result.modelUsed || 'gemini';
+        if (result.fallback) {
+          // Show fallback indicator (用降階模型)
+          const fallbackNote = `\n\n_(已切換到 Flash Lite)_`;
+          aiText += fallbackNote;
+        }
+        // Skip the direct-call code below
+      } else {
+      // ========== Personal edition: direct call to Gemini ==========
       let modelsToTry;
       if (modelChoice === 'flash') {
         modelsToTry = ['gemini-2.5-flash'];
@@ -7107,7 +7222,7 @@ ${historyText}
       }
 
       let lastError = null;
-      let usedModel = '';
+      let usedModel2 = '';
       let geminiData = null;
 
       for (let mi = 0; mi < modelsToTry.length; mi++) {
@@ -7128,7 +7243,7 @@ ${historyText}
 
         if (response.ok) {
           geminiData = await response.json();
-          usedModel = model;
+          usedModel2 = model;
           break;
         }
 
@@ -7161,12 +7276,14 @@ ${historyText}
       aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '(沒有回應)';
       inputTokens = geminiData.usageMetadata?.promptTokenCount || 0;
       outputTokens = geminiData.usageMetadata?.candidatesTokenCount || 0;
+      usedModel = usedModel2;
 
       // Show fallback indicator if not using preferred model
       if (modelChoice === 'auto' && usedModel === 'gemini-2.5-flash-lite') {
         // Prepend a note to AI response
         aiText = `[ℹ Flash 撞限制,自動降級到 Flash Lite]\n\n${aiText}`;
       }
+      } // end of personal edition Gemini block
 
     } else {
       // Claude API call
