@@ -924,7 +924,8 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   <span>月份:<strong id="status-month">2026/06</strong></span>
   <span>負責人:<strong id="status-owner" style="color: #1e4a7a">─ 未指定 ─</strong></span>
   <span>階段:<strong id="status-stage" style="color: #4a4a4a">─ 未開始 ─</strong></span>
-  <button id="status-edit-btn" onclick="openMonthlyStatusEdit()" style="margin-left: auto; padding: 4px 12px; font-size: 0.88rem; background: white; border: 1px solid #c23b22; color: #c23b22; border-radius: 4px; cursor: pointer; display: none">📝 修改</button>
+  <button id="status-assign-btn" onclick="openAssignments()" style="margin-left: auto; padding: 4px 12px; font-size: 0.88rem; background: white; border: 1px solid #1e4a7a; color: #1e4a7a; border-radius: 4px; cursor: pointer; display: none">📅 排班分配</button>
+  <button id="status-edit-btn" onclick="openMonthlyStatusEdit()" style="padding: 4px 12px; font-size: 0.88rem; background: white; border: 1px solid #c23b22; color: #c23b22; border-radius: 4px; cursor: pointer; display: none">📝 修改</button>
 </div>
 
 <!-- Monthly Status Edit Modal -->
@@ -962,6 +963,40 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     <div class="modal-footer">
       <button onclick="closeModal('monthly-status-modal')">取消</button>
       <button onclick="saveMonthlyStatus()" class="primary">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Schedule Assignments Modal (HN 指派排班責任人) -->
+<div class="modal-backdrop" id="assignments-modal">
+  <div class="modal" style="max-width: 700px">
+    <div class="modal-header">
+      <h3>📅 排班責任分配表</h3>
+      <button onclick="closeModal('assignments-modal')" style="background:transparent;color:white;border:none;font-size:1.2rem">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="background: #fffbeb; padding: 0.7rem; border-radius: 4px; font-size: 0.88rem; color: #78350f; border: 1px solid #fde68a; margin-bottom: 1rem">
+        💡 <strong>用途</strong>:預先指派每個月的排班責任人,讓 Leader 知道何時輪到自己。<br>
+        ⚠ 這是「告示」性質,不會強制鎖定編輯權限。
+      </div>
+
+      <div id="assignments-list" style="margin-bottom: 1rem">
+        <p style="color: var(--ink-mute); text-align: center; padding: 1rem">載入中...</p>
+      </div>
+
+      <div style="border-top: 1px solid var(--line); padding-top: 1rem; margin-top: 1rem">
+        <div style="font-weight: 700; margin-bottom: 0.6rem">+ 新增指派</div>
+        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap">
+          <input type="month" id="new-assignment-month" style="padding: 6px 10px; border: 1px solid var(--line); border-radius: 4px">
+          <select id="new-assignment-user" style="padding: 6px 10px; border: 1px solid var(--line); border-radius: 4px; min-width: 150px">
+            <option value="">選擇負責人...</option>
+          </select>
+          <button onclick="addAssignment()" class="primary" style="padding: 6px 14px">+ 新增</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal('assignments-modal')">關閉</button>
     </div>
   </div>
 </div>
@@ -2078,9 +2113,12 @@ function initMonthlyStatusBar() {
   const role = getCurrentUserRole();
   if (role === 'hn' || role === 'admin') {
     document.getElementById('status-edit-btn').style.display = '';
+    document.getElementById('status-assign-btn').style.display = '';
   }
 
   refreshMonthlyStatus();
+  // Also load assignments for personal notification
+  checkMyAssignments();
 
   // Periodic refresh (in case admin changes from another tab/device)
   setInterval(refreshMonthlyStatus, 60000); // every 60s
@@ -2150,6 +2188,169 @@ async function saveMonthlyStatus() {
       saveBtn.disabled = false;
       saveBtn.textContent = '儲存';
     }
+  }
+}
+
+// ============================================================
+// Schedule Assignments (HN 指派誰排哪個月)
+// ============================================================
+let _usersCache = null;
+
+async function loadUsers() {
+  if (_usersCache) return _usersCache;
+  const token = getAuthToken();
+  if (!token) return [];
+  try {
+    const result = await apiCall('listUsers', { token });
+    if (result.ok) {
+      _usersCache = result.users;
+      return result.users;
+    }
+  } catch (e) {
+    console.warn('loadUsers failed:', e);
+  }
+  return [];
+}
+
+async function openAssignments() {
+  document.getElementById('assignments-modal').classList.add('active');
+
+  // Set default month to next month
+  const now = new Date();
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const monthStr = nextMonth.toISOString().slice(0, 7);
+  document.getElementById('new-assignment-month').value = monthStr;
+
+  // Load users for dropdown
+  const users = await loadUsers();
+  const select = document.getElementById('new-assignment-user');
+  select.innerHTML = '<option value="">選擇負責人...</option>' +
+    users.filter(u => u.role !== 'sv')  // 不含 SV
+      .map(u => `<option value="${u.employeeId}">${u.name} (${u.employeeId})</option>`).join('');
+
+  // Load current assignments
+  await refreshAssignments();
+}
+
+async function refreshAssignments() {
+  const listEl = document.getElementById('assignments-list');
+  listEl.innerHTML = '<p style="color: var(--ink-mute); text-align: center; padding: 1rem">載入中...</p>';
+
+  const token = getAuthToken();
+  if (!token) {
+    listEl.innerHTML = '<p style="color: var(--err); text-align: center">未登入</p>';
+    return;
+  }
+
+  try {
+    const result = await apiCall('listAssignments', { token });
+    if (!result.ok) {
+      listEl.innerHTML = `<p style="color: var(--err); text-align: center">載入失敗: ${result.error}</p>`;
+      return;
+    }
+
+    const assignments = result.assignments || [];
+    if (assignments.length === 0) {
+      listEl.innerHTML = '<p style="color: var(--ink-mute); text-align: center; padding: 1rem">尚未指派任何月份</p>';
+      return;
+    }
+
+    let html = '<table style="width: 100%; border-collapse: collapse"><thead><tr style="background: var(--line-soft)">';
+    html += '<th style="padding: 8px; text-align: left; border-bottom: 1px solid var(--line)">月份</th>';
+    html += '<th style="padding: 8px; text-align: left; border-bottom: 1px solid var(--line)">負責人</th>';
+    html += '<th style="padding: 8px; text-align: left; border-bottom: 1px solid var(--line)">指派時間</th>';
+    html += '<th style="padding: 8px; text-align: center; border-bottom: 1px solid var(--line)">操作</th>';
+    html += '</tr></thead><tbody>';
+
+    assignments.forEach(a => {
+      const dateStr = a.createdAt ? new Date(a.createdAt).toLocaleDateString('zh-TW') : '';
+      html += `<tr>
+        <td style="padding: 8px; border-bottom: 1px solid var(--line-soft)">${a.month}</td>
+        <td style="padding: 8px; border-bottom: 1px solid var(--line-soft)"><strong>${a.assignedToName || a.assignedTo}</strong> <span style="color: var(--ink-mute); font-size: 0.85rem">(${a.assignedTo})</span></td>
+        <td style="padding: 8px; border-bottom: 1px solid var(--line-soft); color: var(--ink-mute); font-size: 0.85rem">${dateStr}</td>
+        <td style="padding: 8px; border-bottom: 1px solid var(--line-soft); text-align: center"><button onclick="deleteAssignment('${a.month}')" style="padding: 3px 10px; background: white; border: 1px solid var(--err); color: var(--err); border-radius: 4px; font-size: 0.85rem">刪除</button></td>
+      </tr>`;
+    });
+
+    html += '</tbody></table>';
+    listEl.innerHTML = html;
+  } catch (e) {
+    listEl.innerHTML = `<p style="color: var(--err); text-align: center">${e.message}</p>`;
+  }
+}
+
+async function addAssignment() {
+  const month = document.getElementById('new-assignment-month').value;
+  const assignedTo = document.getElementById('new-assignment-user').value;
+
+  if (!month) {
+    alert('請選擇月份');
+    return;
+  }
+  if (!assignedTo) {
+    alert('請選擇負責人');
+    return;
+  }
+
+  const token = getAuthToken();
+  try {
+    const result = await apiCall('setAssignment', { token, month, assignedTo });
+    if (result.ok) {
+      await refreshAssignments();
+      // Reset form
+      document.getElementById('new-assignment-user').value = '';
+    } else {
+      alert('新增失敗: ' + (result.error || '未知'));
+    }
+  } catch (e) {
+    alert('錯誤: ' + e.message);
+  }
+}
+
+async function deleteAssignment(month) {
+  if (!confirm(`確定刪除「${month}」的指派?`)) return;
+  const token = getAuthToken();
+  try {
+    const result = await apiCall('deleteAssignment', { token, month });
+    if (result.ok) {
+      await refreshAssignments();
+    } else {
+      alert('刪除失敗: ' + (result.error || '未知'));
+    }
+  } catch (e) {
+    alert('錯誤: ' + e.message);
+  }
+}
+
+// 個人通知:登入時看到「我的排班月份」
+async function checkMyAssignments() {
+  const token = getAuthToken();
+  const myId = getCurrentUserId();
+  if (!token || !myId) return;
+
+  try {
+    const result = await apiCall('listAssignments', { token });
+    if (!result.ok) return;
+
+    const myAssignments = (result.assignments || []).filter(a =>
+      String(a.assignedTo) === String(myId)
+    );
+
+    if (myAssignments.length > 0) {
+      // Show top notification
+      const months = myAssignments.map(a => a.month).join('、');
+      const banner = document.createElement('div');
+      banner.id = 'my-assignment-banner';
+      banner.style.cssText = 'background: #1e4a7a; color: white; padding: 0.6rem 1.2rem; font-size: 0.95rem; text-align: center; cursor: pointer';
+      banner.innerHTML = `✨ 你的排班月份:<strong>${months}</strong>(點此關閉)`;
+      banner.onclick = () => banner.remove();
+      const bar = document.getElementById('monthly-status-bar');
+      if (bar && bar.parentNode) {
+        bar.parentNode.insertBefore(banner, bar.nextSibling);
+      }
+    }
+  } catch (e) {
+    console.warn('checkMyAssignments failed:', e);
   }
 }
 
