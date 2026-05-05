@@ -2299,6 +2299,10 @@ async function addAssignment() {
       await refreshAssignments();
       // Reset form
       document.getElementById('new-assignment-user').value = '';
+      // ⭐ 如果有自動更新本月狀態,刷新狀態列
+      if (result.statusUpdated) {
+        await refreshMonthlyStatus();
+      }
     } else {
       alert('新增失敗: ' + (result.error || '未知'));
     }
