@@ -924,7 +924,8 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   <span>月份:<strong id="status-month">2026/06</strong></span>
   <span>負責人:<strong id="status-owner" style="color: #1e4a7a">─ 未指定 ─</strong></span>
   <span>階段:<strong id="status-stage" style="color: #4a4a4a">─ 未開始 ─</strong></span>
-  <button id="status-assign-btn" onclick="openAssignments()" style="margin-left: auto; padding: 4px 12px; font-size: 0.88rem; background: white; border: 1px solid #1e4a7a; color: #1e4a7a; border-radius: 4px; cursor: pointer; display: none">📅 排班分配</button>
+  <button id="status-cloud-btn" onclick="openCloudSchedules()" style="margin-left: auto; padding: 4px 12px; font-size: 0.88rem; background: white; border: 1px solid #2563eb; color: #2563eb; border-radius: 4px; cursor: pointer; display: none">☁ 雲端班表</button>
+  <button id="status-assign-btn" onclick="openAssignments()" style="padding: 4px 12px; font-size: 0.88rem; background: white; border: 1px solid #1e4a7a; color: #1e4a7a; border-radius: 4px; cursor: pointer; display: none">📅 排班分配</button>
   <button id="status-edit-btn" onclick="openMonthlyStatusEdit()" style="padding: 4px 12px; font-size: 0.88rem; background: white; border: 1px solid #c23b22; color: #c23b22; border-radius: 4px; cursor: pointer; display: none">📝 修改</button>
 </div>
 
@@ -997,6 +998,37 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     </div>
     <div class="modal-footer">
       <button onclick="closeModal('assignments-modal')">關閉</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cloud Schedules Modal -->
+<div class="modal-backdrop" id="cloud-schedules-modal">
+  <div class="modal" style="max-width: 700px">
+    <div class="modal-header">
+      <h3>☁ 雲端班表</h3>
+      <button onclick="closeModal('cloud-schedules-modal')" style="background:transparent;color:white;border:none;font-size:1.2rem">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="background: #eff6ff; padding: 0.7rem; border-radius: 4px; font-size: 0.88rem; color: #1e3a8a; border: 1px solid #bfdbfe; margin-bottom: 1rem">
+        💡 <strong>說明</strong>:當「本月狀態」設為「📢 已公告」時,班表會自動存到雲端。<br>
+        <strong>⬇ 載入</strong>:把該月份完整載入到工具(會覆蓋目前班表)<br>
+        <strong>→ 用為基礎</strong>:把該月份的「員工 + 規則」帶到目前打開的月份(空白班表)
+      </div>
+
+      <div id="cloud-schedules-list">
+        <p style="text-align: center; color: var(--ink-mute); padding: 1rem">⏳ 載入中...</p>
+      </div>
+
+      <div style="border-top: 1px solid var(--line); padding-top: 1rem; margin-top: 1rem">
+        <button onclick="manualSaveScheduleNow()" style="padding: 6px 14px; background: white; border: 1px solid var(--accent); color: var(--accent); border-radius: 4px; font-size: 0.9rem">
+          ⬆ 手動儲存目前班表到雲端 (${state ? '<span id="manual-save-month-display"></span>' : ''})
+        </button>
+        <span style="color: var(--ink-mute); font-size: 0.85rem; margin-left: 0.5rem">(僅在特殊情況使用,通常公告會自動存)</span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal('cloud-schedules-modal')">關閉</button>
     </div>
   </div>
 </div>
@@ -2109,7 +2141,11 @@ function initMonthlyStatusBar() {
   if (!bar) return;
   bar.style.display = 'flex';
 
-  // Only HN/admin can edit
+  // 雲端按鈕:所有人都能看(都能載入別人公告的班表)
+  const cloudBtn = document.getElementById('status-cloud-btn');
+  if (cloudBtn) cloudBtn.style.display = '';
+
+  // Only HN/admin can edit monthlyStatus
   const role = getCurrentUserRole();
   if (role === 'hn' || role === 'admin') {
     document.getElementById('status-edit-btn').style.display = '';
@@ -2213,6 +2249,14 @@ async function saveMonthlyStatus() {
     if (result.ok) {
       await refreshMonthlyStatus();
       closeModal('monthly-status-modal');
+
+      // ⭐ 公告階段 → 自動存班表到雲端
+      if (stage && stage.indexOf('已公告') >= 0) {
+        // 只有當前打開的月份跟公告月份相同才存(避免存錯月份)
+        if (state.month === month && state.staff && state.staff.length > 0) {
+          await saveScheduleToCloud(month, true /* silent */);
+        }
+      }
     } else {
       if (result.error && result.error.indexOf('Token') >= 0) {
         localStorage.removeItem('leaderSession');
@@ -2230,6 +2274,202 @@ async function saveMonthlyStatus() {
       saveBtn.textContent = '儲存';
     }
   }
+}
+
+// ============================================================
+// CLOUD SCHEDULE STORAGE (Q2: 班表雲端化)
+// ============================================================
+let _scheduleListCache = null;
+let _scheduleListCacheTime = 0;
+
+async function saveScheduleToCloud(month, silent) {
+  const token = getAuthToken();
+  if (!token) {
+    if (!silent) alert('未登入');
+    return false;
+  }
+
+  // 整理要存的資料(主檔 + 班表 + 規則 + 假日 + 固定)
+  const payload = {
+    staff: state.staff,
+    schedule: state.schedule,
+    fixed: state.fixed,
+    holidays: state.holidays,
+    rules: state.rules,
+    savedAt: new Date().toISOString(),
+  };
+  const dataStr = JSON.stringify(payload);
+
+  if (!silent) {
+    if (!confirm(`確定儲存「${month}」班表到雲端?\n\n資料量: ${(dataStr.length / 1024).toFixed(1)} KB`)) {
+      return false;
+    }
+  }
+
+  try {
+    const result = await apiCall('saveSchedule', { token, month, data: dataStr });
+    if (result.ok) {
+      _scheduleListCache = null;  // invalidate
+      if (!silent) {
+        alert(`✅ 班表已儲存到雲端\n月份: ${month}\n大小: ${(result.size / 1024).toFixed(1)} KB`);
+      }
+      return true;
+    } else {
+      alert('儲存到雲端失敗: ' + (result.error || '未知'));
+      return false;
+    }
+  } catch (e) {
+    alert('儲存錯誤: ' + e.message);
+    return false;
+  }
+}
+
+async function loadSchedulesList(forceRefresh) {
+  if (!forceRefresh && _scheduleListCache && (Date.now() - _scheduleListCacheTime < CACHE_TTL)) {
+    return _scheduleListCache;
+  }
+  const token = getAuthToken();
+  if (!token) return [];
+  try {
+    const result = await apiCall('listSchedules', { token });
+    if (result.ok) {
+      _scheduleListCache = result.schedules || [];
+      _scheduleListCacheTime = Date.now();
+      return _scheduleListCache;
+    }
+  } catch (e) {
+    console.warn('loadSchedulesList:', e);
+  }
+  return _scheduleListCache || [];
+}
+
+async function loadScheduleFromCloud(month) {
+  const token = getAuthToken();
+  if (!token) return null;
+  try {
+    const result = await apiCall('loadSchedule', { token, month });
+    if (result.ok && result.data) {
+      try {
+        return JSON.parse(result.data);
+      } catch (e) {
+        alert('班表資料損壞,無法解析');
+        return null;
+      }
+    }
+  } catch (e) {
+    console.warn('loadScheduleFromCloud:', e);
+  }
+  return null;
+}
+
+async function openCloudSchedules() {
+  const modal = document.getElementById('cloud-schedules-modal');
+  modal.classList.add('active');
+
+  const listEl = document.getElementById('cloud-schedules-list');
+  listEl.innerHTML = '<p style="text-align: center; color: var(--ink-mute); padding: 1rem">⏳ 載入中...</p>';
+
+  const schedules = await loadSchedulesList(true);
+  if (schedules.length === 0) {
+    listEl.innerHTML = '<p style="text-align: center; color: var(--ink-mute); padding: 1rem">雲端尚無任何班表</p>';
+    return;
+  }
+
+  let html = '<table style="width:100%; border-collapse: collapse">';
+  html += '<thead><tr style="background: var(--line-soft)">';
+  html += '<th style="padding:8px; text-align:left; border-bottom:1px solid var(--line)">月份</th>';
+  html += '<th style="padding:8px; text-align:left; border-bottom:1px solid var(--line)">儲存者</th>';
+  html += '<th style="padding:8px; text-align:left; border-bottom:1px solid var(--line)">儲存時間</th>';
+  html += '<th style="padding:8px; text-align:center; border-bottom:1px solid var(--line)">操作</th>';
+  html += '</tr></thead><tbody>';
+
+  schedules.forEach(s => {
+    const d = s.savedAt ? new Date(s.savedAt).toLocaleString('zh-TW') : '';
+    html += `<tr>
+      <td style="padding:8px; border-bottom:1px solid var(--line-soft)"><strong>${s.month}</strong></td>
+      <td style="padding:8px; border-bottom:1px solid var(--line-soft)">${s.savedByName}</td>
+      <td style="padding:8px; border-bottom:1px solid var(--line-soft); color: var(--ink-mute); font-size: 0.85rem">${d}</td>
+      <td style="padding:8px; border-bottom:1px solid var(--line-soft); text-align:center">
+        <button onclick="loadCloudScheduleDirectly('${s.month}')" style="padding: 4px 12px; background: var(--accent); color: white; border: none; border-radius: 4px; font-size: 0.85rem; margin-right: 4px">⬇ 載入</button>
+        <button onclick="copyCloudScheduleToCurrent('${s.month}')" style="padding: 4px 12px; background: white; border: 1px solid var(--accent); color: var(--accent); border-radius: 4px; font-size: 0.85rem">→ 用為基礎</button>
+      </td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  listEl.innerHTML = html;
+}
+
+async function loadCloudScheduleDirectly(month) {
+  if (!confirm(`確定載入「${month}」班表?\n\n⚠ 目前的班表(若有)會被覆蓋。\nlocalStorage 仍保留現有資料,可重新整理還原。`)) return;
+
+  const data = await loadScheduleFromCloud(month);
+  if (!data) {
+    alert('載入失敗');
+    return;
+  }
+
+  // 整批寫入 state
+  state.month = month;
+  state.staff = data.staff || [];
+  state.schedule = data.schedule || {};
+  state.fixed = data.fixed || {};
+  state.holidays = data.holidays || [];
+  if (data.rules) state.rules = data.rules;
+
+  // 同時寫進 localStorage (雙存)
+  saveAll();
+
+  // 重新渲染
+  if (typeof renderAll === 'function') renderAll();
+  if (typeof renderRulesPanel === 'function') renderRulesPanel();
+  if (typeof renderMonthlySummary === 'function') renderMonthlySummary();
+
+  closeModal('cloud-schedules-modal');
+  alert(`✅ 已載入「${month}」班表(${data.staff?.length || 0} 人)`);
+}
+
+async function copyCloudScheduleToCurrent(fromMonth) {
+  const targetMonth = state.month;
+  if (fromMonth === targetMonth) {
+    alert('來源跟目標都是 ' + fromMonth + ',請改成「直接載入」');
+    return;
+  }
+
+  if (!confirm(`確定把「${fromMonth}」當基礎,改成「${targetMonth}」?\n\n會帶過來:\n  ✓ 員工列表\n  ✓ 規則\n  ✓ 班別偏好/能力\n  ✗ 不帶班別 day-by-day(因為日期不同)`)) return;
+
+  const data = await loadScheduleFromCloud(fromMonth);
+  if (!data) {
+    alert('載入失敗');
+    return;
+  }
+
+  // 帶員工 + 規則 + 假日 + 固定,但不帶 schedule(每天的班別)
+  state.staff = data.staff || [];
+  state.fixed = {};  // 清空(因為日期變了)
+  state.schedule = {};  // 清空
+  if (data.rules) state.rules = data.rules;
+  // holidays 清空(本月跟上月日期不同)
+  state.holidays = [];
+
+  saveAll();
+
+  if (typeof renderAll === 'function') renderAll();
+  if (typeof renderRulesPanel === 'function') renderRulesPanel();
+  if (typeof renderMonthlySummary === 'function') renderMonthlySummary();
+
+  closeModal('cloud-schedules-modal');
+  alert(`✅ 已用「${fromMonth}」為基礎,目前是「${targetMonth}」空白班表(員工/規則已帶入)`);
+}
+
+async function manualSaveScheduleNow() {
+  if (!state.staff || state.staff.length === 0) {
+    alert('目前沒有班表內容,無法儲存');
+    return;
+  }
+  await saveScheduleToCloud(state.month, false);  // not silent
+  // 儲存後刷新雲端列表
+  await openCloudSchedules();
 }
 
 // ============================================================
