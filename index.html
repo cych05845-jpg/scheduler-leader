@@ -310,6 +310,65 @@ td.shift-off { background: #f5f5f0; color: #6b6b6b; font-style: italic; text-dec
 td.shift-o { background: #fafaf5; color: #999; font-style: italic; }
 td.shift-V { background: var(--V); color: var(--V-text); }
 td.shift-empty { background: #fff; color: #ccc; }
+
+/* Note indicator (red dot) on cells with notes */
+.note-dot {
+  position: absolute;
+  top: 1px;
+  left: 2px;
+  font-size: 8px;
+  color: #d97706;
+  line-height: 1;
+  pointer-events: none;
+  z-index: 2;
+}
+td[data-pid] {
+  position: relative;
+}
+
+/* Cell context menu for adding notes */
+#cell-context-menu {
+  position: fixed;
+  z-index: 9999;
+  background: white;
+  border: 1px solid #999;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  padding: 4px;
+  min-width: 160px;
+  font-size: 0.92rem;
+  display: none;
+}
+#cell-context-menu .menu-header {
+  padding: 6px 10px 4px;
+  font-size: 0.78rem;
+  color: #666;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 4px;
+}
+#cell-context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 3px;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+#cell-context-menu button:hover {
+  background: #fef3c7;
+}
+#cell-context-menu button.note-active {
+  background: #fde68a;
+  font-weight: 600;
+}
+#cell-context-menu hr {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 4px 0;
+}
 td.cell.fixed::after { content: '🔒'; font-size: 8px; position: absolute; top: 0; right: 1px; }
 td.cell.locked { background-color: #ffe0e0 !important; }
 
@@ -914,6 +973,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     <button onclick="openRulesModal()">⚙ 規則設定</button>
     <button onclick="openImportModal()">📥 匯入 Excel</button>
     <button onclick="exportXlsx()" class="primary">⬇ 匯出班表</button>
+    <button onclick="exportXlsxTraditional()" style="background: #d97706; color: white; border-color: #d97706" title="2 列/人:上列備註 + 下列班別,跟院內 PDF 格式對齊">⬇ 匯出傳統格式</button>
     <button onclick="leaderLogout()" id="logout-btn" style="display: none; background: #ef4444; color: white; border-color: #ef4444">🚪 登出</button>
   </div>
 </div>
@@ -1022,7 +1082,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 
       <div style="border-top: 1px solid var(--line); padding-top: 1rem; margin-top: 1rem">
         <button onclick="manualSaveScheduleNow()" style="padding: 6px 14px; background: white; border: 1px solid var(--accent); color: var(--accent); border-radius: 4px; font-size: 0.9rem">
-          ⬆ 手動儲存目前班表到雲端 (${state ? '<span id="manual-save-month-display"></span>' : ''})
+          ⬆ 手動儲存目前班表到雲端
         </button>
         <span style="color: var(--ink-mute); font-size: 0.85rem; margin-left: 0.5rem">(僅在特殊情況使用,通常公告會自動存)</span>
       </div>
@@ -1390,6 +1450,22 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
               <input type="file" id="staff-import-file" accept=".json" style="display: none" onchange="importStaffData(event)">
               <button onclick="clearStaffData()" style="padding: 4px 10px; font-size: 0.95rem; background: #fce8e8; color: var(--err); border-color: var(--err)">🗑 清除全部儲存</button>
             </div>
+
+            <!-- 雲端同步 (Leader Edition only) -->
+            <div id="staff-cloud-sync-section" style="display: none; margin-top: 0.8rem; padding: 0.7rem; background: #eff6ff; border: 1px solid #93c5fd; border-radius: 4px">
+              <div style="font-weight: 600; color: #1e3a8a; margin-bottom: 0.4rem">☁ 雲端主檔(永久保存)</div>
+              <p style="font-size: 0.88rem; color: #1e40af; margin-bottom: 0.5rem; line-height: 1.5">
+                把人員主檔(姓名、等級、能力階段、偏好班別 等)存到 Google Sheet。<br>
+                <strong>任何電腦/瀏覽器登入後,系統會自動載入</strong> — 不會再因為換電腦或清快取而消失。
+              </p>
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+                <button onclick="saveStaffToCloud(false)" style="padding: 6px 12px; font-size: 0.95rem; background: #1e3a8a; color: white; border-color: #1e3a8a; font-weight: 600">⬆ 上傳主檔到雲端</button>
+                <button onclick="loadStaffFromCloud(true)" style="padding: 6px 12px; font-size: 0.95rem; background: #3b82f6; color: white; border-color: #3b82f6">⬇ 從雲端載入</button>
+              </div>
+              <div style="font-size: 0.85rem; color: #1e40af; margin-top: 0.5rem">
+                💡 提示:每次大幅更動主檔(如新增人員、調整能力)後,記得上傳一次。
+              </div>
+            </div>
           </div>
 
           <div style="margin-top: 1.5rem; padding: 0.8rem; background: var(--accent-soft); border-left: 3px solid var(--accent); border-radius: 0 4px 4px 0">
@@ -1422,49 +1498,324 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 
 <!-- Help Modal -->
 <div class="modal-backdrop" id="help-modal">
-  <div class="modal">
+  <div class="modal" style="max-width: 920px">
     <div class="modal-header">
-      <h3>使用說明</h3>
+      <h3>📘 使用說明</h3>
       <button onclick="closeModal('help-modal')" style="background:transparent;color:white;border:none;font-size:1.2rem">×</button>
     </div>
-    <div class="modal-body">
-      <h4 style="margin-top:0">基本操作</h4>
-      <ol style="padding-left: 1.2rem; font-size: 1rem; line-height: 1.8">
-        <li>先在上方選擇「畫筆」(D/E/N/M/O/V)</li>
-        <li>點擊班表上的格子,即會填入該班別</li>
-        <li>點擊人員姓名可設定個人資訊</li>
-        <li>「固定班填滿」可一次把某人整月都填同一班</li>
-      </ol>
+    <div class="modal-body" style="padding: 0">
 
-      <h4>班別代碼</h4>
-      <ul style="padding-left: 1.2rem; font-size: 1rem; line-height: 1.8">
-        <li><b>D</b> 白班 07-15</li>
-        <li><b>E</b> 小夜 15-23</li>
-        <li><b>N</b> 大夜 23-07</li>
-        <li><b>M</b> 行政班(8-5、8-12 等)</li>
-        <li><b style="color:#b91c1c">OFF</b>(大寫)抽中的預約假 — <strong>硬假,不可被覆蓋</strong></li>
-        <li><b style="color:#6b6b6b; text-decoration:underline">off</b>(小寫)額外需求假 — 軟假,衝突時可調</li>
-        <li><b>V</b> 特休</li>
-      </ul>
+      <!-- Tabs -->
+      <div style="background: var(--paper-2); border-bottom: 1px solid var(--rule); padding: 0 1.2rem; display: flex; gap: 0.3rem; flex-wrap: wrap">
+        <button onclick="switchHelpTab('quick')" id="help-tab-quick" class="help-tab help-tab-active" style="padding: 0.6rem 1rem; background: transparent; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: var(--ink-soft)">⚡ 快上手</button>
+        <button onclick="switchHelpTab('flow')" id="help-tab-flow" class="help-tab" style="padding: 0.6rem 1rem; background: transparent; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: var(--ink-soft)">🔄 排班流程</button>
+        <button onclick="switchHelpTab('rules')" id="help-tab-rules" class="help-tab" style="padding: 0.6rem 1rem; background: transparent; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: var(--ink-soft)">📋 規則速查</button>
+        <button onclick="switchHelpTab('ai')" id="help-tab-ai" class="help-tab" style="padding: 0.6rem 1rem; background: transparent; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: var(--ink-soft)">🤖 AI 助理</button>
+        <button onclick="switchHelpTab('cloud')" id="help-tab-cloud" class="help-tab" style="padding: 0.6rem 1rem; background: transparent; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: var(--ink-soft)">☁ 雲端 / 換電腦</button>
+        <button onclick="switchHelpTab('faq')" id="help-tab-faq" class="help-tab" style="padding: 0.6rem 1rem; background: transparent; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: var(--ink-soft)">❓ FAQ</button>
+      </div>
 
-      <h4>兩種休假的差別</h4>
-      <p style="font-size: 1rem; background: var(--accent-soft); padding: 0.5rem; border-radius: 3px">
-        <b>OFF(大寫)</b>:每人每月可預約 1 次週間 + 1 次假日,最多 3 天,抽籤決定,抽中就一定放。<br>
-        <b>off(小寫)</b>:額外需求假,盡量滿足,衝突時可以請員工讓步。
-      </p>
+      <!-- Tab contents -->
+      <div style="padding: 1.5rem; max-height: 60vh; overflow-y: auto">
 
-      <h4>規則檢查</h4>
-      <p style="font-size: 1rem">系統會即時檢查:每日人力是否達標、連續上班是否超過 6 天、大夜後是否休息、每人週六週日是否至少 1 次。違規會在右側面板顯示。</p>
+        <!-- ★ Tab 1: Quick Start ★ -->
+        <div id="help-content-quick" class="help-content">
+          <h4 style="margin-top:0; color: var(--accent); font-size: 1.1rem">⚡ 30 秒上手</h4>
+          <p style="font-size: 1rem; line-height: 1.8; margin-bottom: 0.8rem">
+            <strong>1. 選筆刷</strong>(D/E/N/M/o/OFF) → <strong>2. 點格子</strong>填入 → <strong>3. 重複</strong>到排完
+          </p>
+          <p style="font-size: 1rem; line-height: 1.8; margin-bottom: 1rem">
+            <strong>4. 找對調對象/全面分析</strong>(AI 助理) → <strong>5. 公告</strong>(本月狀態列改「📢 已公告」)
+          </p>
 
-      <h4>可休天數計算</h4>
-      <p style="font-size: 1rem">使用你提供的公式:<br>
-      <code style="font-size: 0.9rem; background: #eee; padding: 2px 4px">((週二六日數×(人力-37)) + (週日數×(人力-39)) + (週一數×(人力-40))) / 人力</code></p>
+          <div style="background: var(--accent-soft); border-left: 4px solid var(--accent); padding: 0.8rem 1rem; border-radius: 0 4px 4px 0; margin-bottom: 1rem">
+            <strong>💡 你會用到的 4 個按鈕</strong>
+            <ul style="margin: 0.4rem 0 0 1.2rem; font-size: 0.95rem; line-height: 1.7">
+              <li>🤖 <strong>AI 助理</strong> — 找問題、給建議、找對調對象</li>
+              <li>☁ <strong>雲端班表</strong> — 跨電腦同步、用上月為基礎</li>
+              <li>⬇ <strong>匯出傳統格式</strong> — 印給上級看(每人 2 列)</li>
+              <li>⚙ <strong>規則設定</strong> — 改人力需求、能力階段</li>
+            </ul>
+          </div>
+
+          <h4 style="color: var(--ink); font-size: 1.05rem; margin-top: 1rem">操作小技巧</h4>
+          <ul style="padding-left: 1.2rem; font-size: 0.95rem; line-height: 1.8">
+            <li>右鍵格子 → 加備註(<strong>ACLS、中油、教學</strong> 等)</li>
+            <li>點人員姓名 → 設個人資訊(能力、偏好班、輔導員)</li>
+            <li>固定班填滿 → 一次幫某人整月填同一班</li>
+            <li>Ctrl+Z → 復原(支援多步)</li>
+          </ul>
+        </div>
+
+        <!-- ★ Tab 2: Flow ★ -->
+        <div id="help-content-flow" class="help-content" style="display: none">
+          <h4 style="margin-top:0; color: var(--accent); font-size: 1.1rem">🔄 排班流程(完整版)</h4>
+
+          <div style="border-left: 4px solid var(--accent); padding: 0.6rem 1rem; margin-bottom: 0.8rem; background: white; border-radius: 0 4px 4px 0">
+            <div style="color: var(--accent); font-weight: 700; font-size: 1.05rem">Step 1 · 載入上月為基礎</div>
+            <p style="margin: 0.3rem 0 0; font-size: 0.95rem; line-height: 1.7">
+              切到要排月份(例 2026-06)→ <code style="background: #eee; padding: 1px 5px; border-radius: 3px">☁ 雲端班表</code> → 找上月 → <code style="background: #eee; padding: 1px 5px; border-radius: 3px">→ 用為基礎</code>。<br>
+              帶入:員工(雲端最新)+ 規則。<strong>不帶班別</strong>。
+            </p>
+          </div>
+
+          <div style="border-left: 4px solid var(--accent); padding: 0.6rem 1rem; margin-bottom: 0.8rem; background: white; border-radius: 0 4px 4px 0">
+            <div style="color: var(--accent); font-weight: 700; font-size: 1.05rem">Step 2 · 標預假(OFF / off / V)</div>
+            <p style="margin: 0.3rem 0 0; font-size: 0.95rem; line-height: 1.7">
+              用 <strong style="color: #b91c1c">OFF</strong> 筆刷標「中籤的硬假」(絕對不可動)。<br>
+              用 <strong style="text-decoration: underline; color: #6b6b6b">off</strong>(小寫底線)標「申請預假未中籤,但盡量給」。<br>
+              用 <strong style="color: #065f46">V</strong> 標特休。
+            </p>
+          </div>
+
+          <div style="border-left: 4px solid var(--accent); padding: 0.6rem 1rem; margin-bottom: 0.8rem; background: white; border-radius: 0 4px 4px 0">
+            <div style="color: var(--accent); font-weight: 700; font-size: 1.05rem">Step 3 · 自動排班</div>
+            <p style="margin: 0.3rem 0 0; font-size: 0.95rem; line-height: 1.7">
+              點 <code style="background: #eee; padding: 1px 5px; border-radius: 3px">⚡ 自動排班</code> → 系統依照偏好/能力自動填 D/E/N。
+            </p>
+          </div>
+
+          <div style="border-left: 4px solid var(--accent); padding: 0.6rem 1rem; margin-bottom: 0.8rem; background: white; border-radius: 0 4px 4px 0">
+            <div style="color: var(--accent); font-weight: 700; font-size: 1.05rem">Step 4 · 休假滿足</div>
+            <p style="margin: 0.3rem 0 0; font-size: 0.95rem; line-height: 1.7">
+              點 <code style="background: #eee; padding: 1px 5px; border-radius: 3px">休假滿足</code> → 系統把每人休假天數補到目標。
+            </p>
+          </div>
+
+          <div style="border-left: 4px solid var(--accent); padding: 0.6rem 1rem; margin-bottom: 0.8rem; background: white; border-radius: 0 4px 4px 0">
+            <div style="color: var(--accent); font-weight: 700; font-size: 1.05rem">Step 5 · 跳班補足</div>
+            <p style="margin: 0.3rem 0 0; font-size: 0.95rem; line-height: 1.7">
+              點 <code style="background: #eee; padding: 1px 5px; border-radius: 3px">跳班補足</code> → 系統補齊每日 D/E/N 短缺。
+            </p>
+          </div>
+
+          <div style="border-left: 4px solid var(--accent); padding: 0.6rem 1rem; margin-bottom: 0.8rem; background: white; border-radius: 0 4px 4px 0">
+            <div style="color: var(--accent); font-weight: 700; font-size: 1.05rem">Step 6 · AI 助理微調</div>
+            <p style="margin: 0.3rem 0 0; font-size: 0.95rem; line-height: 1.7">
+              點 🤖 AI 助理 → 🔍 全面分析 → 看問題 → 📋 建議清單 → 一鍵套用。<br>
+              特定缺人 → 🔄 找對調對象 → AI 給「成對」建議。
+            </p>
+          </div>
+
+          <div style="border-left: 4px solid #16a34a; padding: 0.6rem 1rem; margin-bottom: 0.8rem; background: #ecfdf5; border-radius: 0 4px 4px 0">
+            <div style="color: #14532d; font-weight: 700; font-size: 1.05rem">Step 7 · 公告 + 自動上傳雲端</div>
+            <p style="margin: 0.3rem 0 0; font-size: 0.95rem; line-height: 1.7; color: #14532d">
+              本月狀態改 <strong>📢 已公告</strong> → 系統自動上傳雲端 → 全 ED 看得到。<br>
+              交給上級 → ⬇ 匯出傳統格式(Excel,每人 2 列含備註)。
+            </p>
+          </div>
+
+          <div style="border-left: 4px solid #d97706; padding: 0.6rem 1rem; background: #fffbeb; border-radius: 0 4px 4px 0">
+            <div style="color: #78350f; font-weight: 700; font-size: 1.05rem">Step 8 · 展開下一班</div>
+            <p style="margin: 0.3rem 0 0; font-size: 0.95rem; line-height: 1.7; color: #78350f">
+              公告完後系統會問「要展開下一班嗎?」→ 點確認 → 自動跳到下個月空白班表。<br>
+              已自動排除離職人員、套用月底連續上班天數。<strong>從 Step 2 重來即可</strong>。
+            </p>
+          </div>
+        </div>
+
+        <!-- ★ Tab 3: Rules ★ -->
+        <div id="help-content-rules" class="help-content" style="display: none">
+          <h4 style="margin-top:0; color: var(--accent); font-size: 1.1rem">📋 必守規則</h4>
+
+          <h5 style="color: #b91c1c; margin-top: 0.8rem; margin-bottom: 0.4rem">🔴 硬規則 — 絕對不可違反</h5>
+          <ul style="padding-left: 1.2rem; font-size: 0.95rem; line-height: 1.8">
+            <li><strong>OFF(大寫)不可動</strong> — 員工抽中的預假,絕對不能改</li>
+            <li><strong>連續上班不可超過 6 天</strong> — 違反勞基法</li>
+            <li><strong>每日 D/E/N 人力不可短缺</strong> — 看右側 ★ 標示</li>
+          </ul>
+
+          <h5 style="color: #b85a1d; margin-top: 1rem; margin-bottom: 0.4rem">🟡 軟規則 — 盡量遵守</h5>
+          <ul style="padding-left: 1.2rem; font-size: 0.95rem; line-height: 1.8">
+            <li>連續上班 ≤ 4 天較佳</li>
+            <li>避免「上 1 休 1」「休 1 上 1」(員工沒休到)</li>
+            <li>大夜(N)後要休 ≥ 1 天才能上 D/E/M</li>
+            <li>偏好班別維持(D 偏好的人盡量繼續上 D)</li>
+          </ul>
+
+          <h5 style="color: var(--ink); margin-top: 1rem; margin-bottom: 0.4rem">📐 班別代碼</h5>
+          <ul style="padding-left: 1.2rem; font-size: 0.95rem; line-height: 1.8">
+            <li><b>D</b> 白班 07-15</li>
+            <li><b>E</b> 小夜 15-23</li>
+            <li><b>N</b> 大夜 23-07</li>
+            <li><b>M</b> 行政班(8-5、8-12 等)</li>
+            <li><b style="color:#b91c1c">OFF</b>(大寫)中籤預假 — <strong>硬假</strong></li>
+            <li><b style="color:#6b6b6b; text-decoration:underline">off</b>(小寫)申請預假未中籤 — 軟假</li>
+            <li><b style="color: #999; font-style: italic">o</b> 系統排休</li>
+            <li><b>V</b> 特休</li>
+          </ul>
+
+          <h5 style="color: var(--ink); margin-top: 1rem; margin-bottom: 0.4rem">📐 每日人力需求</h5>
+          <ul style="padding-left: 1.2rem; font-size: 0.95rem; line-height: 1.8">
+            <li>平日:D=14, E=14, N=9</li>
+            <li>週日:D=15, E=15, N=9</li>
+            <li>星期一:N=10(其他同平日)</li>
+          </ul>
+
+          <div style="background: var(--accent-soft); padding: 0.6rem 0.9rem; border-radius: 4px; margin-top: 1rem; font-size: 0.92rem">
+            <strong>💡 提示</strong>:半日 / 實習 / 帶 / 病假 / 夜護 / 留停 不算正式人力,系統自動排除。
+          </div>
+        </div>
+
+        <!-- ★ Tab 4: AI ★ -->
+        <div id="help-content-ai" class="help-content" style="display: none">
+          <h4 style="margin-top:0; color: var(--accent); font-size: 1.1rem">🤖 AI 助理 — 3 種用法</h4>
+
+          <div style="border: 1px solid var(--rule); border-radius: 4px; padding: 0.8rem 1rem; margin-bottom: 0.8rem">
+            <div style="font-weight: 700; color: #5b21b6; font-size: 1rem; margin-bottom: 0.3rem">🔍 全面分析</div>
+            <p style="font-size: 0.92rem; line-height: 1.7; color: var(--ink-soft); margin: 0">
+              AI 看整月班表,列出 5-15 個重點問題:<strong>急(必修)/ 建議 / OK</strong>。<br>
+              <em>適合排到 7-8 成時用</em>,看哪裡需要修。
+            </p>
+          </div>
+
+          <div style="border: 1px solid var(--rule); border-radius: 4px; padding: 0.8rem 1rem; margin-bottom: 0.8rem">
+            <div style="font-weight: 700; color: #16a34a; font-size: 1rem; margin-bottom: 0.3rem">📋 建議清單(可套用)</div>
+            <p style="font-size: 0.92rem; line-height: 1.7; color: var(--ink-soft); margin: 0">
+              AI 給結構化「人名 + 日期 + 從 X 改 Y + 原因」清單,勾選後一鍵套用。<br>
+              <em>適合排好但細節要調整</em>。
+            </p>
+          </div>
+
+          <div style="border: 1px solid var(--rule); border-radius: 4px; padding: 0.8rem 1rem; margin-bottom: 0.8rem">
+            <div style="font-weight: 700; color: #d97706; font-size: 1rem; margin-bottom: 0.3rem">🔄 找對調對象</div>
+            <p style="font-size: 0.92rem; line-height: 1.7; color: var(--ink-soft); margin: 0">
+              填「哪天哪班缺幾人」→ AI 給「成對對調」(動作 A 補缺 + 動作 B 還休)。<br>
+              <em>勾「偏好連休」</em>會優先找連假中的人(他被抓 1 天還是有休)。
+            </p>
+          </div>
+
+          <div style="background: #fff7ed; border-left: 3px solid var(--gold, #b08948); padding: 0.6rem 0.9rem; border-radius: 0 3px 3px 0; margin-top: 0.8rem; font-size: 0.92rem">
+            <strong>💡 AI 永遠不會改 OFF</strong>。如果它建議改 OFF → 點 🗑 清除對話 重新開始。
+          </div>
+        </div>
+
+        <!-- ★ Tab 5: Cloud ★ -->
+        <div id="help-content-cloud" class="help-content" style="display: none">
+          <h4 style="margin-top:0; color: var(--accent); font-size: 1.1rem">☁ 雲端 & 換電腦</h4>
+
+          <div style="background: #ecfdf5; border-left: 4px solid #16a34a; padding: 0.8rem 1rem; border-radius: 0 4px 4px 0; margin-bottom: 0.8rem">
+            <strong style="color: #14532d">主檔(員工資料)· 自動同步</strong>
+            <p style="font-size: 0.92rem; line-height: 1.7; margin: 0.3rem 0 0; color: #14532d">
+              改任何人員資料(能力階段、離職、偏好)→ <strong>5 秒後自動上傳雲端</strong>。<br>
+              右下角會跳「☁ 主檔已同步雲端」綠色提示。<br>
+              登入後系統會自動載入雲端最新主檔(不用手動操作)。
+            </p>
+          </div>
+
+          <div style="background: #fffbeb; border-left: 4px solid var(--gold, #b08948); padding: 0.8rem 1rem; border-radius: 0 4px 4px 0; margin-bottom: 0.8rem">
+            <strong style="color: #78350f">班表 · 手動上傳</strong>
+            <p style="font-size: 0.92rem; line-height: 1.7; margin: 0.3rem 0 0; color: #78350f">
+              <strong>離開電腦前</strong> → ☁ 雲端班表 → ⬆ 手動儲存目前班表到雲端。<br>
+              <strong>到新電腦</strong> → ☁ 雲端班表 → 找該月份 → ⬇ 載入。<br>
+              公告時系統會自動上傳一次。
+            </p>
+          </div>
+
+          <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 0.8rem 1rem; border-radius: 0 4px 4px 0; margin-bottom: 0.8rem">
+            <strong style="color: #991b1b">⚠ 注意:後寫贏</strong>
+            <p style="font-size: 0.92rem; line-height: 1.7; margin: 0.3rem 0 0; color: #991b1b">
+              兩台電腦同時改 → 後上傳的覆蓋先上傳的。<br>
+              養成習慣:<strong>離開電腦前先上傳,進入電腦後先載入</strong>。
+            </p>
+          </div>
+        </div>
+
+        <!-- ★ Tab 6: FAQ ★ -->
+        <div id="help-content-faq" class="help-content" style="display: none">
+          <h4 style="margin-top:0; color: var(--accent); font-size: 1.1rem">❓ 常見問題</h4>
+
+          <details style="border-bottom: 1px solid var(--rule); padding: 0.6rem 0">
+            <summary style="cursor: pointer; font-weight: 600; font-size: 0.98rem">Q1. 能力階段會自動記住嗎?以後會不會「降級」?</summary>
+            <div style="padding: 0.5rem 0 0.3rem 1rem; font-size: 0.92rem; color: var(--ink-soft); line-height: 1.7">
+              <strong>會自動記住,且只進不退</strong>。系統用 <code>peakStage</code>(歷史最高)永久紀錄。下調會跳警告對話框,確認才會降。選「Leader」會自動包含基礎、兒科 P、急救 CPR、檢傷。
+            </div>
+          </details>
+
+          <details style="border-bottom: 1px solid var(--rule); padding: 0.6rem 0">
+            <summary style="cursor: pointer; font-weight: 600; font-size: 0.98rem">Q2. 標離職後,下個月會自動排除該人嗎?</summary>
+            <div style="padding: 0.5rem 0 0.3rem 1rem; font-size: 0.92rem; color: var(--ink-soft); line-height: 1.7">
+              <strong>會,因為主檔自動同步雲端</strong>。標離職 → 5 秒後自動上雲 → 之後任何月份載入都會自動排除。<br>
+              已排好的舊班表,該人原本的班還在(系統不亂改),你要手動清。
+            </div>
+          </details>
+
+          <details style="border-bottom: 1px solid var(--rule); padding: 0.6rem 0">
+            <summary style="cursor: pointer; font-weight: 600; font-size: 0.98rem">Q3. 排到一半關掉瀏覽器,資料會不見嗎?</summary>
+            <div style="padding: 0.5rem 0 0.3rem 1rem; font-size: 0.92rem; color: var(--ink-soft); line-height: 1.7">
+              <strong>不會,系統每秒自動存本機。</strong>但「同台電腦同瀏覽器」才有效。換電腦或清快取會沒。所以離開電腦前要上傳到雲端。
+            </div>
+          </details>
+
+          <details style="border-bottom: 1px solid var(--rule); padding: 0.6rem 0">
+            <summary style="cursor: pointer; font-weight: 600; font-size: 0.98rem">Q4. AI 給的建議方向反了怎麼辦?</summary>
+            <div style="padding: 0.5rem 0 0.3rem 1rem; font-size: 0.92rem; color: var(--ink-soft); line-height: 1.7">
+              用 🔄 找對調對象 而不是「全面分析」。對調功能會給「成對」建議,方向不會反。或在輸入框具體描述需求,AI 會精準執行。
+            </div>
+          </details>
+
+          <details style="border-bottom: 1px solid var(--rule); padding: 0.6rem 0">
+            <summary style="cursor: pointer; font-weight: 600; font-size: 0.98rem">Q5. 直接載入 vs 用為基礎,差別?</summary>
+            <div style="padding: 0.5rem 0 0.3rem 1rem; font-size: 0.92rem; color: var(--ink-soft); line-height: 1.7">
+              <strong>直接載入</strong>:看歷史,班別 + 規則 + 員工全部還原當時樣子。<br>
+              <strong>用為基礎</strong>:開新月起點,帶員工 + 規則,不帶班別。
+            </div>
+          </details>
+
+          <details style="border-bottom: 1px solid var(--rule); padding: 0.6rem 0">
+            <summary style="cursor: pointer; font-weight: 600; font-size: 0.98rem">Q6. 個人日備註(ACLS、中油等)會匯出嗎?</summary>
+            <div style="padding: 0.5rem 0 0.3rem 1rem; font-size: 0.92rem; color: var(--ink-soft); line-height: 1.7">
+              會。⬇ 匯出傳統格式(橘色按鈕)→ Excel 每人 2 列:上列備註、下列班別,跟院內 PDF 一致。
+            </div>
+          </details>
+
+          <details style="border-bottom: 1px solid var(--rule); padding: 0.6rem 0">
+            <summary style="cursor: pointer; font-weight: 600; font-size: 0.98rem">Q7. AI 限額用完了會怎樣?</summary>
+            <div style="padding: 0.5rem 0 0.3rem 1rem; font-size: 0.92rem; color: var(--ink-soft); line-height: 1.7">
+              Gemini 2.5 Flash 用完 → 自動切 Flash-Lite。都不行 → 跳訊息「Gemini 限制中,請等 X 秒」 → 等一下再試。Tier 1 額度足夠每月排班用。
+            </div>
+          </details>
+
+          <details style="padding: 0.6rem 0">
+            <summary style="cursor: pointer; font-weight: 600; font-size: 0.98rem">Q8. 有 bug 或想加新功能,找誰反映?</summary>
+            <div style="padding: 0.5rem 0 0.3rem 1rem; font-size: 0.92rem; color: var(--ink-soft); line-height: 1.7">
+              直接聯絡<strong>翁秀霞 護理長</strong>。請描述操作步驟、預期結果、實際結果,附截圖最好。
+            </div>
+          </details>
+        </div>
+
+      </div>
+
     </div>
     <div class="modal-footer">
+      <span style="flex: 1; font-size: 0.85rem; color: var(--ink-mute)">v1.0 · 2026.05</span>
       <button onclick="closeModal('help-modal')">關閉</button>
     </div>
   </div>
 </div>
+
+<style>
+  .help-tab-active {
+    color: var(--accent) !important;
+    border-bottom-color: var(--accent) !important;
+    background: white !important;
+  }
+  .help-tab:hover:not(.help-tab-active) {
+    background: rgba(0,0,0,0.03);
+  }
+  .help-content details summary { list-style: none; }
+  .help-content details summary::-webkit-details-marker { display: none; }
+  .help-content details summary::before {
+    content: '+';
+    color: var(--accent);
+    font-weight: 700;
+    margin-right: 0.5rem;
+    font-family: monospace;
+  }
+  .help-content details[open] summary::before {
+    content: '−';
+  }
+</style>
 
 <!-- Person Modal -->
 <div class="modal-backdrop" id="person-modal">
@@ -1913,8 +2264,39 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
       <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center">
         <button onclick="askAI('analyze')" style="background: #5b21b6; color: white; border-color: #5b21b6; font-weight: 700">🔍 全面分析</button>
         <button onclick="askAI('apply')" style="background: #16a34a; color: white; border-color: #16a34a; font-weight: 700">📋 建議清單(可套用)</button>
+        <button onclick="openSwapPairFinder()" style="background: #d97706; color: white; border-color: #d97706; font-weight: 700">🔄 找對調對象</button>
         <span style="flex: 1"></span>
         <button onclick="clearAIConversation()" style="font-size: 0.88rem; padding: 4px 10px">🗑 清除對話</button>
+      </div>
+
+      <!-- Swap Pair Finder Dialog (hidden by default) -->
+      <div id="swap-pair-form" style="display: none; background: #fef3c7; border: 2px solid #d97706; border-radius: 6px; padding: 1rem; margin-top: 0.8rem">
+        <div style="font-weight: 700; color: #b45309; margin-bottom: 0.6rem">🔄 找雙向對調對象</div>
+        <div style="font-size: 0.9rem; color: #78350f; margin-bottom: 0.8rem; line-height: 1.5">
+          告訴我「哪天哪班缺人」,我會找出「成對的對調」<br>
+          (一個人 o→上班 補你的缺,你再讓另一個人從過剩日的同班 → o,讓他補回休假)
+        </div>
+        <div style="display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 0.5rem 0.8rem; align-items: center; margin-bottom: 0.8rem">
+          <label style="font-size: 0.9rem; font-weight: 600">缺人日:</label>
+          <input id="swap-target-day" type="number" min="1" max="31" placeholder="如 8" style="padding: 6px 8px">
+          <label style="font-size: 0.9rem; font-weight: 600">班別:</label>
+          <select id="swap-target-shift" style="padding: 6px 8px">
+            <option value="N">N 大夜</option>
+            <option value="D">D 白班</option>
+            <option value="E">E 小夜</option>
+          </select>
+          <label style="font-size: 0.9rem; font-weight: 600">缺幾人:</label>
+          <input id="swap-target-need" type="number" min="1" max="5" value="1" style="padding: 6px 8px">
+          <label style="font-size: 0.9rem; font-weight: 600">偏好連休:</label>
+          <select id="swap-prefer-consec" style="padding: 6px 8px">
+            <option value="yes">是 (找連續休假的人)</option>
+            <option value="no">不限</option>
+          </select>
+        </div>
+        <div style="display: flex; gap: 0.5rem">
+          <button onclick="askAI('swap')" class="primary" style="background: #d97706; border-color: #d97706; color: white; font-weight: 700; flex: 1">🤖 找對調對象</button>
+          <button onclick="closeSwapPairForm()" style="padding: 8px 14px">取消</button>
+        </div>
       </div>
 
     </div>
@@ -2126,6 +2508,15 @@ function leaderLogout() {
 function showWelcomeMessage(name) {
   console.log(`[Leader Edition] Welcome ${name}, logged in at ${new Date().toLocaleString()}`);
   initMonthlyStatusBar();
+
+  // 顯示雲端主檔同步區塊 (Leader edition only)
+  const cloudSection = document.getElementById('staff-cloud-sync-section');
+  if (cloudSection) cloudSection.style.display = 'block';
+
+  // 自動從雲端載入主檔(靜默) — 不阻塞 UI
+  setTimeout(() => {
+    loadStaffFromCloud(false).catch(e => console.warn('Auto-load staff master failed:', e));
+  }, 1500);  // 延遲 1.5 秒,讓 monthlyStatusBar 先初始化
 }
 
 // ============================================================
@@ -2256,6 +2647,13 @@ async function saveMonthlyStatus() {
         if (state.month === month && state.staff && state.staff.length > 0) {
           await saveScheduleToCloud(month, true /* silent */);
         }
+        // 公告完成 → 詢問是否展開下一班
+        setTimeout(() => {
+          const next = getNextMonth(month);
+          if (confirm(`✅ ${month} 已公告!\n\n要立刻展開下一班 (${next}) 嗎?\n\n會帶過去:\n  ✓ 員工列表(雲端最新主檔)\n  ✓ 規則 / 假日(自動調整)\n  ✓ 月底連續上班天數(防止跨月超天)\n  ✗ 班別清空(因為日期不同)`)) {
+            expandToNextMonth(month);
+          }
+        }, 500);
       }
     } else {
       if (result.error && result.error.indexOf('Token') >= 0) {
@@ -2289,10 +2687,11 @@ async function saveScheduleToCloud(month, silent) {
     return false;
   }
 
-  // 整理要存的資料(主檔 + 班表 + 規則 + 假日 + 固定)
+  // 整理要存的資料(主檔 + 班表 + 規則 + 假日 + 固定 + 備註)
   const payload = {
     staff: state.staff,
     schedule: state.schedule,
+    notes: state.notes || {},
     fixed: state.fixed,
     holidays: state.holidays,
     rules: state.rules,
@@ -2413,6 +2812,7 @@ async function loadCloudScheduleDirectly(month) {
   state.month = month;
   state.staff = data.staff || [];
   state.schedule = data.schedule || {};
+  state.notes = data.notes || {};
   state.fixed = data.fixed || {};
   state.holidays = data.holidays || [];
   if (data.rules) state.rules = data.rules;
@@ -2436,7 +2836,7 @@ async function copyCloudScheduleToCurrent(fromMonth) {
     return;
   }
 
-  if (!confirm(`確定把「${fromMonth}」當基礎,改成「${targetMonth}」?\n\n會帶過來:\n  ✓ 員工列表\n  ✓ 規則\n  ✓ 班別偏好/能力\n  ✗ 不帶班別 day-by-day(因為日期不同)`)) return;
+  if (!confirm(`確定把「${fromMonth}」當基礎,改成「${targetMonth}」?\n\n會帶過來:\n  ✓ 員工列表(用最新雲端主檔)\n  ✓ 規則\n  ✓ 班別偏好/能力\n  ✗ 不帶班別 day-by-day(因為日期不同)`)) return;
 
   const data = await loadScheduleFromCloud(fromMonth);
   if (!data) {
@@ -2444,22 +2844,210 @@ async function copyCloudScheduleToCurrent(fromMonth) {
     return;
   }
 
-  // 帶員工 + 規則 + 假日 + 固定,但不帶 schedule(每天的班別)
-  state.staff = data.staff || [];
-  state.fixed = {};  // 清空(因為日期變了)
-  state.schedule = {};  // 清空
+  // 帶員工(用「最新雲端主檔」優先,確保離職、新進等最新狀態)
+  // + 規則 + 假日 + 固定,但不帶 schedule(每天的班別)
+  let masterData = null;
+  try {
+    const token = getAuthToken();
+    if (token) {
+      const masterResult = await apiCall('loadStaffMaster', { token });
+      if (masterResult.ok) {
+        masterData = JSON.parse(masterResult.data);
+      }
+    }
+  } catch (e) {
+    console.warn('載入雲端主檔失敗,改用 ' + fromMonth + ' 班表內的員工列表:', e);
+  }
+
+  if (masterData && Object.keys(masterData).length > 0) {
+    // 用雲端主檔重建 state.staff(這是「權威來源」,含最新離職標記)
+    state.staff = Object.keys(masterData).map(name => {
+      const d = masterData[name];
+      return {
+        id: 'p_' + Math.random().toString(36).slice(2, 9),
+        name: name,
+        level: d.level || '',
+        capabilities: d.capabilities || [],
+        peakStage: d.peakStage || '',
+        hireDate: d.hireDate || '',
+        mentor: d.mentor || '',
+        preferredShift: d.preferredShift || '',
+        canSwapTo: d.canSwapTo || [],
+        note: d.note || '',
+        special: d.special || '',
+        status: d.status || 'active',
+        statusDate: d.statusDate || '',
+        prevMonthConsec: d.prevMonthConsec || 0,
+      };
+    });
+    console.log(`[copyCloud] 用雲端主檔載入 ${state.staff.length} 人 (含離職標記)`);
+  } else {
+    // Fallback:雲端主檔不存在 → 用上月班表裡的 staff 快照
+    state.staff = data.staff || [];
+    console.log(`[copyCloud] 雲端無主檔,用 ${fromMonth} 班表內快照載入 ${state.staff.length} 人`);
+  }
+
+  state.fixed = {};      // 清空(因為日期變了)
+  state.schedule = {};   // 清空
+  state.notes = {};      // 清空備註(備註是 per 月的)
   if (data.rules) state.rules = data.rules;
   // holidays 清空(本月跟上月日期不同)
   state.holidays = [];
 
-  saveAll();
+  // 寫進 localStorage
+  saveStaffData();
 
   if (typeof renderAll === 'function') renderAll();
   if (typeof renderRulesPanel === 'function') renderRulesPanel();
   if (typeof renderMonthlySummary === 'function') renderMonthlySummary();
+  if (typeof renderTable === 'function') renderTable();
 
   closeModal('cloud-schedules-modal');
-  alert(`✅ 已用「${fromMonth}」為基礎,目前是「${targetMonth}」空白班表(員工/規則已帶入)`);
+
+  // 統計訊息(顯示有沒有過濾掉離職人員)
+  const targetMonthStart = new Date(targetMonth + '-01');
+  const activeCount = state.staff.filter(p => {
+    if (p.status === 'resigned' && p.statusDate) {
+      const rd = new Date(p.statusDate);
+      if (rd < targetMonthStart) return false;
+    }
+    return true;
+  }).length;
+  const excludedCount = state.staff.length - activeCount;
+
+  let msg = `✅ 已用「${fromMonth}」為基礎,目前是「${targetMonth}」空白班表\n\n`;
+  msg += `員工列表:${state.staff.length} 人(${masterData ? '雲端最新主檔' : `${fromMonth} 班表快照`})\n`;
+  if (excludedCount > 0) {
+    msg += `其中 ${excludedCount} 人在 ${targetMonth} 已離職,排班時會自動隱藏\n`;
+  }
+  msg += `實際可排班:${activeCount} 人`;
+  alert(msg);
+}
+
+// 從 "YYYY-MM" 算出下一個月
+function getNextMonth(month) {
+  const [y, m] = month.split('-').map(Number);
+  const nextDate = new Date(y, m, 1);  // m 是 1-based,new Date 是 0-based,所以這就是下個月
+  const ny = nextDate.getFullYear();
+  const nm = String(nextDate.getMonth() + 1).padStart(2, '0');
+  return `${ny}-${nm}`;
+}
+
+// 公告完當月後 → 展開下個月空白班表
+async function expandToNextMonth(currentMonth) {
+  const nextMonth = getNextMonth(currentMonth);
+
+  // 1. 先計算當月每人月底連續上班天數(用於跨月)
+  const currentSchedule = state.schedule || {};
+  const days = getDaysInMonth(currentMonth);
+  const consecMap = {};
+  state.staff.forEach(p => {
+    const sched = currentSchedule[p.id] || {};
+    let consec = 0;
+    for (let d = days; d >= 1; d--) {
+      const v = sched[d];
+      if (['D','E','N','M'].includes(v)) {
+        consec++;
+      } else {
+        break;
+      }
+    }
+    consecMap[p.id] = consec;
+  });
+
+  // 2. 切到下月,清空班表
+  state.month = nextMonth;
+  if ($('month-input')) $('month-input').value = nextMonth;
+  state.schedule = {};
+  state.notes = {};
+  state.fixed = {};
+  state.holidays = [];
+
+  // 3. 套用月底連續上班天數
+  state.staff.forEach(p => {
+    p.prevMonthConsec = consecMap[p.id] || 0;
+  });
+
+  // 4. 嘗試從雲端載入最新主檔(讓離職人員自動排除)
+  try {
+    const token = getAuthToken();
+    if (token) {
+      const masterResult = await apiCall('loadStaffMaster', { token });
+      if (masterResult.ok) {
+        const masterData = JSON.parse(masterResult.data);
+        // 合併雲端主檔
+        Object.keys(masterData).forEach(name => {
+          const existingPerson = state.staff.find(p => p.name === name);
+          const cloud = masterData[name];
+          if (existingPerson) {
+            existingPerson.level = cloud.level || existingPerson.level;
+            existingPerson.capabilities = cloud.capabilities || [];
+            existingPerson.peakStage = cloud.peakStage || '';
+            existingPerson.preferredShift = cloud.preferredShift || '';
+            existingPerson.canSwapTo = cloud.canSwapTo || [];
+            existingPerson.status = cloud.status || 'active';
+            existingPerson.statusDate = cloud.statusDate || '';
+            existingPerson.note = cloud.note || existingPerson.note || '';
+            existingPerson.special = cloud.special || '';
+          } else {
+            // 新人(雲端有但本地沒)
+            state.staff.push({
+              id: 'p_' + Math.random().toString(36).slice(2, 9),
+              name: name,
+              level: cloud.level || '',
+              capabilities: cloud.capabilities || [],
+              peakStage: cloud.peakStage || '',
+              hireDate: cloud.hireDate || '',
+              mentor: cloud.mentor || '',
+              preferredShift: cloud.preferredShift || '',
+              canSwapTo: cloud.canSwapTo || [],
+              note: cloud.note || '',
+              special: cloud.special || '',
+              status: cloud.status || 'active',
+              statusDate: cloud.statusDate || '',
+              prevMonthConsec: 0,
+            });
+          }
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('載入雲端主檔失敗,使用本地主檔:', e);
+  }
+
+  // 5. 自動設定下月國定假日(如果有規則)
+  autoSetHolidays();
+
+  // 6. 渲染
+  if (typeof renderAll === 'function') renderAll();
+  if (typeof renderTable === 'function') renderTable();
+  if (typeof renderMonthlySummary === 'function') renderMonthlySummary();
+
+  // 7. 計算離職排除人數
+  const nextMonthStart = new Date(nextMonth + '-01');
+  const excludedNames = state.staff.filter(p => {
+    if (p.status === 'resigned' && p.statusDate) {
+      const rd = new Date(p.statusDate);
+      if (rd < nextMonthStart) return true;
+    }
+    return false;
+  }).map(p => p.name);
+
+  let msg = `✅ 已展開到 ${nextMonth}\n\n`;
+  msg += `👥 員工:${state.staff.length} 人\n`;
+  if (excludedNames.length > 0) {
+    msg += `🚪 已排除離職:${excludedNames.join('、')}\n`;
+  }
+  const consecPeople = Object.keys(consecMap).filter(id => consecMap[id] > 0).length;
+  if (consecPeople > 0) {
+    msg += `🔄 ${consecPeople} 位月底連續上班天數已記錄\n`;
+  }
+  msg += `\n下一步:\n`;
+  msg += `1. 標 OFF / off / V (預假)\n`;
+  msg += `2. 點「⚡ 自動排班」\n`;
+  msg += `3. 點「休假滿足」「跳班補足」\n`;
+  msg += `4. 用 AI 助理檢查`;
+  alert(msg);
 }
 
 async function manualSaveScheduleNow() {
@@ -2699,11 +3287,15 @@ const state = {
   month: '2026-06',
   staff: [],           // [{id, name, level, note, fixedShift, preferredShift, canSwapTo: []}]
   schedule: {},        // {staffId: {day: shift}}
+  notes: {},           // {staffId: {day: noteString}} - 個人日備註 (ACLS/中油/友善 等)
   fixed: {},           // {staffId: {day: true}} - cells locked as fixed (preset)
   holidays: ['2026-05-01'], // list of holiday dates
   currentBrush: 'D',
   selectedPersonId: null,
 };
+
+// 預設備註選項 (右鍵選單)
+const NOTE_PRESETS = ['ACLS', '中油', '友善', '標準', 'LM', 'ER M', '教學', '會議', '請假', '研習'];
 
 // Shift codes
 const SHIFTS = ['D', 'E', 'N', 'M', 'O', 'V'];
@@ -2736,6 +3328,34 @@ function isHoliday(ym, day) {
   const [y, m] = ym.split('-').map(Number);
   const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
   return state.holidays.includes(dateStr);
+}
+
+// 全域:這個人應不應該被算進「每日人力」(D/E/N 達標統計)?
+// 不算的人:沒設能力階段、半日、實習、夜護、病假、離職前、留停、有「帶」記號
+// 「沒設能力階段」= 還沒獨立 = 新進帶人中
+// 注意:這只影響「人力統計」,不影響「他能不能上班」(他還是會上班,只是不計入達標數)
+function isCountingForCapacity(p) {
+  if (!p) return false;
+  // 1. 留停 / 離職前 → 不算
+  if (p.status === 'leave') return false;
+  if (p.status === 'resigned') {
+    // 離職日已過 → 不算
+    if (p.statusDate) {
+      const monthStart = new Date(state.month + '-01');
+      const rd = new Date(p.statusDate);
+      if (rd < monthStart) return false;
+    }
+  }
+  // 2. 半日 / 實習 等級 → 不算
+  if (p.level === '半日' || p.level === '實習') return false;
+  // 3. 備註含特殊狀況 → 不算
+  if (p.note && /夜護|病假|離職|實習|帶/.test(p.note)) return false;
+  if (p.special && /夜護|病假|實習|半日|帶/.test(p.special)) return false;
+  // 4. 沒設能力階段 → 不算 (代表新進還沒被認證能獨立)
+  const peak = p.peakStage || '';
+  const caps = p.capabilities || [];
+  if (!peak && caps.length === 0) return false;
+  return true;
 }
 
 // Check if a person should be schedulable on a given day
@@ -2912,7 +3532,11 @@ function renderTable() {
                        : shift === 'off' ? ' (申請預假未中籤)'
                        : shift === 'o' ? ' (一般休假)'
                        : '';
-      html += `<td class="${cls}" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" title="${p.name} ${d}日 ${shift}${titleSuffix}">${display}</td>`;
+      // Note (per-person per-day annotation: ACLS / 中油 / 友善 ...)
+      const noteText = (state.notes[p.id] && state.notes[p.id][d]) || '';
+      const noteIndicator = noteText ? '<span class="note-dot" title="' + escapeHTML(noteText) + '">●</span>' : '';
+      const noteTitle = noteText ? `\n📌 ${noteText}` : '';
+      html += `<td class="${cls}" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" title="${p.name} ${d}日 ${shift}${titleSuffix}${noteTitle}">${noteIndicator}${display}</td>`;
     }
 
     // Stats columns
@@ -2994,6 +3618,84 @@ function renderTable() {
 // ============================================================
 let lastEditTimestamp = 0;
 
+function escapeHTML(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function onCellRightClick(e) {
+  e.preventDefault();
+  const td = e.target.closest('td[data-pid]');
+  if (!td) return;
+  const pid = td.dataset.pid;
+  const day = parseInt(td.dataset.day);
+  const person = state.staff.find(p => p.id === pid);
+  if (!person) return;
+
+  const menu = document.getElementById('cell-context-menu');
+  const header = document.getElementById('ctx-menu-header');
+  const btnArea = document.getElementById('ctx-menu-buttons');
+
+  const currentNote = (state.notes[pid] && state.notes[pid][day]) || '';
+  header.textContent = `📌 ${person.name} ${day}日 備註${currentNote ? '(目前: ' + currentNote + ')' : ''}`;
+
+  // Build buttons
+  let html = '';
+  NOTE_PRESETS.forEach(preset => {
+    const active = preset === currentNote ? ' note-active' : '';
+    html += `<button class="${active}" onclick="setNoteForCell('${pid}', ${day}, '${preset}')">${preset}</button>`;
+  });
+  html += '<hr>';
+  html += `<button onclick="setNoteForCell('${pid}', ${day}, '__custom__')">✏ 自訂...</button>`;
+  if (currentNote) {
+    html += `<button onclick="setNoteForCell('${pid}', ${day}, '')" style="color: #c0392b">🗑 清除備註</button>`;
+  }
+  btnArea.innerHTML = html;
+
+  // Position menu near click
+  menu.style.display = 'block';
+  let x = e.clientX, y = e.clientY;
+  // Adjust to viewport
+  const rect = menu.getBoundingClientRect();
+  if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 10;
+  if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 10;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', closeContextMenu, { once: true });
+  }, 0);
+}
+
+function closeContextMenu() {
+  const menu = document.getElementById('cell-context-menu');
+  if (menu) menu.style.display = 'none';
+}
+
+function setNoteForCell(pid, day, value) {
+  closeContextMenu();
+  if (value === '__custom__') {
+    const current = (state.notes[pid] && state.notes[pid][day]) || '';
+    const input = prompt('輸入備註內容:', current);
+    if (input === null) return;  // cancelled
+    value = input.trim();
+  }
+  if (!state.notes[pid]) state.notes[pid] = {};
+  if (value) {
+    state.notes[pid][day] = value;
+  } else {
+    delete state.notes[pid][day];
+    // clean empty
+    if (Object.keys(state.notes[pid]).length === 0) delete state.notes[pid];
+  }
+  // Save to localStorage
+  if (typeof saveSnapshot === 'function') saveSnapshot();
+  if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
+  // Re-render
+  renderTable();
+}
+
 function onCellClick(e) {
   const td = e.target;
   const pid = td.dataset.pid;
@@ -3015,6 +3717,63 @@ function onCellClick(e) {
   }
 
   renderTable();
+  autoSaveScheduleLocal();  // ★ 自動存進 localStorage
+}
+
+// ============================================================
+// 班表自動儲存 (localStorage) — 排到一半關掉瀏覽器也不會丟
+// ============================================================
+let _saveScheduleTimer = null;
+
+function autoSaveScheduleLocal() {
+  if (_saveScheduleTimer) clearTimeout(_saveScheduleTimer);
+  _saveScheduleTimer = setTimeout(() => {
+    saveScheduleLocalNow();
+  }, 800);  // 800ms debounce — 連續點不會打太多次
+}
+
+function saveScheduleLocalNow() {
+  try {
+    const data = {
+      month: state.month,
+      schedule: state.schedule || {},
+      notes: state.notes || {},
+      fixed: state.fixed || {},
+      holidays: state.holidays || [],
+      savedAt: new Date().toISOString(),
+    };
+    localStorage.setItem('schedulerSchedule', JSON.stringify(data));
+  } catch (e) {
+    console.warn('班表存 localStorage 失敗:', e);
+  }
+}
+
+function loadScheduleLocal() {
+  try {
+    const saved = localStorage.getItem('schedulerSchedule');
+    if (!saved) return null;
+    const data = JSON.parse(saved);
+    // 只載入相同月份的(避免月份切換時混淆)
+    if (data.month !== state.month) {
+      console.log(`[班表還原] localStorage 是 ${data.month},目前是 ${state.month},跳過`);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.warn('讀 localStorage 班表失敗:', e);
+    return null;
+  }
+}
+
+function restoreScheduleFromLocal() {
+  const data = loadScheduleLocal();
+  if (!data) return false;
+  state.schedule = data.schedule || {};
+  state.notes = data.notes || {};
+  state.fixed = data.fixed || {};
+  if (data.holidays && data.holidays.length > 0) state.holidays = data.holidays;
+  console.log(`[班表還原] 已從 localStorage 還原 ${state.month} 的排班內容`);
+  return true;
 }
 
 // ============================================================
@@ -4192,6 +4951,18 @@ function autoSetHolidays() {
 // ============================================================
 function closeModal(id) { $(id).classList.remove('active'); }
 function openHelpModal() { $('help-modal').classList.add('active'); }
+
+function switchHelpTab(tabName) {
+  // Hide all content panels
+  document.querySelectorAll('.help-content').forEach(el => el.style.display = 'none');
+  // Remove active class from all tabs
+  document.querySelectorAll('.help-tab').forEach(el => el.classList.remove('help-tab-active'));
+  // Show selected
+  const content = document.getElementById('help-content-' + tabName);
+  const tab = document.getElementById('help-tab-' + tabName);
+  if (content) content.style.display = 'block';
+  if (tab) tab.classList.add('help-tab-active');
+}
 function openImportModal() {
   // Reset stages
   $('import-step2').style.display = 'none';
@@ -4637,13 +5408,13 @@ async function exportXlsx() {
   const COL_OFF_TOTAL = LAST_DAY_COL + 1;
 
   // ============================================================
-  // ROW 1: TITLE — "急診 護理人員大班表 ( 2026年5月 )"
+  // ROW 1: TITLE — "2026 年 05 月份 急診部 護理人員班表"
   // ============================================================
-  const titleRow = ws.addRow([`急診 護理人員大班表 ( ${yyyy}年${mm}月 )`]);
+  const titleRow = ws.addRow([`${yyyy} 年 ${String(mm).padStart(2,'0')} 月份  急診部 護理人員班表`]);
   ws.mergeCells(1, 1, 1, COL_OFF_TOTAL);
-  titleRow.getCell(1).font = { bold: true, size: 14, name: 'Microsoft JhengHei' };
+  titleRow.getCell(1).font = { bold: true, size: 18, name: 'Microsoft JhengHei' };
   titleRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
-  titleRow.height = 22;
+  titleRow.height = 32;
 
   // ============================================================
   // ROW 2: ANNOTATION ROW (blank for now — could hold "ACLS" markings)
@@ -4849,6 +5620,309 @@ async function exportXlsx() {
   const a = document.createElement('a');
   a.href = url;
   a.download = `急診班表_${state.month}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// 傳統格式匯出 (跟院內 PDF 對齊):每人 2 列,上列備註,下列班別
+// 並在底部加 D/E/N 每日統計列
+// ============================================================
+async function exportXlsxTraditional() {
+  if (state.staff.length === 0) return alert('尚無資料可匯出');
+  if (typeof ExcelJS === 'undefined') {
+    alert('Excel 樣式套件未載入,請檢查網路連線後重試');
+    return;
+  }
+
+  const days = getDaysInMonth(state.month);
+  const [yyyy, mm] = state.month.split('-').map(Number);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'CYCH 急診排班工具';
+  const ws = wb.addWorksheet(`${mm}月班表`);
+
+  // ---------- Styles ----------
+  const SHIFT_STYLES = {
+    'D':   { fgColor: 'FFFEF6CC', fontColor: 'FF8B6914' },
+    'E':   { fgColor: 'FFE3F2FD', fontColor: 'FF1565C0' },
+    'N':   { fgColor: 'FF1F2937', fontColor: 'FFFFFFFF', bold: true },
+    'M':   { fgColor: 'FFE9D5FF', fontColor: 'FF5B21B6' },
+    'OFF': { fgColor: 'FFFCE8E8', fontColor: 'FFB91C1C', bold: true },
+    'off': { fgColor: 'FFF5F5F0', fontColor: 'FF6B6B6B', italic: true },
+    'o':   { fgColor: 'FFFAFAF5', fontColor: 'FF999999', italic: true, displayAs: 'off' },
+    'V':   { fgColor: 'FFD1FAE5', fontColor: 'FF065F46' },
+  };
+  const SAT_FILL = 'FFE0F2FE';
+  const SUN_FILL = 'FFFFE4E6';
+  const HOL_FILL = 'FFFEF3C7';
+
+  const thinBorder = {
+    top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+    left: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+    bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+    right: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+  };
+
+  function styleCell(cell, raw) {
+    const s = SHIFT_STYLES[raw];
+    if (s) {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: s.fgColor } };
+      cell.font = {
+        color: { argb: s.fontColor },
+        bold: !!s.bold,
+        italic: !!s.italic,
+        name: 'Microsoft JhengHei',
+        size: 10,
+      };
+    } else {
+      cell.font = { name: 'Microsoft JhengHei', size: 10 };
+    }
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = thinBorder;
+  }
+
+  // ---------- Visible staff (skip resigned-before-month, leave 留停) ----------
+  const monthStart = new Date(state.month + '-01');
+  const visible = state.staff.filter(p => {
+    if (p.status === 'resigned' && p.statusDate) {
+      const rd = new Date(p.statusDate);
+      if (rd < monthStart) return false;
+    }
+    return true;
+  });
+
+  // ---------- Column layout ----------
+  const COL_NUM = 1;
+  const COL_LEVEL = 2;
+  const COL_MENTOR = 3;
+  const COL_NAME = 4;
+  const COL_HIRE = 5;
+  const FIRST_DAY_COL = 6;
+  const LAST_DAY_COL = 5 + days;
+  const COL_OFF_TOTAL = LAST_DAY_COL + 1;
+
+  // ---------- ROW 1: TITLE ----------
+  const titleRow = ws.addRow([`${yyyy} 年 ${String(mm).padStart(2,'0')} 月份  急診部 護理人員班表`]);
+  ws.mergeCells(1, 1, 1, COL_OFF_TOTAL);
+  titleRow.getCell(1).font = { bold: true, size: 18, name: 'Microsoft JhengHei' };
+  titleRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+  titleRow.height = 32;
+
+  // ---------- ROW 2: HOLIDAY MARKERS (top annotation row, by day) ----------
+  const holRowData = ['', '', '', '', ''];
+  for (let d = 1; d <= days; d++) {
+    let mark = '';
+    if (isHoliday(state.month, d)) {
+      const dateStr = `${yyyy}-${String(mm).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const hol = (state.rules?.holidays || []).find(h => h.date === dateStr);
+      if (hol && hol.name) mark = hol.name;
+      else mark = '假日';
+    }
+    holRowData.push(mark);
+  }
+  holRowData.push('');
+  const holRow = ws.addRow(holRowData);
+  holRow.eachCell({ includeEmpty: false }, (cell) => {
+    cell.font = { size: 9, name: 'Microsoft JhengHei', color: { argb: 'FF991B1B' }, italic: true };
+    cell.alignment = { horizontal: 'center' };
+  });
+
+  // ---------- ROW 3: 星期 (day of week) ----------
+  const dowRowData = ['星期', '', '', '', ''];
+  const dowChars = ['日','一','二','三','四','五','六'];
+  for (let d = 1; d <= days; d++) {
+    dowRowData.push(dowChars[getDayOfWeek(state.month, d)]);
+  }
+  dowRowData.push('');
+  const dowRow = ws.addRow(dowRowData);
+  dowRow.getCell(1).font = { bold: true, name: 'Microsoft JhengHei', size: 10 };
+  dowRow.getCell(1).alignment = { horizontal: 'center' };
+  for (let d = 1; d <= days; d++) {
+    const cell = dowRow.getCell(FIRST_DAY_COL + d - 1);
+    cell.font = { bold: true, name: 'Microsoft JhengHei', size: 10 };
+    cell.alignment = { horizontal: 'center' };
+    const dow = getDayOfWeek(state.month, d);
+    const isHol = isHoliday(state.month, d);
+    let fill = 'FFE5E7EB';
+    if (isHol) fill = HOL_FILL;
+    else if (dow === 6) fill = SAT_FILL;
+    else if (dow === 0) fill = SUN_FILL;
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+    cell.border = thinBorder;
+  }
+
+  // ---------- ROW 4: 日期 1-31 + OFF ----------
+  const hdrData = ['編號', '職級', '輔導員', '姓名', '到職日'];
+  for (let d = 1; d <= days; d++) hdrData.push(d);
+  hdrData.push('OFF');
+  const hdrRow = ws.addRow(hdrData);
+  hdrRow.eachCell({ includeEmpty: false }, (cell) => {
+    cell.font = { bold: true, name: 'Microsoft JhengHei', size: 10 };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } };
+    cell.border = thinBorder;
+  });
+  hdrRow.height = 18;
+
+  // ---------- BODY: each staff = 2 rows (note row + shift row) ----------
+  let rowIdx = 5;  // next row to write
+  visible.forEach((p, idx) => {
+    const sched = state.schedule[p.id] || {};
+    const personNotes = state.notes[p.id] || {};
+
+    // ---- Note row (top) ----
+    const noteRowData = ['', '', '', '', ''];  // empty header cells (will merge with shift row)
+    for (let d = 1; d <= days; d++) {
+      noteRowData.push(personNotes[d] || '');
+    }
+    noteRowData.push('');  // OFF column (will merge)
+    const noteRow = ws.addRow(noteRowData);
+    noteRow.height = 14;
+    for (let d = 1; d <= days; d++) {
+      const cell = noteRow.getCell(FIRST_DAY_COL + d - 1);
+      cell.font = { size: 8, name: 'Microsoft JhengHei', color: { argb: 'FF991B1B' }, italic: true };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = thinBorder;
+    }
+
+    // ---- Shift row (bottom) ----
+    const shiftRowData = [idx + 1, p.level || '', p.note || '', p.name, p.hireDate || ''];
+    let offCount = 0;
+    for (let d = 1; d <= days; d++) {
+      const v = sched[d] || '';
+      shiftRowData.push(v);
+      if (['OFF','off','o','V'].includes(v)) offCount++;
+    }
+    shiftRowData.push(offCount);
+    const shiftRow = ws.addRow(shiftRowData);
+    shiftRow.height = 18;
+
+    // Style first 5 columns (id/level/mentor/name/hire) — vertically center across both rows
+    for (let c = 1; c <= 5; c++) {
+      // Merge note row + shift row for the staff info columns
+      ws.mergeCells(rowIdx, c, rowIdx + 1, c);
+      const cell = shiftRow.getCell(c);
+      cell.font = { name: 'Microsoft JhengHei', size: 10, bold: c === 4 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = thinBorder;
+    }
+
+    // Style each day cell of shift row
+    for (let d = 1; d <= days; d++) {
+      const cell = shiftRow.getCell(FIRST_DAY_COL + d - 1);
+      const v = sched[d] || '';
+      const display = v === 'o' ? 'off' : v;
+      cell.value = display;
+      styleCell(cell, v);
+    }
+
+    // OFF total cell — merge across 2 rows
+    ws.mergeCells(rowIdx, COL_OFF_TOTAL, rowIdx + 1, COL_OFF_TOTAL);
+    const offCell = shiftRow.getCell(COL_OFF_TOTAL);
+    offCell.value = offCount;
+    if (offCount >= 11) {
+      offCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+    } else if (offCount >= 8) {
+      offCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+    } else if (offCount > 0) {
+      offCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCA5A5' } };
+    }
+    offCell.font = { bold: true, name: 'Microsoft JhengHei', size: 10 };
+    offCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    offCell.border = thinBorder;
+
+    rowIdx += 2;
+  });
+
+  // ---------- DAILY TOTAL ROWS (D / E / N each) ----------
+  // Helper: count by shift, excluding non-counting people
+  // 使用全域 isCountingForCapacity (含「沒設能力階段」過濾)
+  function countShiftAtDay(sh, d) {
+    let n = 0;
+    visible.forEach(p => {
+      if (!isCountingForCapacity(p)) return;
+      const v = (state.schedule[p.id] || {})[d] || '';
+      // 只算純 D/E/N (排除 D/帶、D'、E' 等形變)
+      if (v === sh) n++;
+    });
+    return n;
+  }
+
+  function getDemandFor(d) {
+    const dow = getDayOfWeek(state.month, d);
+    const isHol = isHoliday(state.month, d);
+    const Dm = state.rules?.demand;
+    if (!Dm) return { D: 14, E: 14, N: 9 };
+    if (isHol && Dm.holidaySameAsSunday) return Dm.sunday;
+    if (dow === 0) return Dm.sunday;
+    if (dow === 1) return Dm.monday;
+    return Dm.weekday;
+  }
+
+  ['D', 'E', 'N'].forEach(sh => {
+    const totalRowData = ['', '', '', '', sh];
+    for (let d = 1; d <= days; d++) {
+      const c = countShiftAtDay(sh, d);
+      totalRowData.push(c);
+    }
+    totalRowData.push('');
+    const totalRow = ws.addRow(totalRowData);
+    totalRow.height = 18;
+
+    totalRow.getCell(5).font = { bold: true, name: 'Microsoft JhengHei', size: 11 };
+    totalRow.getCell(5).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } };
+    totalRow.getCell(5).alignment = { horizontal: 'center', vertical: 'middle' };
+    totalRow.getCell(5).border = thinBorder;
+
+    for (let d = 1; d <= days; d++) {
+      const cell = totalRow.getCell(FIRST_DAY_COL + d - 1);
+      const c = totalRow.getCell(FIRST_DAY_COL + d - 1).value;
+      const need = getDemandFor(d)[sh];
+      let bg = 'FFE8F5E8';  // ok green tint
+      if (c < need) bg = 'FFFCA5A5';   // shortage red
+      else if (c > need) bg = 'FFFEF3C7';  // overflow yellow
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+      cell.font = { bold: true, name: 'Microsoft JhengHei', size: 10 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = thinBorder;
+    }
+  });
+
+  // ---------- Column widths ----------
+  ws.getColumn(COL_NUM).width = 5;
+  ws.getColumn(COL_LEVEL).width = 5;
+  ws.getColumn(COL_MENTOR).width = 7;
+  ws.getColumn(COL_NAME).width = 9;
+  ws.getColumn(COL_HIRE).width = 11;
+  for (let d = 1; d <= days; d++) {
+    ws.getColumn(FIRST_DAY_COL + d - 1).width = 4.5;
+  }
+  ws.getColumn(COL_OFF_TOTAL).width = 5;
+
+  // Freeze panes — first 5 columns + first 4 header rows
+  ws.views = [{ state: 'frozen', xSplit: 5, ySplit: 4 }];
+
+  // Print setup
+  ws.pageSetup = {
+    paperSize: 8,  // A3
+    orientation: 'landscape',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
+    printTitlesRow: '1:4',  // repeat header on each printed page
+  };
+
+  // ---------- Write file ----------
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `急診_${yyyy}年${mm}月班表_傳統格式.xlsx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -5336,6 +6410,199 @@ function saveStaffData() {
   }
 }
 
+// ============================================================
+// 主檔雲端同步 (Leader edition only)
+// ============================================================
+
+/**
+ * 把當前 state.staff 整份存到雲端 staffMaster 工作表
+ * 這份是「權威主檔」 — 任何電腦/瀏覽器登入後都會拉這份
+ */
+async function saveStaffToCloud(silent) {
+  if (!IS_LEADER_EDITION) {
+    if (!silent) alert('個人版不支援雲端同步');
+    return false;
+  }
+  const token = getAuthToken();
+  if (!token) {
+    if (!silent) alert('未登入');
+    return false;
+  }
+  if (state.staff.length === 0) {
+    if (!silent) alert('主檔為空,無資料可上傳');
+    return false;
+  }
+
+  // 先呼叫 saveStaffData() 確保 state.staff 是最新
+  saveStaffData();
+
+  // 建立 payload(用跟 saveStaffData 一樣的格式)
+  const data = {};
+  state.staff.forEach(p => {
+    if (!p.name) return;
+    data[p.name] = {
+      level: p.level,
+      capabilities: p.capabilities || [],
+      peakStage: p.peakStage || '',
+      hireDate: p.hireDate || '',
+      mentor: p.mentor || '',
+      preferredShift: p.preferredShift || '',
+      canSwapTo: p.canSwapTo || [],
+      note: p.note || '',
+      special: p.special || '',
+      status: p.status || 'active',
+      statusDate: p.statusDate || '',
+      prevMonthConsec: p.prevMonthConsec || 0,
+    };
+  });
+  const dataStr = JSON.stringify(data);
+
+  if (!silent) {
+    const count = Object.keys(data).length;
+    if (!confirm(`確定上傳主檔到雲端?\n\n人員數: ${count} 位\n資料量: ${(dataStr.length / 1024).toFixed(1)} KB\n\n⚠ 雲端原有主檔會被覆蓋。`)) {
+      return false;
+    }
+  }
+
+  try {
+    const result = await apiCall('saveStaffMaster', { token, data: dataStr });
+    if (result.ok) {
+      if (!silent) {
+        alert(`✅ 主檔已上傳到雲端\n\n人員數: ${Object.keys(data).length} 位\n大小: ${(result.size / 1024).toFixed(1)} KB`);
+      }
+      return true;
+    } else {
+      if (!silent) alert('上傳失敗: ' + (result.error || '未知'));
+      return false;
+    }
+  } catch (e) {
+    if (!silent) alert('上傳失敗: ' + e.message);
+    return false;
+  }
+}
+
+/**
+ * 從雲端載入主檔,合併進 state.staff
+ * confirm:false → 靜默載入(登入時自動執行)
+ * confirm:true → 顯示確認對話框
+ */
+async function loadStaffFromCloud(showConfirm) {
+  if (!IS_LEADER_EDITION) {
+    if (showConfirm) alert('個人版不支援雲端同步');
+    return false;
+  }
+  const token = getAuthToken();
+  if (!token) {
+    if (showConfirm) alert('未登入');
+    return false;
+  }
+
+  try {
+    const result = await apiCall('loadStaffMaster', { token });
+    if (!result.ok) {
+      if (showConfirm) {
+        alert('雲端尚無主檔。請先在工具裡輸入人員,再點「⬆ 上傳到雲端」。');
+      } else {
+        console.log('[StaffMaster] 雲端尚無主檔,跳過自動載入');
+      }
+      return false;
+    }
+
+    const data = JSON.parse(result.data);
+    const peopleCount = Object.keys(data).length;
+
+    if (showConfirm) {
+      const msg = `從雲端載入 ${peopleCount} 位人員主檔?\n\n` +
+                  `儲存時間: ${result.savedAt ? new Date(result.savedAt).toLocaleString() : '未知'}\n` +
+                  `儲存者: ${result.savedBy || '未知'}\n\n` +
+                  `⚠ 目前的主檔將被覆蓋。\n` +
+                  `(目前班表不會被改動)`;
+      if (!confirm(msg)) return false;
+    }
+
+    // 寫進 localStorage
+    localStorage.setItem('schedulerStaff', JSON.stringify(data));
+
+    // 刷新 state.staff(把雲端資料合併到目前 state.staff)
+    if (state.staff.length === 0) {
+      // 沒有任何人 → 直接從 storage 重建
+      state.staff = Object.keys(data).map(name => {
+        const d = data[name];
+        return {
+          id: 'p_' + Math.random().toString(36).slice(2, 9),
+          name: name,
+          level: d.level || '',
+          capabilities: d.capabilities || [],
+          peakStage: d.peakStage || '',
+          hireDate: d.hireDate || '',
+          mentor: d.mentor || '',
+          preferredShift: d.preferredShift || '',
+          canSwapTo: d.canSwapTo || [],
+          note: d.note || '',
+          special: d.special || '',
+          status: d.status || 'active',
+          statusDate: d.statusDate || '',
+          prevMonthConsec: d.prevMonthConsec || 0,
+        };
+      });
+    } else {
+      // 已有人 → 合併屬性(雲端是權威)
+      state.staff.forEach(p => {
+        const cloud = data[p.name];
+        if (!cloud) return;  // 雲端沒這人(已離職?保留本地)
+        p.level = cloud.level || p.level;
+        p.capabilities = cloud.capabilities || p.capabilities || [];
+        p.peakStage = cloud.peakStage || p.peakStage || '';
+        p.hireDate = cloud.hireDate || p.hireDate || '';
+        p.mentor = cloud.mentor || p.mentor || '';
+        p.preferredShift = cloud.preferredShift || p.preferredShift || '';
+        p.canSwapTo = cloud.canSwapTo || p.canSwapTo || [];
+        p.note = cloud.note || p.note || '';
+        p.special = cloud.special || p.special || '';
+        p.status = cloud.status || p.status || 'active';
+        p.statusDate = cloud.statusDate || p.statusDate || '';
+      });
+      // 雲端有但本地沒有 → 補進來(可能是新人)
+      Object.keys(data).forEach(name => {
+        if (!state.staff.find(p => p.name === name)) {
+          const d = data[name];
+          state.staff.push({
+            id: 'p_' + Math.random().toString(36).slice(2, 9),
+            name: name,
+            level: d.level || '',
+            capabilities: d.capabilities || [],
+            peakStage: d.peakStage || '',
+            hireDate: d.hireDate || '',
+            mentor: d.mentor || '',
+            preferredShift: d.preferredShift || '',
+            canSwapTo: d.canSwapTo || [],
+            note: d.note || '',
+            special: d.special || '',
+            status: d.status || 'active',
+            statusDate: d.statusDate || '',
+            prevMonthConsec: d.prevMonthConsec || 0,
+          });
+        }
+      });
+    }
+
+    // 重新渲染
+    if (typeof renderTable === 'function') renderTable();
+    if (typeof refreshStaffStorageInfo === 'function') refreshStaffStorageInfo();
+
+    if (showConfirm) {
+      alert(`✅ 已從雲端載入 ${peopleCount} 位主檔`);
+    } else {
+      console.log(`[StaffMaster] 自動載入 ${peopleCount} 位主檔完成`);
+    }
+    return true;
+  } catch (e) {
+    if (showConfirm) alert('載入失敗: ' + e.message);
+    else console.error('[StaffMaster] 自動載入失敗:', e);
+    return false;
+  }
+}
+
 function loadStaffData() {
   try {
     const saved = localStorage.getItem('schedulerStaff');
@@ -5395,12 +6662,67 @@ function computePeakStage(caps) {
 
 // Auto-save trigger (debounced)
 let saveStaffTimer = null;
+let saveStaffCloudTimer = null;
+let _staffCloudSyncEnabled = true;  // 全域開關 (避免大批匯入時打爆 API)
+
 function autoSaveStaff() {
+  // 1. 立刻存進 localStorage (1 秒 debounce)
   if (saveStaffTimer) clearTimeout(saveStaffTimer);
   saveStaffTimer = setTimeout(() => {
     saveStaffData();
     refreshStaffStorageInfo();
   }, 1000);
+
+  // 2. 自動上傳雲端 (5 秒 debounce — 連續快改不會打爆 API)
+  if (IS_LEADER_EDITION && _staffCloudSyncEnabled) {
+    if (saveStaffCloudTimer) clearTimeout(saveStaffCloudTimer);
+    saveStaffCloudTimer = setTimeout(async () => {
+      try {
+        const ok = await saveStaffToCloud(true);  // silent mode
+        if (ok) {
+          // 顯示「☁ 已同步」小提示 (3 秒淡出)
+          showCloudSyncIndicator('synced');
+        } else {
+          showCloudSyncIndicator('failed');
+        }
+      } catch (e) {
+        console.warn('Auto cloud sync failed:', e);
+        showCloudSyncIndicator('failed');
+      }
+    }, 5000);
+  }
+}
+
+// 顯示雲端同步狀態小提示 (右下角)
+function showCloudSyncIndicator(state) {
+  let el = document.getElementById('cloud-sync-indicator');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'cloud-sync-indicator';
+    el.style.cssText = 'position: fixed; bottom: 20px; right: 20px; padding: 8px 14px; border-radius: 4px; font-size: 0.85rem; font-family: inherit; z-index: 9999; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: opacity 0.3s; pointer-events: none';
+    document.body.appendChild(el);
+  }
+  if (state === 'synced') {
+    el.style.background = '#d1fae5';
+    el.style.color = '#065f46';
+    el.style.border = '1px solid #6ee7b7';
+    el.textContent = '☁ 主檔已同步雲端';
+  } else if (state === 'failed') {
+    el.style.background = '#fee2e2';
+    el.style.color = '#991b1b';
+    el.style.border = '1px solid #fca5a5';
+    el.textContent = '⚠ 雲端同步失敗,稍後重試';
+  } else if (state === 'syncing') {
+    el.style.background = '#fef3c7';
+    el.style.color = '#92400e';
+    el.style.border = '1px solid #fcd34d';
+    el.textContent = '⏳ 雲端同步中...';
+  }
+  el.style.opacity = '1';
+  // 3 秒後淡出
+  setTimeout(() => {
+    if (el) el.style.opacity = '0';
+  }, 3000);
 }
 
 function refreshStaffStorageInfo() {
@@ -5912,6 +7234,11 @@ function applyMasterDiff() {
   closeModal('master-diff-modal');
   refreshStaffStorageInfo();
   alert(`✓ 已套用 ${toApply.length} 項變動\n\n${toApply.filter(d => d.type === 'new').length} 位新增 · ${toApply.filter(d => d.type === 'change').length} 位變動`);
+
+  // 觸發雲端自動同步 (5 秒後)
+  if (IS_LEADER_EDITION && _staffCloudSyncEnabled) {
+    autoSaveStaff();  // 會在 5 秒後自動上傳
+  }
 }
 
 // ============================================================
@@ -6789,6 +8116,7 @@ function runShiftSwapFix() {
 
     const counts = { D: 0, E: 0, N: 0 };
     state.staff.forEach(p => {
+      if (!isCountingForCapacity(p)) return;  // ★ 排除新進、實習、半日等
       const v = (state.schedule[p.id] || {})[d];
       if (counts.hasOwnProperty(v)) counts[v]++;
     });
@@ -6819,6 +8147,7 @@ function runShiftSwapFix() {
     // Recompute counts (state may have changed)
     const counts = { D: 0, E: 0, N: 0 };
     state.staff.forEach(p => {
+      if (!isCountingForCapacity(p)) return;  // ★ 排除新進、實習、半日等
       const v = (state.schedule[p.id] || {})[d];
       if (counts.hasOwnProperty(v)) counts[v]++;
     });
@@ -7381,6 +8710,7 @@ function buildScheduleSummary() {
   s += `- 星期一需求:D=${mon.D}, E=${mon.E}, N=${mon.N}\n`;
   s += `- 星期日/假日需求:D=${sun.D}, E=${sun.E}, N=${sun.N}\n`;
   s += `- 連續上班限制:最多 6 天(理想 ≤4 天)\n`;
+  s += `- 軟規則:工作日要連續 ≥2 天(避免「上 1 休 1」),休假日也要連續 ≥2 天(避免「休 1 上 1」)\n`;
   s += `- 每人基本休假天數:${target} 天(${targets.nSat}個週六 + ${targets.nSun}個週日 + ${targets.nHolidayNonWeekend}個非週末假日)\n`;
   s += `- 班別:D=白班、E=小夜、N=大夜、M=行政(週一到五)、OFF=抽中預假(不可動)、off=申請預假(可調)、o=系統排休、V=特休\n`;
 
@@ -7414,7 +8744,7 @@ function buildScheduleSummary() {
     s += `- ${p.name} ${p.level} 偏好:${p.preferredShift || '無'} 休:${off}天${offMarker} 班:${D}D/${E}E/${N}N/${M}M${noteStr}\n`;
   });
 
-  s += `\n## 每日人力(實際/需求)\n`;
+  s += `\n## 每日人力(實際/需求 — 只計入有設能力階段的正式人力)\n`;
   s += `(★ = 短缺, △ = 過剩)\n\n`;
   for (let d = 1; d <= days; d++) {
     const dow = getDayOfWeek(state.month, d);
@@ -7428,6 +8758,7 @@ function buildScheduleSummary() {
 
     const counts = { D: 0, E: 0, N: 0 };
     visible.forEach(p => {
+      if (!isCountingForCapacity(p)) return;  // ★ 排除新進、實習、半日等
       const v = (state.schedule[p.id] || {})[d];
       if (counts.hasOwnProperty(v)) counts[v]++;
     });
@@ -7467,6 +8798,47 @@ function buildScheduleSummary() {
     });
   }
 
+  // ============= 上1休1 / 休1上1 檢測 =============
+  const isolatedIssues = [];
+  visible.forEach(p => {
+    if (p.status && p.status !== 'active') return;  // skip inactive
+    if (p.special === '半日' || p.special === '實習' || p.special === '夜護') return;
+    const sched = state.schedule[p.id] || {};
+    const work = (v) => ['D','E','N','M'].includes(v);
+    const off = (v) => ['OFF','off','o','O','V'].includes(v);
+    const isolatedWork = [];   // 上 1 休 1 的工作日
+    const isolatedOff = [];    // 休 1 上 1 的休假日
+    for (let d = 1; d <= days; d++) {
+      const v = sched[d];
+      if (!v) continue;
+      const prev = d > 1 ? sched[d-1] : null;
+      const next = d < days ? sched[d+1] : null;
+      // 孤立工作日 (上 1):前一天是休、當天是上班、後一天是休
+      if (work(v) && off(prev) && off(next)) {
+        isolatedWork.push(d);
+      }
+      // 孤立休假日 (休 1):前一天是上、當天是休、後一天是上
+      if (off(v) && work(prev) && work(next)) {
+        isolatedOff.push(d);
+      }
+    }
+    if (isolatedWork.length > 0 || isolatedOff.length > 0) {
+      isolatedIssues.push({ name: p.name, level: p.level, isolatedWork, isolatedOff });
+    }
+  });
+
+  if (isolatedIssues.length > 0) {
+    s += `\n## ⚠ 上1休1 / 休1上1 (員工沒休到)\n`;
+    s += `(下列人員出現「孤立工作日」或「孤立休假日」,違反「工作連2、休假連2」軟規則)\n`;
+    isolatedIssues.slice(0, 20).forEach(c => {
+      const parts = [];
+      if (c.isolatedWork.length > 0) parts.push(`孤立上班日 ${c.isolatedWork.join('/')}`);
+      if (c.isolatedOff.length > 0) parts.push(`孤立休假日 ${c.isolatedOff.join('/')}`);
+      s += `- ${c.name} ${c.level}: ${parts.join('、')}\n`;
+    });
+    if (isolatedIssues.length > 20) s += `... 等共 ${isolatedIssues.length} 人\n`;
+  }
+
   return s;
 }
 
@@ -7487,8 +8859,20 @@ async function askAI(mode) {
 
   // User-facing label for this turn
   let userDisplay;
+  let swapContext = null;  // populated for mode='swap'
   if (mode === 'analyze') userDisplay = '🔍 全面分析這個月的班表';
   else if (mode === 'apply') userDisplay = '📋 給我具體建議清單';
+  else if (mode === 'swap') {
+    const tDay = parseInt($('swap-target-day').value, 10);
+    const tShift = $('swap-target-shift').value;
+    const tNeed = parseInt($('swap-target-need').value, 10) || 1;
+    const tConsec = $('swap-prefer-consec').value;
+    if (!tDay || tDay < 1 || tDay > 31) { alert('請輸入有效的缺人日期 (1-31)'); return; }
+    if (!['D','E','N'].includes(tShift)) { alert('請選擇班別'); return; }
+    swapContext = { day: tDay, shift: tShift, need: tNeed, preferConsec: tConsec === 'yes' };
+    userDisplay = `🔄 找對調對象:${state.month.split('-')[1]}/${tDay} ${tShift} 班缺 ${tNeed} 人${tConsec === 'yes' ? '(偏好連休的人)' : ''}`;
+    closeSwapPairForm();
+  }
   else if (userQuestion) userDisplay = userQuestion;
   else { alert('請輸入問題,或按上面的快速按鈕'); return; }
 
@@ -7567,6 +8951,11 @@ ${applyHistory}
 7. 連續上班 ≤4 天較佳
 8. 資深(HN/N4)盡量不要動
 9. 跳班看「可跳班別」,沒設的就不要跳
+10. **工作日要連續 ≥2 天**(避免「上 1 休 1」 — 改完後該人不能變成「o 上 o」)
+11. **休假日要連續 ≥2 天**(避免「休 1 上 1」 — 改完後該人不能變成「上 o 上」)
+    例:某人原本 5/8 是 o,前後是 D,你改成 D → 變成「D D D」OK
+    例:某人原本 5/7 D, 5/8 o, 5/9 D,你不要改 5/7 或 5/9 變成 o,因為會造成孤立 o
+    優先解決報告中「⚠ 上1休1 / 休1上1」名單裡的人
 
 ## 🎯 優先處理(順序很重要!)
 1. **每日人力短缺(★)** — 最重要!護理長最在乎!
@@ -7619,32 +9008,130 @@ ${applyHistory}
 - ❌ to 絕不能是 "OFF"
 - 確認 from 和 to 真的有差(不要 D → D)`;
   } else if (mode === 'analyze' || !userQuestion) {
-    prompt = `你是急診部護理排班專家,風格極度精簡。
+    prompt = `你是急診部護理排班專家,風格精簡但具洞察力。
 
 ${summary}
 ${historyText}
 
-# 優先順序(由高到低)
+# 你的任務 — 三層分析(全部都要做)
+
+## 第一層:硬規則違規檢查(優先處理)
 1. **每日人力短缺(★)**(最重要!)
 2. 連續上班 ≥6 天(違反勞基法)
 3. 休假天數明顯不足(< 基本天數 - 2)
+4. **上1休1 / 休1上1**(報告中「⚠」段列出的人 — 員工沒休到)
+
+## 第二層:替代方案(每個建議至少給 1-2 個替代)
+不要只給「最好」的方案,給「2-3 個可選」讓護理長挑:
+- 例如要補 5/8 N 班缺人:
+  方案 A:張三(5/8 是連休第 2 天,可抓 1 天)
+  方案 B:李四(5/8 是 o,且偏好班是 N)
+  方案 C:王五(5/8 是 o,5/9 也是 o,動 1 天還有休)
+- 例如要插休某人:
+  方案 A:5/12 是過剩 △ 的 D 班 → 改 o
+  方案 B:5/15 是過剩 △ 的 N 班 → 改 o(但他偏好 D,慎用)
+
+## 第三層:整體品質評估
+最後給一個 1-3 分的「排班品質評分」,從多角度看:
+- 人力均衡度(每日達標率)
+- 休假分布(連休天數、有沒有人沒休到)
+- 偏好滿足度(D/E/N 偏好的人有沒有上對班)
+- 跨班轉換合理性(N 後有沒有休)
 
 # 方向重點(不要弄反)
 - 「補人」= o → 工作(找休的人改上班)
 - 「給休」= 工作 → o(找上班的人改休)
 
-請用以下格式,**一行一個重點**,不要解釋太多:
+# 回應格式
 
-🔴 急(必修):
+🔴 **急(必修)**:
+- [人名] [日期] [現況→建議]:[一句話原因]
+  替代方案:[人名][日期][現況→建議]([原因])
+
+🟡 **建議**(可選):
 - [人名] [日期] [現況→建議]:[一句話原因]
 
-🟡 建議:
-- [人名] [日期] [現況→建議]:[一句話原因]
+🟢 **OK 不用動**:
+- [簡短說明]
 
-🟢 OK 不用動:
-- [簡短說明哪些做得好]
+📊 **整體評分**(直白)
+- 人力:X/3 分([簡短評語])
+- 休假:X/3 分([簡短評語])
+- 偏好:X/3 分([簡短評語])
+- 整體:X/3 分([一句總結])
 
-整個回覆控制在 15 行以內。**不要重複講規則,不要前言客套**。`;
+整個回覆控制在 25 行以內。具體、有數字、不客套。
+**對於有爭議的決策,主動指出 trade-off**(如「動這人能補缺,但他剛從 N 班下來,違反 N 後休 1 天軟規則」)。`;
+  } else if (mode === 'swap') {
+    const ctx = swapContext;
+    const monthStr = state.month;
+    prompt = `你是急診部護理排班專家。護理長要找「**雙向對調**」對象 — 不是單純補人,是「成對交換」。
+
+${summary}
+${historyText}
+
+# 護理長的需求
+
+**目標**:${monthStr.split('-')[1]} 月 ${ctx.day} 日,**${ctx.shift} 班缺 ${ctx.need} 人**,需要補。
+**方法**:雙向對調(每個對調 = 2 個動作)
+${ctx.preferConsec ? '**偏好**:從**連續休假**的人裡找 (他被抓 1 天上班,還是有休)' : ''}
+
+# 「對調」是什麼?(務必看懂!)
+
+每個「對調組」必須包含 2 個動作,缺一不可:
+
+【動作 A — 補方】
+  找一個 ${ctx.day} 日是 o 的人,他的 ${ctx.day} 日 o → ${ctx.shift}
+  → 這樣 ${ctx.day} 日 ${ctx.shift} 班補了 1 人 ✓
+  
+【動作 B — 還休】
+  找另一個某天 ${ctx.shift} 班過剩 (△) 的人,他那天 ${ctx.shift} → o
+  → 這樣他多了 1 天休,而 ${ctx.shift} 班過剩日減 1 人 ✓
+  → 注意:動作 B **不一定**要動到動作 A 的同一人!可以是不同人。
+
+雙向結果:
+  - ${ctx.day} 日 ${ctx.shift} 班補滿
+  - 全月 ${ctx.shift} 班總人數不變
+  - A 人多上 1 天 → 他總工作多 1 天 (從休裡借的)
+  - B 人多休 1 天 → ${ctx.shift} 班過剩日不再過剩
+
+# 你必須遵守的規則
+
+## 🔴 絕對不可違反
+1. **OFF (大寫) 不可動** — 員工抽中的預假,絕對不可改
+2. **連續上班不可超過 6 天** — 多上 1 天若會超過 6 天,不行
+3. ${ctx.preferConsec ? `**偏好「連休的人」做動作 A** — 例如他原本 5/8、5/9、5/10 都是 o (連 3 天),抓他 5/8 上班,他還剩 5/9、5/10 連休 2 天,可接受` : ''}
+4. **動作 B 必須挑「該班過剩 △」的日子** — 不可挑沒過剩的日,否則新缺一個人
+
+## 🟡 軟規則 (盡量遵守)
+5. **不要弄出「上 1 休 1」** (${ctx.day} 日改成上班後,該人前後不能變成「o 上 o」)
+6. **不要弄出「休 1 上 1」** (改完後該人不能變成「上 o 上」)
+7. 選的人偏好班別最好包含 ${ctx.shift} (主要或可跳)
+8. 半日/實習/夜護/病假/離職/留停的人不要動
+9. 護理長 (HN)、N4 資深盡量不動
+
+# 回應格式
+
+請用「**對調組**」格式回答,清楚分組:
+
+📋 **對調組 1**:
+  動作 A:[姓名] ${ctx.day} 日 o → ${ctx.shift} (補缺)
+    原因:[該人 ${ctx.day} 日是連休的第幾天 / 偏好班是 ${ctx.shift}]
+  動作 B:[姓名] X 日 ${ctx.shift} → o (還休)
+    原因:[X 日 ${ctx.shift} 班過剩 △ Y 人]
+
+📋 **對調組 2**: (如需要 ${ctx.need} 組)
+  動作 A:...
+  動作 B:...
+
+最後一行寫:
+**確認方向**:${ctx.day} 日 ${ctx.shift} 班 ${ctx.need} 人補滿,${ctx.shift} 班總過剩減少 ${ctx.need},總工時、總休假天數不變。
+
+# 反例(永遠不要這樣回答)
+
+❌ 「[姓名] ${ctx.day} 日 ${ctx.shift} → o」 — 這方向反了!該日是缺人,不是過剩
+❌ 只給「動作 A」沒給「動作 B」 — 那叫補人,不是對調
+❌ 動作 B 挑沒有過剩 (△) 的日子 — 那會新缺人`;
   } else {
     prompt = `你是急診部護理排班專家,風格極度精簡。
 
@@ -7873,6 +9360,26 @@ ${historyText}
 // ============================================================
 // Conversation UI helpers
 // ============================================================
+
+function openSwapPairFinder() {
+  const form = $('swap-pair-form');
+  if (!form) return;
+  form.style.display = 'block';
+  // Set default day to today if month matches
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+  if (ymd === state.month) {
+    $('swap-target-day').value = today.getDate();
+  } else {
+    $('swap-target-day').value = '';
+  }
+  $('swap-target-day').focus();
+}
+
+function closeSwapPairForm() {
+  const form = $('swap-pair-form');
+  if (form) form.style.display = 'none';
+}
 
 function clearAIConversation() {
   if (window._aiConversation && window._aiConversation.length > 0) {
@@ -9447,9 +10954,16 @@ function applyAnalyzedPrefs() {
 // ============================================================
 loadSavedRules();
 autoSetHolidays();
+restoreScheduleFromLocal();  // ★ 還原上次未存的班表
 updateEmptyStateForMaster();
 // Sync target days input after a short delay (so DOM is ready)
 setTimeout(() => { if (typeof syncTargetDaysInput === 'function') syncTargetDaysInput(); }, 100);
 </script>
+<!-- Cell context menu for note management -->
+<div id="cell-context-menu">
+  <div class="menu-header" id="ctx-menu-header">📌 加備註</div>
+  <div id="ctx-menu-buttons"></div>
+</div>
+
 </body>
 </html>
