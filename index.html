@@ -1227,6 +1227,18 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
       </div>
       <div id="fairness-list" style="max-height: 400px; overflow-y: auto"></div>
     </div>
+
+    <div class="section" id="leave-section">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleLeaveSection()">
+        <span id="leave-section-arrow">▶</span> ⏸ 留停人員 <span id="leave-section-count" style="font-size: 0.85rem; color: var(--ink-mute); font-weight: 400"></span>
+      </h3>
+      <div id="leave-section-body" style="display: none">
+        <div style="font-size: 0.82rem; color: var(--ink-mute); margin-bottom: 0.5rem">
+          留停人員不會在班表畫面顯示,也不會出現在匯出檔。要把人設為留停,點班表中的「姓名」進入員工編輯。
+        </div>
+        <div id="leave-staff-list" style="font-size: 0.9rem"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -3427,6 +3439,70 @@ function formatDow(d) {
 }
 
 // ============================================================
+// 隱藏規則(留停 / 已離職):畫面與匯出共用同一條
+// ============================================================
+function shouldHideStaff(p, monthStr) {
+  // 留停 → 直接隱藏
+  if (p.status === 'leave') return true;
+  // 月初前已離職 → 隱藏
+  if (p.status === 'resigned' && p.statusDate) {
+    const rd = new Date(p.statusDate);
+    const monthStart = new Date(monthStr + '-01');
+    if (rd < monthStart) return true;
+  }
+  return false;
+}
+
+// 右下 sidebar 「留停人員」區的展開/收合
+function toggleLeaveSection() {
+  const body = $('leave-section-body');
+  const arrow = $('leave-section-arrow');
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  if (arrow) arrow.textContent = open ? '▶' : '▼';
+  if (!open) renderLeaveStaffList();  // 展開時刷新
+}
+
+// 渲染留停人員清單(在右下角)
+function renderLeaveStaffList() {
+  const listEl = $('leave-staff-list');
+  const countEl = $('leave-section-count');
+  if (!listEl) return;
+
+  const onLeave = state.staff.filter(p => p.status === 'leave');
+  if (countEl) countEl.textContent = onLeave.length > 0 ? `(${onLeave.length} 人)` : '';
+
+  if (onLeave.length === 0) {
+    listEl.innerHTML = '<div style="color: var(--ink-mute); font-style: italic; padding: 0.3rem 0">目前沒有留停人員</div>';
+    return;
+  }
+
+  listEl.innerHTML = onLeave.map(p => {
+    const dateLabel = p.statusDate ? `(${p.statusDate} 起)` : '';
+    return `<div style="display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.5rem; border-bottom: 1px solid #eee; gap: 0.5rem">
+      <div style="flex: 1; min-width: 0">
+        <div style="font-weight: 600">${p.name} <span class="level-tag level-${p.level}" style="font-size: 0.78rem">${p.level}</span></div>
+        <div style="font-size: 0.78rem; color: var(--ink-mute)">${dateLabel}</div>
+      </div>
+      <button onclick="restoreFromLeave('${p.id}')" style="padding: 3px 8px; font-size: 0.82rem; background: white; border: 1px solid var(--accent); color: var(--accent); border-radius: 3px; cursor: pointer; flex-shrink: 0">→ 設為在職</button>
+    </div>`;
+  }).join('');
+}
+
+// 把留停的人改回在職
+function restoreFromLeave(pid) {
+  const p = state.staff.find(s => s.id === pid);
+  if (!p) return;
+  if (!confirm(`確定把「${p.name}」設為在職?\n\n設定後此人會重新出現在班表畫面上,也會出現在匯出檔裡。`)) return;
+  p.status = 'active';
+  p.statusDate = '';
+  if (typeof saveStaffData === 'function') saveStaffData();
+  renderTable();
+  renderLeaveStaffList();
+}
+
+// ============================================================
 // BRUSH
 // ============================================================
 document.querySelectorAll('.brush-btn').forEach(btn => {
@@ -3488,15 +3564,9 @@ function renderTable() {
   // Body
   html += '<tbody>';
 
-  // Filter: skip people who already resigned before this month
-  const monthStartDate = new Date(state.month + '-01');
-  const visibleStaff = state.staff.filter(p => {
-    if (p.status === 'resigned' && p.statusDate) {
-      const resignDate = new Date(p.statusDate);
-      if (resignDate < monthStartDate) return false;  // skip
-    }
-    return true;
-  });
+  // Filter: skip people who are on leave OR resigned-before-this-month
+  // 共用過濾規則,跟匯出邏輯一致
+  const visibleStaff = state.staff.filter(p => !shouldHideStaff(p, state.month));
 
   visibleStaff.forEach(p => {
     const sched = state.schedule[p.id] || {};
@@ -3610,6 +3680,7 @@ function renderTable() {
       const dow = getDayOfWeek(state.month, d);
       let count = 0;
       state.staff.forEach(p => {
+        if (!isCountingForCapacity(p)) return;  // ★ 排除新進、實習、半日、留停等
         if ((state.schedule[p.id] || {})[d] === st) count++;
       });
 
@@ -3826,9 +3897,10 @@ function renderSidePanel() {
   // Demand summary
   renderDemandSummary();
 
-  // Month overview
+  // Month overview (只計入有戰力的人:排除新進、實習、半日、留停等)
   let totalD = 0, totalE = 0, totalN = 0, totalO = 0, totalEmpty = 0;
   state.staff.forEach(p => {
+    if (!isCountingForCapacity(p)) return;  // ★ 跟 AI/規則檢查一致,排除無戰力人員
     const s = state.schedule[p.id] || {};
     for (let d = 1; d <= days; d++) {
       if (s[d] === 'D') totalD++;
@@ -3859,6 +3931,17 @@ function renderSidePanel() {
 
   // Fairness dashboard
   renderFairness();
+
+  // 留停人員計數(右下角區段標題的「(X 人)」),展開時也順便刷新清單
+  if (typeof renderLeaveStaffList === 'function') {
+    const body = $('leave-section-body');
+    const countEl = $('leave-section-count');
+    if (countEl) {
+      const n = state.staff.filter(p => p.status === 'leave').length;
+      countEl.textContent = n > 0 ? `(${n} 人)` : '';
+    }
+    if (body && body.style.display !== 'none') renderLeaveStaffList();
+  }
 }
 
 // ============================================================
@@ -3983,6 +4066,7 @@ function checkViolations() {
 
       let count = 0;
       state.staff.forEach(p => {
+        if (!isCountingForCapacity(p)) return;  // ★ 排除無戰力人員,跟班表底部統計一致
         if ((state.schedule[p.id] || {})[d] === st) count++;
       });
 
@@ -3990,7 +4074,7 @@ function checkViolations() {
         viols.push({
           level: 'err',
           title: `${d}日 ${st} 班缺 ${need - count} 人`,
-          detail: `需要 ${need} 人,目前 ${count} 人`,
+          detail: `需要 ${need} 人,目前 ${count} 人(已排除新進/實習/半日/留停)`,
         });
       }
     }
@@ -4640,6 +4724,8 @@ function savePersonInfo() {
 
   closeModal('person-modal');
   renderTable();
+  // 如果狀態改成留停/取消留停,刷新右下角留停清單
+  if (typeof renderLeaveStaffList === 'function') renderLeaveStaffList();
 }
 
 // ============================================================
@@ -5711,15 +5797,8 @@ async function exportXlsx() {
     cell.value = s.displayAs || raw;
   }
 
-  // Filter resigned
-  const exportMonthStart = new Date(state.month + '-01');
-  const exportStaff = state.staff.filter(p => {
-    if (p.status === 'resigned' && p.statusDate) {
-      const resignDate = new Date(p.statusDate);
-      if (resignDate < exportMonthStart) return false;
-    }
-    return true;
-  });
+  // Filter resigned + 留停(共用過濾規則,跟畫面一致)
+  const exportStaff = state.staff.filter(p => !shouldHideStaff(p, state.month));
 
   // ============================================================
   // COLUMN PLAN — matches PDF layout
@@ -5857,7 +5936,8 @@ async function exportXlsx() {
     dataRow.getCell(COL_LEVEL).font = { bold: true, name: 'Microsoft JhengHei', size: 10 };
     dataRow.getCell(COL_MENTOR).alignment = { horizontal: 'center' };
     dataRow.getCell(COL_MENTOR).font = { name: 'Microsoft JhengHei', size: 9, color: { argb: 'FF6B7280' } };
-    dataRow.getCell(COL_NAME).font = { bold: true, name: 'Microsoft JhengHei', size: 10 };
+    dataRow.getCell(COL_NAME).font = { bold: true, name: 'Microsoft JhengHei', size: 11, color: { argb: 'FF000000' } };
+    dataRow.getCell(COL_NAME).alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
     dataRow.getCell(COL_HIRE).alignment = { horizontal: 'center' };
     dataRow.getCell(COL_HIRE).font = { name: 'Microsoft JhengHei', size: 9, color: { argb: 'FF6B7280' } };
 
@@ -5926,13 +6006,13 @@ async function exportXlsx() {
   // COLUMN WIDTHS
   // ============================================================
   const cols = [];
-  cols.push({ width: 5 });   // 編號
-  cols.push({ width: 5 });   // 職級
-  cols.push({ width: 7 });   // 輔導員
-  cols.push({ width: 11 });  // 姓名
-  cols.push({ width: 11 });  // 到職日
+  cols.push({ width: 5 });    // 編號
+  cols.push({ width: 7 });    // 職級(N1/N2/HN/半日/實習)
+  cols.push({ width: 9 });    // 輔導員(2-3 字中文姓名)
+  cols.push({ width: 14 });   // 姓名(3-4 字中文姓名 + padding)
+  cols.push({ width: 11 });   // 到職日
   for (let d = 1; d <= days; d++) cols.push({ width: 4 });
-  cols.push({ width: 5 });   // OFF
+  cols.push({ width: 6 });    // OFF
   ws.columns = cols;
 
   // Freeze panes — first 5 cols + first 4 rows
@@ -6011,15 +6091,8 @@ async function exportXlsxTraditional() {
     cell.border = thinBorder;
   }
 
-  // ---------- Visible staff (skip resigned-before-month, leave 留停) ----------
-  const monthStart = new Date(state.month + '-01');
-  const visible = state.staff.filter(p => {
-    if (p.status === 'resigned' && p.statusDate) {
-      const rd = new Date(p.statusDate);
-      if (rd < monthStart) return false;
-    }
-    return true;
-  });
+  // ---------- Visible staff: 隱藏留停 + 月初前已離職(共用過濾規則,跟畫面一致) ----------
+  const visible = state.staff.filter(p => !shouldHideStaff(p, state.month));
 
   // ---------- Column layout ----------
   const COL_NUM = 1;
@@ -6132,7 +6205,13 @@ async function exportXlsxTraditional() {
       // Merge note row + shift row for the staff info columns
       ws.mergeCells(rowIdx, c, rowIdx + 1, c);
       const cell = shiftRow.getCell(c);
-      cell.font = { name: 'Microsoft JhengHei', size: 10, bold: c === 4 };
+      // 姓名(c=4) 加大加粗,職級(c=2) 加粗,所有欄位明確指定顏色避免繼承問題
+      cell.font = {
+        name: 'Microsoft JhengHei',
+        size: c === 4 ? 11 : 10,
+        bold: c === 4 || c === 2,
+        color: { argb: 'FF000000' },
+      };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
       cell.border = thinBorder;
     }
@@ -6220,14 +6299,14 @@ async function exportXlsxTraditional() {
 
   // ---------- Column widths ----------
   ws.getColumn(COL_NUM).width = 5;
-  ws.getColumn(COL_LEVEL).width = 5;
-  ws.getColumn(COL_MENTOR).width = 7;
-  ws.getColumn(COL_NAME).width = 9;
+  ws.getColumn(COL_LEVEL).width = 7;    // 職級(N1/N2/HN/半日/實習)
+  ws.getColumn(COL_MENTOR).width = 9;   // 輔導員
+  ws.getColumn(COL_NAME).width = 14;    // 姓名(3-4 字中文 + padding)
   ws.getColumn(COL_HIRE).width = 11;
   for (let d = 1; d <= days; d++) {
     ws.getColumn(FIRST_DAY_COL + d - 1).width = 4.5;
   }
-  ws.getColumn(COL_OFF_TOTAL).width = 5;
+  ws.getColumn(COL_OFF_TOTAL).width = 6;
 
   // Freeze panes — first 5 columns + first 4 header rows
   ws.views = [{ state: 'frozen', xSplit: 5, ySplit: 4 }];
@@ -9102,7 +9181,15 @@ function buildScheduleSummary() {
   s += `\n`;
 
   s += `## 人員與休假天數\n`;
-  s += `(姓名 / 職級 / 偏好 / 休假總天數 / 工作分布 D-E-N-M)\n\n`;
+  s += `(姓名 / 職級 / 偏好 / 可跳班別 / 休假總天數 / 工作分布 D-E-N-M)\n\n`;
+  s += `⚠ **重要個人偏好規則**:\n`;
+  s += `- 「可跳班別」= 此人除了偏好班別之外,還可以排哪些班\n`;
+  s += `- 若「可跳班別」為空 → 此人整月只能排 preferredShift 那一種班,絕對不可換到其他班\n`;
+  s += `- 若 preferredShift=D, 可跳=[E] → 可以排 D 或 E,但不能排 N\n`;
+  s += `- 此規則優先於人力補強需求。違反個人偏好的建議會被系統拒絕。\n\n`;
+  s += `⚠ **醫學安全規則(全員適用,無例外)**:\n`;
+  s += `- D / E / M 班之後若要接 N 班,中間必須至少隔 1 天 OFF(避免日夜快速反轉)\n`;
+  s += `- N 班之後可以接任何班(但仍須符合個人偏好)\n\n`;
   visible.forEach(p => {
     const sched = state.schedule[p.id] || {};
     let D=0, E=0, N=0, M=0, off=0;
@@ -9120,7 +9207,9 @@ function buildScheduleSummary() {
     if (p.status && p.status !== 'active') noteParts.push(p.status);
     const noteStr = noteParts.length ? ` [${noteParts.join(',')}]` : '';
     const offMarker = (off < target - 2) ? ' ⚠少' : (off > target + 2 ? ' ⚠多' : '');
-    s += `- ${p.name} ${p.level} 偏好:${p.preferredShift || '無'} 休:${off}天${offMarker} 班:${D}D/${E}E/${N}N/${M}M${noteStr}\n`;
+    // 可跳班別:沒勾 = 「整月只能 preferredShift」
+    const swapList = (p.canSwapTo && p.canSwapTo.length > 0) ? p.canSwapTo.join('/') : '無(整月只能上偏好班)';
+    s += `- ${p.name} ${p.level} 偏好:${p.preferredShift || '無'} 可跳:${swapList} 休:${off}天${offMarker} 班:${D}D/${E}E/${N}N/${M}M${noteStr}\n`;
   });
 
   s += `\n## 每日人力(實際/需求 — 只計入有設能力階段的正式人力)\n`;
@@ -9981,6 +10070,43 @@ function validateAIChange(c) {
     const isHol = isHoliday(state.month, c.day);
     if (dow === 0 || dow === 6 || isHol) {
       errors.push('M 班只能週一到五');
+    }
+  }
+
+  // ★★★ 個人偏好驗證:c.to 必須是 preferredShift 或在 canSwapTo 列表裡 ★★★
+  // 跳過 OFF/off/o/V 這些「休」類值,只檢查實際工作班(D/E/N/M)
+  const workShifts = ['D', 'E', 'N', 'M'];
+  if (c.to && workShifts.includes(c.to)) {
+    const pref = person.preferredShift || '';
+    const swapTo = person.canSwapTo || [];
+    const isPref = c.to === pref;
+    const isSwap = swapTo.includes(c.to);
+    if (!isPref && !isSwap) {
+      if (swapTo.length === 0) {
+        // 整月只能上偏好班
+        errors.push(`違反個人偏好:${person.name} 不可跳班(偏好「${pref || '未設'}」,可跳清單為空,整月只能上偏好班)`);
+      } else {
+        errors.push(`違反個人偏好:${person.name} 不可上 ${c.to} 班(偏好「${pref}」,可跳:${swapTo.join('/')})`);
+      }
+    }
+  }
+
+  // ★★★ 醫學安全驗證:D/E/M → N 必須中間隔 OFF 至少一天 ★★★
+  // (N→任何班都可以;這條無論個人偏好怎麼設都要遵守)
+  if (c.to === 'N' && c.day >= 2) {
+    const prevDay = sched[c.day - 1] || '';
+    if (['D', 'E', 'M'].includes(prevDay)) {
+      errors.push(`違反醫學安全規則:${person.name} ${c.day - 1} 日是 ${prevDay} 班,不可直接接 N 班(中間至少隔 1 天 OFF)`);
+    }
+  }
+  // 反過來:如果改某天為 D/E/M,要看「下一天」是不是 N(代表改完會違反規則)
+  if (c.to && ['D', 'E', 'M'].includes(c.to)) {
+    const days = getDaysInMonth(state.month);
+    if (c.day < days) {
+      const nextDay = sched[c.day + 1] || '';
+      if (nextDay === 'N') {
+        errors.push(`違反醫學安全規則:${person.name} ${c.day + 1} 日是 N 班,${c.day} 日不可改成 ${c.to} 班(中間至少隔 1 天 OFF)`);
+      }
     }
   }
 
