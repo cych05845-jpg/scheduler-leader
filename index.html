@@ -6234,7 +6234,8 @@ async function exportXlsx() {
       else if (dow === 0) need = Dm.sunday[st];
       else if (dow === 1) need = Dm.monday[st];
       else need = Dm.weekday[st];
-      row.push(`${count}/${need}`);
+      // 修:跟標籤「需求/實際」順序一致(原本是 count/need,順序顛倒造成誤讀)
+      row.push(`${need}/${count}`);
       counts.push({ count, need });
     }
     row.push('');
@@ -9518,6 +9519,41 @@ function buildScheduleSummary() {
     const swapList = (p.canSwapTo && p.canSwapTo.length > 0) ? p.canSwapTo.join('/') : '無(整月只能上偏好班)';
     s += `- ${p.name} ${p.level} 偏好:${p.preferredShift || '無'} 可跳:${swapList} 休:${off}天${offMarker} 班:${D}D/${E}E/${N}N/${M}M${noteStr}\n`;
   });
+
+  s += `\n## 🎯 調班/補人優先級 SOP(請嚴格依此順序給建議)\n`;
+  s += `\n**這是護理長慣用的調班流程,請完全遵守:**\n\n`;
+  s += `### Step 1:N 班最優先(最難補)\n`;
+  s += `N 班最難找人替補,先處理 N 班缺人日。標準方法:\n`;
+  s += `1. 從「N 多人日」找候選人:該人那天上 N、**且在「N 缺人日」當天是 off**(off/o/V,不是 OFF 中籤預假)\n`;
+  s += `2. 把他「N 多人日」的 N → off,把「N 缺人日」的 off → N\n`;
+  s += `3. 結果:該人工作量不變,只是 N 班「移動」一天到缺人日\n\n`;
+  s += `### Step 2:候選人優先序\n`;
+  s += `- 「OFF/休天數偏多」的人優先(順便平衡個人公平性)\n`;
+  s += `- 移動後該人「連續工作段」必須 ≤ 5 天\n`;
+  s += `- 兩個調動日距離越近越好\n\n`;
+  s += `### Step 3:N 班內部不夠補時,從 E/D 班挪「一整段」過來\n`;
+  s += `- 「一整段」= O 到 O 之間的工作段(不可只挪一兩天)\n`;
+  s += `- 條件:被挪走的班別「整段那幾天」人力都還夠\n`;
+  s += `- 該人必須 canSwapTo 包含 N 才能挪到 N 班\n\n`;
+  s += `### Step 4:E 班、D 班依序處理(同樣邏輯)\n\n`;
+  s += `### ❌ 絕對不要給的建議\n`;
+  s += `- **不要「對調」**(A 同一天 N→o、B 同一天 o→N):這是換人不是補人,**淨人力 +0**\n`;
+  s += `- **不要動 OFF 預假**(任何方向都不行,OFF 是中籤神聖不可動)\n`;
+  s += `- **不要違反個人 canSwapTo**(可跳清單沒勾的人整月只能上偏好班)\n`;
+  s += `- **不要 D/E/M 之後直接接 N**(中間必須隔 OFF 至少 1 天)\n`;
+  s += `- **不要動「外派」「留停」「實習」的人**\n\n`;
+  s += `### ✅ 每條建議前,自問檢查:\n`;
+  s += `1. 套用後「缺人日」該班別**實際 +1 人**嗎?(不是換人)\n`;
+  s += `2. 候選人在「缺人日」那天**真的是 off(可改)**嗎?\n`;
+  s += `3. 候選人在「多人日」那天**真的是 N(可移出)**嗎?\n`;
+  s += `4. 移動後候選人的工作段 ≤ 5 天嗎?\n`;
+  s += `5. 候選人有 canSwapTo 那個班別嗎?\n\n`;
+  s += `### 💡 跳班定義(避免誤判)\n`;
+  s += `「跳班」= O 到 O 之間的工作段內出現**不同**班別(D→E、D→N、E→N 等)\n`;
+  s += `- D D D off off → 不跳班(全 D)\n`;
+  s += `- N N N N off → 不跳班(全 N)\n`;
+  s += `- D D E off → 跳班(D 變 E)\n`;
+  s += `- off N N off off N off → 不跳班(兩個獨立 N 段,中間有 off 隔開)\n\n`;
 
   s += `\n## 每日人力(實際/需求 — 只計入有設能力階段的正式人力)\n`;
   s += `(★ = 短缺, △ = 過剩)\n\n`;
