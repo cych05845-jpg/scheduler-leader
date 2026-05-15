@@ -3383,6 +3383,8 @@ function isCountingForCapacity(p) {
       if (rd < monthStart) return false;
     }
   }
+  // 1.5 外派支援(整月) → 不算急診人力
+  if (p.dispatch) return false;
   // 2. 半日 / 實習 等級 → 不算
   if (p.level === '半日' || p.level === '實習') return false;
   // 3. 備註含特殊狀況 → 不算
@@ -3571,9 +3573,16 @@ function renderTable() {
   visibleStaff.forEach(p => {
     const sched = state.schedule[p.id] || {};
     const pref = p.preferredShift || '';
+    const isDispatched = !!p.dispatch;  // 整月外派
 
-    html += `<tr data-pid="${p.id}">`;
-    html += `<td class="col-meta col-name" onclick="openPersonModal('${p.id}')" style="cursor:pointer">${p.name}</td>`;
+    // 整月外派:整列灰底,姓名後加紅色標籤
+    const rowStyle = isDispatched ? ' style="background: #f3f4f6"' : '';
+    const dispatchTag = isDispatched
+      ? ` <span style="display: inline-block; padding: 1px 6px; background: #fee2e2; color: #b91c1c; border-radius: 3px; font-size: 0.78rem; font-weight: 600; margin-left: 4px" title="本月外派支援 ${p.dispatch || '未填單位'}">📤 外派 ${p.dispatch || ''}</span>`
+      : '';
+
+    html += `<tr data-pid="${p.id}"${rowStyle}>`;
+    html += `<td class="col-meta col-name" onclick="openPersonModal('${p.id}')" style="cursor:pointer">${p.name}${dispatchTag}</td>`;
     html += `<td class="col-meta col-level"><span class="level-tag level-${p.level}">${p.level}</span></td>`;
     html += `<td class="col-meta col-pref">${pref ? `<span class="tag">${pref}</span>` : ''}</td>`;
 
@@ -3631,7 +3640,14 @@ function renderTable() {
       const noteText = (state.notes[p.id] && state.notes[p.id][d]) || '';
       const noteIndicator = noteText ? '<span class="note-dot" title="' + escapeHTML(noteText) + '">●</span>' : '';
       const noteTitle = noteText ? `\n📌 ${noteText}` : '';
-      html += `<td class="${cls}" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" title="${p.name} ${d}日 ${shift}${titleSuffix}${noteTitle}">${noteIndicator}${display}</td>`;
+
+      // 整月外派:格子顯示「外」,紅底白字,點擊仍會開該人視窗
+      if (isDispatched) {
+        const dispatchTitle = `${p.name} ${d}日 外派支援 ${p.dispatch || '(未填單位)'}`;
+        html += `<td class="cell" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" style="background: #fee2e2; color: #b91c1c; font-weight: 600" title="${dispatchTitle}">外</td>`;
+      } else {
+        html += `<td class="${cls}" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" title="${p.name} ${d}日 ${shift}${titleSuffix}${noteTitle}">${noteIndicator}${display}</td>`;
+      }
     }
 
     // Stats columns
@@ -4457,6 +4473,27 @@ function openPersonModal(pid) {
         <input type="date" id="pm-status-date" value="${p.statusDate || ''}" style="padding: 4px 8px; font-family: inherit; flex: 1">
       </div>
 
+      <span class="label">📤 外派支援</span>
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap">
+        <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.95rem">
+          <input type="checkbox" id="pm-dispatch-on" ${p.dispatch ? 'checked' : ''} onchange="onDispatchToggle()">
+          整月外派
+        </label>
+        <select id="pm-dispatch-unit" style="padding: 4px 8px; font-family: inherit; display: ${p.dispatch ? 'inline-block' : 'none'}" onchange="onDispatchUnitChange()">
+          <option value="">— 選擇支援單位 —</option>
+          <option value="ICU" ${p.dispatch === 'ICU' ? 'selected' : ''}>ICU</option>
+          <option value="CCU" ${p.dispatch === 'CCU' ? 'selected' : ''}>CCU</option>
+          <option value="病房" ${p.dispatch === '病房' ? 'selected' : ''}>病房</option>
+          <option value="門診" ${p.dispatch === '門診' ? 'selected' : ''}>門診</option>
+          <option value="手術室" ${p.dispatch === '手術室' ? 'selected' : ''}>手術室</option>
+          <option value="__custom__" ${p.dispatch && !['ICU','CCU','病房','門診','手術室'].includes(p.dispatch) ? 'selected' : ''}>其他(自訂)...</option>
+        </select>
+        <input type="text" id="pm-dispatch-custom" value="${p.dispatch && !['ICU','CCU','病房','門診','手術室'].includes(p.dispatch) ? p.dispatch : ''}" placeholder="自訂單位名稱" style="padding: 4px 8px; font-family: inherit; flex: 1; display: ${p.dispatch && !['ICU','CCU','病房','門診','手術室'].includes(p.dispatch) ? 'inline-block' : 'none'}">
+      </div>
+      <div id="pm-dispatch-hint" style="font-size: 0.82rem; color: var(--ink-mute); margin-top: 0.2rem; display: ${p.dispatch ? 'block' : 'none'}">
+        💡 此人本月不計入急診人力,班表上每天會顯示「外」字
+      </div>
+
       <span class="label" title="上個月底連續上班幾天?用於跨月計算休假">月初連續上班</span>
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap">
         <input type="number" id="pm-prev-consec" value="${p.prevMonthConsec || 0}" min="0" max="6" style="padding: 4px 8px; width: 60px; font-family: inherit">
@@ -4645,6 +4682,41 @@ function onStatusChange() {
   }
 }
 
+// 外派切換 handler
+function onDispatchToggle() {
+  const on = $('pm-dispatch-on').checked;
+  const unitSel = $('pm-dispatch-unit');
+  const custom = $('pm-dispatch-custom');
+  const hint = $('pm-dispatch-hint');
+  if (on) {
+    if (unitSel) unitSel.style.display = 'inline-block';
+    if (hint) hint.style.display = 'block';
+  } else {
+    if (unitSel) {
+      unitSel.style.display = 'none';
+      unitSel.value = '';
+    }
+    if (custom) {
+      custom.style.display = 'none';
+      custom.value = '';
+    }
+    if (hint) hint.style.display = 'none';
+  }
+}
+
+// 自訂單位顯示切換
+function onDispatchUnitChange() {
+  const unitSel = $('pm-dispatch-unit');
+  const custom = $('pm-dispatch-custom');
+  if (!unitSel || !custom) return;
+  if (unitSel.value === '__custom__') {
+    custom.style.display = 'inline-block';
+    custom.focus();
+  } else {
+    custom.style.display = 'none';
+  }
+}
+
 function savePersonInfo() {
   const p = state.staff.find(s => s.id === state.selectedPersonId);
   if (!p) return;
@@ -4667,6 +4739,22 @@ function savePersonInfo() {
   const statusDateEl = $('pm-status-date');
   if (statusEl) p.status = statusEl.value;
   if (statusDateEl) p.statusDate = statusDateEl.value;
+
+  // 外派支援
+  const dispatchOn = $('pm-dispatch-on');
+  const dispatchUnit = $('pm-dispatch-unit');
+  const dispatchCustom = $('pm-dispatch-custom');
+  if (dispatchOn && dispatchOn.checked) {
+    let unit = '';
+    if (dispatchUnit) {
+      unit = dispatchUnit.value === '__custom__'
+        ? (dispatchCustom ? dispatchCustom.value.trim() : '')
+        : dispatchUnit.value;
+    }
+    p.dispatch = unit;  // 例如 'ICU' 或自訂字串;空字串表示啟用但未填單位
+  } else {
+    p.dispatch = '';
+  }
 
   // Previous month consecutive days
   const prevConsecEl = $('pm-prev-consec');
@@ -5905,29 +5993,45 @@ async function exportXlsx() {
       hireFmt = `${rocYear}.${hm}.${hd}`;
     }
 
+    const isDispatched = !!p.dispatch;
+
     const row = [
       i + 1,
       p.level,
       p.mentor || '',
-      p.name,
+      isDispatched ? `${p.name} [外派 ${p.dispatch}]` : p.name,
       hireFmt,
     ];
 
     let O = 0;
     for (let d = 1; d <= days; d++) {
-      row.push('');  // placeholder
+      row.push(isDispatched ? '外' : '');  // 外派整月顯示「外」
       const v = sched[d];
       if (['OFF','off','o','O','V'].includes(v)) O++;
     }
-    row.push(O);
+    row.push(isDispatched ? '' : O);
 
     const dataRow = ws.addRow(row);
 
     // Style each shift cell
     for (let d = 1; d <= days; d++) {
       const cell = dataRow.getCell(FIRST_DAY_COL + d - 1);
-      const v = sched[d];
-      if (v) styleShiftCell(cell, v);
+      if (isDispatched) {
+        // 外派:紅底白字「外」
+        cell.value = '外';
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+        cell.font = { bold: true, color: { argb: 'FFB91C1C' }, name: 'Microsoft JhengHei', size: 10 };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+          left: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+          bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+          right: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+        };
+      } else {
+        const v = sched[d];
+        if (v) styleShiftCell(cell, v);
+      }
     }
 
     // Style metadata columns
@@ -5936,10 +6040,17 @@ async function exportXlsx() {
     dataRow.getCell(COL_LEVEL).font = { bold: true, name: 'Microsoft JhengHei', size: 10 };
     dataRow.getCell(COL_MENTOR).alignment = { horizontal: 'center' };
     dataRow.getCell(COL_MENTOR).font = { name: 'Microsoft JhengHei', size: 9, color: { argb: 'FF6B7280' } };
-    dataRow.getCell(COL_NAME).font = { bold: true, name: 'Microsoft JhengHei', size: 11, color: { argb: 'FF000000' } };
+    dataRow.getCell(COL_NAME).font = { bold: true, name: 'Microsoft JhengHei', size: 11, color: { argb: isDispatched ? 'FFB91C1C' : 'FF000000' } };
     dataRow.getCell(COL_NAME).alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
     dataRow.getCell(COL_HIRE).alignment = { horizontal: 'center' };
     dataRow.getCell(COL_HIRE).font = { name: 'Microsoft JhengHei', size: 9, color: { argb: 'FF6B7280' } };
+
+    // 外派整列左側 5 欄加灰底
+    if (isDispatched) {
+      for (let c = 1; c <= 5; c++) {
+        dataRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+      }
+    }
 
     // Style OFF total cell with target comparison
     const targets = (typeof computeOffTargets === 'function') ? computeOffTargets() : { targetDays: 9 };
@@ -5967,6 +6078,7 @@ async function exportXlsx() {
     for (let d = 1; d <= days; d++) {
       let count = 0;
       exportStaff.forEach(p => {
+        if (!isCountingForCapacity(p)) return;  // 排除新進/實習/留停/外派
         if ((state.schedule[p.id] || {})[d] === st) count++;
       });
       const dow = getDayOfWeek(state.month, d);
@@ -6174,6 +6286,7 @@ async function exportXlsxTraditional() {
   visible.forEach((p, idx) => {
     const sched = state.schedule[p.id] || {};
     const personNotes = state.notes[p.id] || {};
+    const isDispatched = !!p.dispatch;  // 整月外派
 
     // ---- Note row (top) — 前 5 欄先留空,merge 後再 setValue(避免 anchor 行為差異)----
     const noteRowData = [null, null, null, null, null];
@@ -6194,9 +6307,10 @@ async function exportXlsxTraditional() {
     const shiftRowData = [null, null, null, null, null];
     let offCount = 0;
     for (let d = 1; d <= days; d++) {
-      const v = sched[d] || '';
+      // 外派整月顯示「外」,否則用 sched 內容
+      const v = isDispatched ? '外' : (sched[d] || '');
       shiftRowData.push(v);
-      if (['OFF','off','o','V'].includes(v)) offCount++;
+      if (!isDispatched && ['OFF','off','o','V'].includes(v)) offCount++;
     }
     shiftRowData.push(null);  // OFF 欄一樣 null,merge 後再 setValue
     const shiftRow = ws.addRow(shiftRowData);
@@ -6204,41 +6318,60 @@ async function exportXlsxTraditional() {
 
     // Style first 5 columns (id/level/mentor/name/hire) — 先 merge,再 setValue 到 anchor
     // 跟 OFF 欄一樣的順序,確保 anchor 行為正確
-    const personInfo = [idx + 1, p.level || '', p.mentor || p.note || '', p.name, p.hireDate || ''];
+    // 外派人員姓名加標籤
+    const nameDisplay = isDispatched ? `${p.name} [外派 ${p.dispatch}]` : p.name;
+    const personInfo = [idx + 1, p.level || '', p.mentor || p.note || '', nameDisplay, p.hireDate || ''];
     for (let c = 1; c <= 5; c++) {
       ws.mergeCells(rowIdx, c, rowIdx + 1, c);
       const cell = noteRow.getCell(c);
       cell.value = personInfo[c - 1];  // ← 關鍵:merge 之後才設值
-      // 姓名(c=4) 加大加粗,職級(c=2) 加粗,所有欄位明確指定顏色避免繼承問題
       cell.font = {
         name: 'Microsoft JhengHei',
         size: c === 4 ? 11 : 10,
         bold: c === 4 || c === 2,
-        color: { argb: 'FF000000' },
+        color: { argb: isDispatched && c === 4 ? 'FFB91C1C' : 'FF000000' },
       };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
       cell.border = thinBorder;
+      // 外派整列左側 5 欄灰底
+      if (isDispatched) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+      }
     }
 
     // Style each day cell of shift row
     for (let d = 1; d <= days; d++) {
       const cell = shiftRow.getCell(FIRST_DAY_COL + d - 1);
-      const v = sched[d] || '';
-      const display = v === 'o' ? 'off' : v;
-      cell.value = display;
-      styleCell(cell, v);
+      if (isDispatched) {
+        // 外派整月:紅底白字「外」
+        cell.value = '外';
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+        cell.font = { bold: true, color: { argb: 'FFB91C1C' }, name: 'Microsoft JhengHei', size: 10 };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = thinBorder;
+      } else {
+        const v = sched[d] || '';
+        const display = v === 'o' ? 'off' : v;
+        cell.value = display;
+        styleCell(cell, v);
+      }
     }
 
     // OFF total cell — merge across 2 rows;值寫在 anchor(noteRow)以與前 5 欄一致
     ws.mergeCells(rowIdx, COL_OFF_TOTAL, rowIdx + 1, COL_OFF_TOTAL);
     const offCell = noteRow.getCell(COL_OFF_TOTAL);
-    offCell.value = offCount;
-    if (offCount >= 11) {
-      offCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
-    } else if (offCount >= 8) {
-      offCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
-    } else if (offCount > 0) {
-      offCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCA5A5' } };
+    if (isDispatched) {
+      offCell.value = '';  // 外派沒有 OFF 統計
+      offCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+    } else {
+      offCell.value = offCount;
+      if (offCount >= 11) {
+        offCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+      } else if (offCount >= 8) {
+        offCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+      } else if (offCount > 0) {
+        offCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCA5A5' } };
+      }
     }
     offCell.font = { bold: true, name: 'Microsoft JhengHei', size: 10 };
     offCell.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -9194,6 +9327,8 @@ function buildScheduleSummary() {
   s += `⚠ **醫學安全規則(全員適用,無例外)**:\n`;
   s += `- D / E / M 班之後若要接 N 班,中間必須至少隔 1 天 OFF(避免日夜快速反轉)\n`;
   s += `- N 班之後可以接任何班(但仍須符合個人偏好)\n\n`;
+  s += `⚠ **外派支援人員**:\n`;
+  s += `- 標記「外派 XXX」的人本月整月在其他單位支援,不算急診人力,不要排他們的班、不要當補班者\n\n`;
   visible.forEach(p => {
     const sched = state.schedule[p.id] || {};
     let D=0, E=0, N=0, M=0, off=0;
@@ -9209,6 +9344,7 @@ function buildScheduleSummary() {
     if (p.note) noteParts.push(p.note);
     if (p.special) noteParts.push(p.special);
     if (p.status && p.status !== 'active') noteParts.push(p.status);
+    if (p.dispatch) noteParts.push(`外派${p.dispatch}`);
     const noteStr = noteParts.length ? ` [${noteParts.join(',')}]` : '';
     const offMarker = (off < target - 2) ? ' ⚠少' : (off > target + 2 ? ' ⚠多' : '');
     // 可跳班別:沒勾 = 「整月只能 preferredShift」
@@ -10028,6 +10164,10 @@ function validateAIChange(c) {
     if (person.statusDate && new Date(person.statusDate) < monthStart) {
       errors.push('此人已離職');
     }
+  }
+  // 外派支援人員不可動
+  if (person.dispatch) {
+    errors.push(`此人本月外派 ${person.dispatch},不算急診人力,不可被動`);
   }
 
   // Skip if note indicates special status
