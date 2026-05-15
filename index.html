@@ -392,6 +392,97 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 .sched-table tfoot td.ok { background: #d1fae5; }
 .sched-table tfoot td.ok { color: var(--ok); }
 
+/* ============================================================
+   浮動人力統計視窗(可拖、可收合)
+   - 顯示當月每日 D/E/N 需求/實際,跟主表 tfoot 數字一致
+   - 抓 .float-stats-header 拖動,位置存 localStorage
+   ============================================================ */
+.float-stats {
+  position: fixed;
+  z-index: 9000;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+  font-size: 13px;
+  user-select: none;
+  /* 預設位置:右下角(JS 會依視窗大小調整,並從 localStorage 還原) */
+  right: 16px;
+  bottom: 16px;
+  max-width: calc(100vw - 32px);
+  max-height: 40vh;
+  display: flex;
+  flex-direction: column;
+}
+.float-stats.collapsed .float-stats-body { display: none; }
+.float-stats-header {
+  background: var(--ink);
+  color: var(--paper);
+  padding: 6px 10px;
+  cursor: move;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  border-radius: 4px 4px 0 0;
+  flex-shrink: 0;
+}
+.float-stats-header .title { flex: 1; }
+.float-stats-header button {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.3);
+  color: var(--paper);
+  width: 24px;
+  height: 22px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  line-height: 1;
+}
+.float-stats-header button:hover { background: rgba(255,255,255,0.15); }
+.float-stats-body {
+  overflow: auto;
+  flex: 1;
+}
+.float-stats-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.float-stats-table td {
+  border: 1px solid #e0e0e0;
+  text-align: center;
+  min-width: 32px;
+  padding: 3px 5px;
+  background: #f0ebe1;
+  font-weight: 700;
+}
+.float-stats-table td.label {
+  position: sticky;
+  left: 0;
+  background: #f0ebe1;
+  z-index: 2;
+  border-right: 2px solid var(--ink);
+  text-align: left;
+  padding: 3px 8px;
+  min-width: 110px;
+}
+.float-stats-table td.short { background: #fca5a5; color: #7f1d1d; font-weight: 800; }
+.float-stats-table td.over { background: #fef3c7; color: #92400e; }
+.float-stats-table td.ok { background: #d1fae5; color: var(--ok); }
+.float-stats-table td.dow-sat { box-shadow: inset 0 -2px 0 #264a6a; }
+.float-stats-table td.dow-sun { box-shadow: inset 0 -2px 0 #6a2626; }
+.float-stats-table td.holiday { box-shadow: inset 0 -2px 0 var(--accent); }
+.float-stats-table thead td {
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
+  font-weight: 600;
+}
+.float-stats-table thead td.label { background: var(--ink); color: var(--paper); }
+
 /* Individual stats column */
 .stat-col {
   background: #f5f0e5;
@@ -1189,11 +1280,25 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
       <!-- Help tip -->
       <div class="help-tip" id="help-tip">
         <strong>💡 操作提示:</strong>點選上方畫筆,然後點擊班表格子填入班別。點擊人員姓名可設定個人資訊(固定班偏好、預約休假等)。
+        <button type="button" id="float-stats-toggle" style="margin-left:1rem;padding:3px 10px;background:var(--accent);color:white;border:none;border-radius:3px;cursor:pointer;font-size:0.85rem;font-weight:600">📊 浮動人力統計</button>
       </div>
 
       <!-- Schedule table -->
       <div class="schedule-wrap" id="schedule-wrap">
         <table class="sched-table" id="sched-table"></table>
+      </div>
+
+      <!-- 浮動人力統計視窗(可拖、可收合) -->
+      <div class="float-stats" id="float-stats" style="display:none">
+        <div class="float-stats-header" id="float-stats-header">
+          <span class="title">📊 人力統計(可拖動)</span>
+          <button type="button" id="float-stats-reset" title="重置位置">📍</button>
+          <button type="button" id="float-stats-collapse" title="收合/展開">▼</button>
+          <button type="button" id="float-stats-close" title="關閉">✕</button>
+        </div>
+        <div class="float-stats-body" id="float-stats-body">
+          <table class="float-stats-table" id="float-stats-table"></table>
+        </div>
       </div>
     </div>
   </div>
@@ -3836,7 +3941,210 @@ function renderTable() {
 
   tbl.innerHTML = html;
 
+  // 同步浮動人力統計(若已開啟)
+  if (typeof renderFloatStats === 'function') renderFloatStats();
+
   renderSidePanel();
+}
+
+// ============================================================
+// FLOATING STATS PANEL (可拖、可收合的人力統計浮層)
+// ============================================================
+const FLOAT_STATS_LS_KEY = 'floatStats.v1';
+
+function getFloatStatsState() {
+  try {
+    const raw = localStorage.getItem(FLOAT_STATS_LS_KEY);
+    if (!raw) return { visible: false, left: null, top: null, collapsed: false };
+    const parsed = JSON.parse(raw);
+    return {
+      visible: !!parsed.visible,
+      left: typeof parsed.left === 'number' ? parsed.left : null,
+      top: typeof parsed.top === 'number' ? parsed.top : null,
+      collapsed: !!parsed.collapsed
+    };
+  } catch (e) {
+    return { visible: false, left: null, top: null, collapsed: false };
+  }
+}
+function saveFloatStatsState(patch) {
+  const cur = getFloatStatsState();
+  const next = Object.assign(cur, patch);
+  try { localStorage.setItem(FLOAT_STATS_LS_KEY, JSON.stringify(next)); } catch (e) {}
+}
+
+function renderFloatStats() {
+  const panel = document.getElementById('float-stats');
+  if (!panel) return;
+  if (panel.style.display === 'none') return;  // 沒開啟就不渲染
+
+  const tbl = document.getElementById('float-stats-table');
+  if (!tbl) return;
+  if (!state || !state.month) return;
+
+  const [year, month] = state.month.split('-').map(Number);
+  const days = new Date(year, month, 0).getDate();
+  const D = state.rules.demand;
+
+  // 表頭:日期
+  let html = '<thead><tr>';
+  html += '<td class="label">D/E/N 班 (需求/實際)</td>';
+  for (let d = 1; d <= days; d++) {
+    const dow = getDayOfWeek(state.month, d);
+    let cls = '';
+    if (isHoliday(state.month, d)) cls = 'holiday';
+    else if (dow === 0) cls = 'dow-sun';
+    else if (dow === 6) cls = 'dow-sat';
+    html += `<td class="${cls}">${d}</td>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  // 三列 D/E/N
+  ['D', 'E', 'N'].forEach(st => {
+    html += '<tr>';
+    html += `<td class="label">${st} 班 需求/實際</td>`;
+    for (let d = 1; d <= days; d++) {
+      const dow = getDayOfWeek(state.month, d);
+      let count = 0;
+      state.staff.forEach(p => {
+        if (!isCountingForCapacity(p)) return;
+        if ((state.schedule[p.id] || {})[d] === st) count++;
+      });
+      let need;
+      if (isHoliday(state.month, d) && D.holidaySameAsSunday) need = D.sunday[st];
+      else if (dow === 0) need = D.sunday[st];
+      else if (dow === 1) need = D.monday[st];
+      else need = D.weekday[st];
+
+      let cls = '';
+      if (count < need) cls = 'short';
+      else if (count > need) cls = 'over';
+      else cls = 'ok';
+      html += `<td class="${cls}" title="需求:${need} / 實際:${count}">${need}/${count}</td>`;
+    }
+    html += '</tr>';
+  });
+
+  html += '</tbody>';
+  tbl.innerHTML = html;
+}
+
+function showFloatStats() {
+  const panel = document.getElementById('float-stats');
+  if (!panel) return;
+  const s = getFloatStatsState();
+  panel.style.display = 'flex';
+  // 還原位置
+  if (s.left != null && s.top != null) {
+    panel.style.left = s.left + 'px';
+    panel.style.top = s.top + 'px';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+  }
+  // 還原收合狀態
+  if (s.collapsed) panel.classList.add('collapsed');
+  else panel.classList.remove('collapsed');
+  saveFloatStatsState({ visible: true });
+  renderFloatStats();
+}
+
+function hideFloatStats() {
+  const panel = document.getElementById('float-stats');
+  if (!panel) return;
+  panel.style.display = 'none';
+  saveFloatStatsState({ visible: false });
+}
+
+function resetFloatStatsPosition() {
+  const panel = document.getElementById('float-stats');
+  if (!panel) return;
+  panel.style.left = 'auto';
+  panel.style.top = 'auto';
+  panel.style.right = '16px';
+  panel.style.bottom = '16px';
+  saveFloatStatsState({ left: null, top: null });
+}
+
+function toggleFloatStatsCollapsed() {
+  const panel = document.getElementById('float-stats');
+  if (!panel) return;
+  const collapsed = panel.classList.toggle('collapsed');
+  saveFloatStatsState({ collapsed });
+}
+
+// 拖拉:抓 header 移動整個 panel
+function initFloatStatsDrag() {
+  const panel = document.getElementById('float-stats');
+  const header = document.getElementById('float-stats-header');
+  if (!panel || !header) return;
+
+  let dragging = false;
+  let offsetX = 0, offsetY = 0;
+
+  header.addEventListener('mousedown', (e) => {
+    // 點到按鈕不啟動拖拉
+    if (e.target.tagName === 'BUTTON') return;
+    dragging = true;
+    const rect = panel.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+    // 開始拖時切到 left/top 控制(避免 right/bottom 衝突)
+    panel.style.left = rect.left + 'px';
+    panel.style.top = rect.top + 'px';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    let nx = e.clientX - offsetX;
+    let ny = e.clientY - offsetY;
+    // 邊界保護:不要拖到完全看不見
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const maxX = window.innerWidth - 40;   // 至少留 40px 在畫面內
+    const maxY = window.innerHeight - 40;
+    nx = Math.max(-(w - 40), Math.min(nx, maxX));
+    ny = Math.max(0, Math.min(ny, maxY));
+    panel.style.left = nx + 'px';
+    panel.style.top = ny + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    const rect = panel.getBoundingClientRect();
+    saveFloatStatsState({ left: rect.left, top: rect.top });
+  });
+}
+
+// 按鈕初始化
+function initFloatStatsButtons() {
+  const closeBtn = document.getElementById('float-stats-close');
+  const collapseBtn = document.getElementById('float-stats-collapse');
+  const resetBtn = document.getElementById('float-stats-reset');
+  const toggleBtn = document.getElementById('float-stats-toggle');
+  if (closeBtn) closeBtn.addEventListener('click', hideFloatStats);
+  if (collapseBtn) collapseBtn.addEventListener('click', toggleFloatStatsCollapsed);
+  if (resetBtn) resetBtn.addEventListener('click', resetFloatStatsPosition);
+  if (toggleBtn) toggleBtn.addEventListener('click', () => {
+    const panel = document.getElementById('float-stats');
+    if (panel && panel.style.display !== 'none') hideFloatStats();
+    else showFloatStats();
+  });
+}
+
+// 啟動:DOM ready 後初始化,並依 localStorage 還原可見性
+function initFloatStats() {
+  initFloatStatsDrag();
+  initFloatStatsButtons();
+  const s = getFloatStatsState();
+  if (s.visible) showFloatStats();
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initFloatStats);
+} else {
+  initFloatStats();
 }
 
 // ============================================================
