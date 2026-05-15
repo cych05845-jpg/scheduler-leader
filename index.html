@@ -2833,12 +2833,19 @@ async function loadCloudScheduleDirectly(month) {
   if (data.rules) state.rules = data.rules;
 
   // 同時寫進 localStorage (雙存)
-  saveAll();
+  // 修:原本呼叫的 saveAll() 不存在,改用實際的三個存檔函式
+  try { saveScheduleLocalNow(); } catch (e) { console.warn('save schedule:', e); }
+  try { saveStaffData(); } catch (e) { console.warn('save staff:', e); }
+  try { saveRules(); } catch (e) { console.warn('save rules:', e); }
 
   // 重新渲染
-  if (typeof renderAll === 'function') renderAll();
-  if (typeof renderRulesPanel === 'function') renderRulesPanel();
-  if (typeof renderMonthlySummary === 'function') renderMonthlySummary();
+  // 修:renderAll/renderRulesPanel/renderMonthlySummary 都不存在,改用 renderTable
+  // 同步 UI:確保切到 main-content 並關掉 empty-state
+  if ($('month-input')) $('month-input').value = month;
+  if ($('empty-state')) $('empty-state').style.display = 'none';
+  if ($('main-content')) $('main-content').style.display = 'block';
+  if ($('side-panel')) $('side-panel').style.display = 'block';
+  if (typeof renderTable === 'function') renderTable();
 
   closeModal('cloud-schedules-modal');
   alert(`✅ 已載入「${month}」班表(${data.staff?.length || 0} 人)`);
@@ -5022,6 +5029,16 @@ function handleFileSelect(e) {
           break;
         }
       }
+      // 雙列格式常見 sheet name:115.05、114.12、2026-05 等月份命名,選最後一個(通常是最新月)
+      if (!targetSheet) {
+        for (const name of wb.SheetNames) {
+          if (/^\d{2,3}[.\-_]\d{1,2}$/.test(name) || /^20\d{2}[.\-_]\d{1,2}$/.test(name)) {
+            targetSheet = wb.Sheets[name];
+            targetSheetName = name;
+            // 不 break,繼續找更後面的(學妹這份是多 sheet 一年份,要用最後一個)
+          }
+        }
+      }
       if (!targetSheet && wb.SheetNames.length > 0) {
         targetSheet = wb.Sheets[wb.SheetNames[0]];
         targetSheetName = wb.SheetNames[0];
@@ -5039,6 +5056,19 @@ function handleFileSelect(e) {
         detectedMonth = `${detectedYear}-${String(detectedMonthNum).padStart(2, '0')}`;
       }
 
+      // 民國年格式偵測 (sheet name 或檔名:115.05、115年05月)
+      if (!detectedMonth) {
+        const rocMatch = (targetSheetName + '_' + file.name).match(/(\d{2,3})[.\-_年](\d{1,2})/);
+        if (rocMatch) {
+          const rocYear = parseInt(rocMatch[1]);
+          const m = parseInt(rocMatch[2]);
+          // 民國年 100-130 對應西元 2011-2041
+          if (rocYear >= 100 && rocYear <= 130 && m >= 1 && m <= 12) {
+            detectedMonth = `${rocYear + 1911}-${String(m).padStart(2, '0')}`;
+          }
+        }
+      }
+
       // Also try filename detection if not found yet
       if (!detectedMonth) {
         const fnMatch = file.name.match(/(20\d{2})[\-_]?(\d{1,2})/);
@@ -5049,19 +5079,59 @@ function handleFileSelect(e) {
 
       const rows = XLSX.utils.sheet_to_json(targetSheet, { header: 1, defval: '' });
 
-      // Find header row
+      // === Find header row (兩種格式自動偵測) ===
       let headerIdx = -1;
+      let parseMode = 'single';  // 'single' = 每人一列 / 'dual' = 每人兩列(原始班表格式)
+
+      // 先試「每人一列」格式:前 3 列找含「姓名」的列
       for (let i = 0; i < Math.min(3, rows.length); i++) {
         if (rows[i].some(c => String(c).includes('姓名'))) {
           headerIdx = i;
+          parseMode = 'single';
           break;
         }
       }
-      if (headerIdx < 0) throw new Error('找不到表頭(需有「姓名」欄)');
+
+      // 找不到 → fallback 試「每人兩列」原始班表格式
+      // 特徵:某列含「職級」+「員編」,下一列含「日期」
+      if (headerIdx < 0) {
+        for (let i = 0; i < Math.min(8, rows.length - 1); i++) {
+          const r = rows[i];
+          const rNext = rows[i + 1];
+          const hasLevelEid = r.some(c => String(c).includes('職級')) && r.some(c => String(c).includes('員編'));
+          const hasDate = rNext.some(c => String(c).includes('日期'));
+          if (hasLevelEid && hasDate) {
+            headerIdx = i;       // 上層表頭(職級/員編/星期=姓名/上月)
+            parseMode = 'dual';
+            // 嘗試從 R(i+1) 的日期儲存格抽出真實年月
+            if (!detectedMonth) {
+              for (const cell of rNext) {
+                // XLSX 預設 cellDates:false,日期是序列號;但 sheet_to_json 會給原文字
+                const s = String(cell);
+                const ymd = s.match(/(20\d{2})[\-\/]?(\d{1,2})[\-\/]?(\d{1,2})/);
+                if (ymd) {
+                  detectedMonth = `${ymd[1]}-${String(parseInt(ymd[2])).padStart(2, '0')}`;
+                  break;
+                }
+                // Excel date object
+                if (cell instanceof Date) {
+                  detectedMonth = `${cell.getFullYear()}-${String(cell.getMonth() + 1).padStart(2, '0')}`;
+                  break;
+                }
+              }
+            }
+            break;
+          }
+        }
+      }
+
+      if (headerIdx < 0) {
+        throw new Error('找不到表頭\n\n支援的格式:\n  • 每人一列(姓名/職級/1/2/3…/31)\n  • 醫院原始班表(每人兩列,含職級/員編/日期表頭)\n\n若你的檔案結構不同,請參考「使用示範資料」查看標準格式。');
+      }
 
       // Save to pending — will be used in executeImport
       pendingImport = {
-        rows, headerIdx, sheetName: targetSheetName, fileName: file.name,
+        rows, headerIdx, parseMode, sheetName: targetSheetName, fileName: file.name,
       };
 
       // Show stage 2 (month input) and stage 3 (purpose)
@@ -5103,22 +5173,10 @@ function updateNextMonthLabel() {
   $('import-next-month').textContent = nextMonth;
 }
 
-function executeImport() {
-  if (!pendingImport) {
-    alert('請先選擇 Excel 檔案');
-    return;
-  }
-
-  const importMonth = $('import-month').value;
-  if (!importMonth) {
-    alert('請選擇月份');
-    return;
-  }
-
-  const purpose = document.querySelector('input[name="import-purpose"]:checked').value;
-  // 'reference' or 'edit'
-
-  const { rows, headerIdx } = pendingImport;
+// ============================================================
+// PARSER A:單列格式(每人一列,姓名/職級/1/2/3…)
+// ============================================================
+function parseSingleRowFormat(rows, headerIdx) {
   const header = rows[headerIdx];
   const nameIdx = header.findIndex(c => String(c).includes('姓名'));
   const levelIdx = header.findIndex(c => String(c).includes('職級') || String(c).includes('資歷') || String(c).includes('等級'));
@@ -5131,7 +5189,6 @@ function executeImport() {
     if (num >= 1 && num <= 31) dayCols[num] = i;
   });
 
-  // Parse rows
   const staff = [];
   const schedule = {};
   let dataStart = headerIdx + 1;
@@ -5169,6 +5226,254 @@ function executeImport() {
     }
   }
 
+  return { staff, schedule };
+}
+
+// ============================================================
+// PARSER B:雙列原始班表格式(醫院 HR 用)
+// 結構:
+//   R(headerIdx):     [_, 職級, 員編, 星期(姓名欄), 上月, 三, 四, 五, 六, 日, ...]
+//   R(headerIdx+1):   [_, _, _, 日期, _, 2025-05-01, 2025-05-02, ...]
+//   R(headerIdx+2):   [1, HN, 5845, 翁秀霞, _, _, ACLS, ACLS, ...]   ← 上列(姓名/事件備註)
+//   R(headerIdx+3):   [_, _, _, _, off, V, off, off, 8-5', ...]      ← 下列(上月+班別)
+//   ... 每人兩列 ...
+// 班別代碼轉換:8-5' / 8-5 → M ; 8-4 → D ; 其他原樣 / 無法識別跳過
+// ============================================================
+function parseDualRowFormat(rows, headerIdx, importMonth) {
+  const headerRow = rows[headerIdx];
+  const dateRow = rows[headerIdx + 1];
+
+  // 姓名欄 = headerRow 裡含「星期」or dateRow 裡含「日期」的那欄
+  let nameCol = headerRow.findIndex(c => String(c).includes('星期'));
+  if (nameCol < 0) nameCol = dateRow.findIndex(c => String(c).includes('日期'));
+  if (nameCol < 0) nameCol = 3;  // fallback 預設 D 欄
+
+  const levelCol = headerRow.findIndex(c => String(c).includes('職級'));
+  const eidCol = headerRow.findIndex(c => String(c).includes('員編'));
+  const prevMonthCol = headerRow.findIndex(c => String(c).includes('上月'));
+
+  // 日期欄定位:從 dateRow 找出每個欄位對應的「日」
+  // 來源可能是 Date 物件、'2025-05-01' 字串、Excel 序列號 (number)
+  const dayCols = {};  // {day: colIdx}
+  const [importY, importM] = importMonth.split('-').map(Number);
+
+  // Excel 序列號 → JS Date
+  function excelSerialToDate(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return null;
+    // Excel 1900 epoch (含 1900 leap year bug),用 XLSX 推薦轉換
+    // 25569 = 1970-01-01 與 1900-01-01 的天數差(扣除 1900 leap bug)
+    const ms = (n - 25569) * 86400 * 1000;
+    return new Date(ms);
+  }
+
+  for (let c = 0; c < dateRow.length; c++) {
+    const v = dateRow[c];
+    if (v === '' || v == null) continue;
+    let day = null;
+    let dt = null;
+    if (v instanceof Date) {
+      dt = v;
+    } else if (typeof v === 'number' && v > 40000 && v < 80000) {
+      // 看起來是 Excel 日期序列號(大致範圍 2009-2119)
+      dt = excelSerialToDate(v);
+    } else {
+      const s = String(v);
+      const m = s.match(/(20\d{2})[\-\/](\d{1,2})[\-\/](\d{1,2})/);
+      if (m) {
+        const yy = parseInt(m[1]);
+        const mm = parseInt(m[2]);
+        const dd = parseInt(m[3]);
+        if (yy === importY && mm === importM) day = dd;
+      }
+    }
+    if (dt && dt.getFullYear() === importY && dt.getMonth() + 1 === importM) {
+      day = dt.getDate();
+    }
+    if (day && day >= 1 && day <= 31) {
+      dayCols[day] = c;
+    }
+  }
+
+  // 班別代碼轉換規則
+  // 注意:沒處理「事件代碼」(NHN/公/ETTC 等),它們會被標為 warning
+  function convertShift(raw) {
+    if (!raw) return { shift: null, ok: true };  // 空格不 warn
+    const s = String(raw).trim();
+    if (!s) return { shift: null, ok: true };
+
+    // 標準代碼直接通過
+    if (['D', 'E', 'N', 'M', 'V'].includes(s)) return { shift: s, ok: true };
+    if (s === 'OFF') return { shift: 'OFF', ok: true };
+    if (s === 'off' || s === 'O') return { shift: 'off', ok: true };
+
+    // 8-5' / 8-5 → M (行政班)
+    if (s === "8-5'" || s === '8-5') return { shift: 'M', ok: true };
+    // 8-4 → D (晨班)
+    if (s === '8-4') return { shift: 'D', ok: true };
+
+    // 帶教變體:D/帶 / E/帶 → D / E(preceptor 算正式班別)
+    const beltMatch = s.match(/^([DENM])\s*\/?\s*帶$/);
+    if (beltMatch) return { shift: beltMatch[1], ok: true };
+
+    // 變體 ':D' / E' / N' → D / E / N(獨立但不計正式人力,班別本身仍視為該班)
+    const primeMatch = s.match(/^([DENM])'$/);
+    if (primeMatch) return { shift: primeMatch[1], ok: true };
+
+    // 其他無法判定的(事件碼/半日/病假/夜護/數字 etc)
+    return { shift: null, ok: false };
+  }
+
+  // 上月累計解析: "1D", "2N", "OFF", "off" → 數字
+  function parsePrevConsec(raw) {
+    if (!raw) return 0;
+    const s = String(raw).trim();
+    const m = s.match(/^(\d+)([DENM])$/i);
+    if (m) return parseInt(m[1]);
+    // OFF/off 表示上月最後一天有休 → 0
+    return 0;
+  }
+
+  const staff = [];
+  const schedule = {};
+  // warning 按「人+代碼」歸納,並計算天數,避免一整月病假產生 30 條 warning
+  const warnAgg = {};  // key = "name|code" -> { name, code, days: [d1, d2, ...] }
+
+  // 從 headerIdx+2 開始,每兩列一人
+  let r = headerIdx + 2;
+  let emptyRunCount = 0;  // 連續空白列計數
+
+  while (r < rows.length - 1) {
+    const upper = rows[r];
+    const lower = rows[r + 1];
+
+    const name = String(upper[nameCol] || '').trim();
+    const level = String(upper[levelCol] || '').trim();
+
+    // 終止條件
+    // 1. 連續 3+ 列上列都空(進入空白區或尾巴)
+    // 2. 上列 D 欄是單字代碼(D/E/N/M) 且 nameCol 後面欄位是數字 → 圖例區
+    const isLegendRow = (
+      (name === 'D' || name === 'E' || name === 'N' || name === 'M') &&
+      lower && typeof lower[5] === 'number'
+    );
+
+    if (!name && !level) {
+      emptyRunCount++;
+      if (emptyRunCount >= 3) {
+        // 但允許前幾位後遇到分隔,繼續往後找;先跳一列再試
+        r++;
+        if (emptyRunCount >= 8) break;  // 真的太多空白就停
+        continue;
+      }
+      r += 2;
+      continue;
+    }
+    if (isLegendRow) break;
+
+    emptyRunCount = 0;
+
+    // 跳過明顯不是人員的列(姓名長度為 1 且是英文字母)
+    if (name.length === 1 && /^[A-Za-z]$/.test(name)) {
+      r += 2;
+      continue;
+    }
+
+    // 跳過「總計」「合計」列
+    if (name === '總計' || name === '合計') break;
+
+    // 沒姓名就跳過(可能是雜訊列、空白序號)
+    if (!name) {
+      r += 2;
+      continue;
+    }
+
+    // 確認下列是「資料下列」(下列 A 欄應該為空、或不是序號)
+    // 偶爾下列也會混到上列特徵的列,先寬鬆處理
+    const id = uid();
+
+    // 上月累計
+    const prevConsec = prevMonthCol >= 0 ? parsePrevConsec(lower[prevMonthCol]) : 0;
+
+    staff.push({
+      id,
+      name,
+      level: level || 'N3',
+      note: '',
+      preferredShift: '',
+      canSwapTo: [],
+      special: '',
+      prevMonthConsec: prevConsec,
+    });
+
+    schedule[id] = {};
+
+    // 逐日讀班別
+    for (const dayStr in dayCols) {
+      const day = parseInt(dayStr);
+      const col = dayCols[day];
+      const raw = lower[col];
+      if (raw === '' || raw == null) continue;
+      const { shift, ok } = convertShift(raw);
+      if (ok && shift) {
+        schedule[id][day] = shift;
+      } else if (!ok) {
+        const code = String(raw).trim();
+        const key = name + '|' + code;
+        if (!warnAgg[key]) warnAgg[key] = { name, code, days: [] };
+        warnAgg[key].days.push(day);
+      }
+    }
+
+    r += 2;
+  }
+
+  // 將 warnAgg 整理成輸出格式
+  const warnings = Object.values(warnAgg).map(w => {
+    if (w.days.length >= 28) return `${w.name}: 整月 "${w.code}"`;
+    if (w.days.length >= 5) return `${w.name}: ${w.days.length} 天 "${w.code}" (d${w.days[0]}~d${w.days[w.days.length - 1]})`;
+    return `${w.name}: d${w.days.join(',d')} "${w.code}"`;
+  });
+
+  return { staff, schedule, warnings };
+}
+
+function executeImport() {
+  if (!pendingImport) {
+    alert('請先選擇 Excel 檔案');
+    return;
+  }
+
+  const importMonth = $('import-month').value;
+  if (!importMonth) {
+    alert('請選擇月份');
+    return;
+  }
+
+  const purpose = document.querySelector('input[name="import-purpose"]:checked').value;
+  // 'reference' or 'edit'
+
+  const { rows, headerIdx, parseMode } = pendingImport;
+
+  // ⤴ 分流:雙列原始格式走 parseDualRowFormat
+  let staff, schedule;
+  if (parseMode === 'dual') {
+    const result = parseDualRowFormat(rows, headerIdx, importMonth);
+    staff = result.staff;
+    schedule = result.schedule;
+    pendingImport._warnings = result.warnings || [];
+    if (result.warnings && result.warnings.length > 0) {
+      console.warn('[匯入警告] 以下班別代碼無法自動轉換,已跳過:\n' + result.warnings.join('\n'));
+    }
+  } else {
+    // 原本的單列 parser
+    const parsed = parseSingleRowFormat(rows, headerIdx);
+    staff = parsed.staff;
+    schedule = parsed.schedule;
+  }
+
+  // 暫存 warnings 供下方訊息用
+  const importWarnings = (parseMode === 'dual' && pendingImport._warnings) || [];
+
   // Set state to the imported month
   state.month = importMonth;
   $('month-input').value = importMonth;
@@ -5192,6 +5497,10 @@ function executeImport() {
 
     let msg = `✓ 已匯入 ${importMonth} 班表(${staff.length} 位人員)`;
     if (filterResult.filtered > 0) msg += `\n🚪 已自動排除 ${filterResult.filtered} 位離職人員`;
+    if (importWarnings.length > 0) {
+      msg += `\n\n⚠ 有 ${importWarnings.length} 個格子的代碼無法自動轉換(例如:事件碼、半日班、帶教代碼)`;
+      msg += `\n已跳過這些格子,請手動補填。詳細列表請開 F12 開發者工具看 Console。`;
+    }
     alert(msg);
     return;
   }
