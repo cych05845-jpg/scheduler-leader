@@ -6168,17 +6168,19 @@ async function exportXlsxTraditional() {
   hdrRow.height = 18;
 
   // ---------- BODY: each staff = 2 rows (note row + shift row) ----------
+  // ⚠ 重要:ExcelJS mergeCells 會保留「左上角」的值,所以前 5 欄資訊必須寫在 noteRow(上列)
+  // 否則 merge 後 shiftRow 的值會被 noteRow 的空字串覆蓋,造成姓名/職級看起來空白
   let rowIdx = 5;  // next row to write
   visible.forEach((p, idx) => {
     const sched = state.schedule[p.id] || {};
     const personNotes = state.notes[p.id] || {};
 
-    // ---- Note row (top) ----
-    const noteRowData = ['', '', '', '', ''];  // empty header cells (will merge with shift row)
+    // ---- Note row (top) — 前 5 欄先留空,merge 後再 setValue(避免 anchor 行為差異)----
+    const noteRowData = [null, null, null, null, null];
     for (let d = 1; d <= days; d++) {
       noteRowData.push(personNotes[d] || '');
     }
-    noteRowData.push('');  // OFF column (will merge)
+    noteRowData.push(null);  // OFF column (will merge & setValue after)
     const noteRow = ws.addRow(noteRowData);
     noteRow.height = 14;
     for (let d = 1; d <= days; d++) {
@@ -6188,23 +6190,25 @@ async function exportXlsxTraditional() {
       cell.border = thinBorder;
     }
 
-    // ---- Shift row (bottom) ----
-    const shiftRowData = [idx + 1, p.level || '', p.note || '', p.name, p.hireDate || ''];
+    // ---- Shift row (bottom) — 前 5 欄也留空 ----
+    const shiftRowData = [null, null, null, null, null];
     let offCount = 0;
     for (let d = 1; d <= days; d++) {
       const v = sched[d] || '';
       shiftRowData.push(v);
       if (['OFF','off','o','V'].includes(v)) offCount++;
     }
-    shiftRowData.push(offCount);
+    shiftRowData.push(null);  // OFF 欄一樣 null,merge 後再 setValue
     const shiftRow = ws.addRow(shiftRowData);
     shiftRow.height = 18;
 
-    // Style first 5 columns (id/level/mentor/name/hire) — vertically center across both rows
+    // Style first 5 columns (id/level/mentor/name/hire) — 先 merge,再 setValue 到 anchor
+    // 跟 OFF 欄一樣的順序,確保 anchor 行為正確
+    const personInfo = [idx + 1, p.level || '', p.mentor || p.note || '', p.name, p.hireDate || ''];
     for (let c = 1; c <= 5; c++) {
-      // Merge note row + shift row for the staff info columns
       ws.mergeCells(rowIdx, c, rowIdx + 1, c);
-      const cell = shiftRow.getCell(c);
+      const cell = noteRow.getCell(c);
+      cell.value = personInfo[c - 1];  // ← 關鍵:merge 之後才設值
       // 姓名(c=4) 加大加粗,職級(c=2) 加粗,所有欄位明確指定顏色避免繼承問題
       cell.font = {
         name: 'Microsoft JhengHei',
@@ -6225,9 +6229,9 @@ async function exportXlsxTraditional() {
       styleCell(cell, v);
     }
 
-    // OFF total cell — merge across 2 rows
+    // OFF total cell — merge across 2 rows;值寫在 anchor(noteRow)以與前 5 欄一致
     ws.mergeCells(rowIdx, COL_OFF_TOTAL, rowIdx + 1, COL_OFF_TOTAL);
-    const offCell = shiftRow.getCell(COL_OFF_TOTAL);
+    const offCell = noteRow.getCell(COL_OFF_TOTAL);
     offCell.value = offCount;
     if (offCount >= 11) {
       offCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
