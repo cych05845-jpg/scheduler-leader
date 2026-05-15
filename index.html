@@ -9812,11 +9812,13 @@ function buildScheduleSummary() {
   s += `- **不要 D/E/M 之後直接接 N**(中間必須隔 OFF 至少 1 天)\n`;
   s += `- **不要動「外派」「留停」「實習」的人**\n\n`;
   s += `### ✅ 每條建議前,自問檢查:\n`;
+  s += `0. **🔴 必做**:去下方「🔍 缺人日 / 多人日逐人明細」查當天該人**實際班別**,不可憑記憶或推測\n`;
   s += `1. 套用後「缺人日」該班別**實際 +1 人**嗎?(不是換人)\n`;
   s += `2. 候選人在「缺人日」那天**真的是 off(可改)**嗎?\n`;
   s += `3. 候選人在「多人日」那天**真的是 N(可移出)**嗎?\n`;
   s += `4. 移動後候選人的工作段 ≤ 5 天嗎?\n`;
-  s += `5. 候選人有 canSwapTo 那個班別嗎?\n\n`;
+  s += `5. 候選人有 canSwapTo 那個班別嗎?\n`;
+  s += `6. 給 JSON 建議時 **from 欄位必填且必須等於該人那天的實際班別**,系統會驗證,寫錯會被拒絕\n\n`;
   s += `### 💡 跳班定義(避免誤判)\n`;
   s += `「跳班」= O 到 O 之間的工作段內出現**不同**班別(D→E、D→N、E→N 等)\n`;
   s += `- D D D off off → 不跳班(全 D)\n`;
@@ -9826,6 +9828,13 @@ function buildScheduleSummary() {
 
   s += `\n## 每日人力(實際/需求 — 只計入有設能力階段的正式人力)\n`;
   s += `(★ = 短缺, △ = 過剩)\n\n`;
+
+  // 收集每天的 counts、shortDays、overDays,後面要用
+  const dailyCounts = {};   // d → {D, E, N}
+  const dailyNeed = {};     // d → {D, E, N}
+  const shortDays = { D: [], E: [], N: [] };  // 短缺日(實際 < 需求)
+  const overDays = { D: [], E: [], N: [] };   // 過剩日(實際 > 需求)
+
   for (let d = 1; d <= days; d++) {
     const dow = getDayOfWeek(state.month, d);
     const isHol = isHoliday(state.month, d);
@@ -9842,6 +9851,12 @@ function buildScheduleSummary() {
       const v = (state.schedule[p.id] || {})[d];
       if (counts.hasOwnProperty(v)) counts[v]++;
     });
+    dailyCounts[d] = counts;
+    dailyNeed[d] = need;
+    ['D','E','N'].forEach(sh => {
+      if (counts[sh] < need[sh]) shortDays[sh].push(d);
+      else if (counts[sh] > need[sh]) overDays[sh].push(d);
+    });
 
     const dowStr = '日一二三四五六'[dow];
     const fmt = (sh) => {
@@ -9851,6 +9866,73 @@ function buildScheduleSummary() {
       return `${sh}=${c}/${n}`;
     };
     s += `${d}日(${dowStr})${isHol?'★假日':''}: ${fmt('D')} ${fmt('E')} ${fmt('N')}\n`;
+  }
+
+  // ============= 逐人明細(只列短缺/過剩日,聚焦 AI 需要的事實) =============
+  // 解決 prompt 原本「叫 AI 從 N 多人日找候選人,但沒給 AI 當天誰是誰班別」的問題
+  const hasIssue = ['D','E','N'].some(sh => shortDays[sh].length > 0 || overDays[sh].length > 0);
+  if (hasIssue) {
+    s += `\n## 🔍 缺人日 / 多人日逐人明細(AI 補人必看)\n`;
+    s += `**重要**:以下列表是當天每人實際班別。給建議時請依此列表查證,不要憑空假設誰那天是什麼班。\n`;
+    s += `格式:[人名(可跳:X)] — D=...|E=...|N=...|off(可調)=...\n`;
+    s += `說明:off(可調)= 當天為 off / o / V(可改);OFF/中籤 不列入(神聖不可動)\n\n`;
+
+    ['N','E','D'].forEach(sh => {
+      const shortList = shortDays[sh];
+      const overList = overDays[sh];
+      if (shortList.length === 0 && overList.length === 0) return;
+
+      s += `### ${sh} 班\n`;
+
+      // 短缺日:列當天上 ${sh} 的人、當天 off 可調的人、當天為其他班的人(資訊量決定)
+      if (shortList.length > 0) {
+        s += `**${sh} 短缺日(${shortList.length} 天):${shortList.map(d => `${d}日`).join('、')}**\n`;
+        shortList.forEach(d => {
+          const dow = getDayOfWeek(state.month, d);
+          const dowStr = '日一二三四五六'[dow];
+          const onShift = [];      // 當天上 ${sh}
+          const onOff = [];        // 當天 off(可調)
+          const onOther = [];      // 當天 D/E/N/M(但不是 ${sh})
+          visible.forEach(p => {
+            if (!isCountingForCapacity(p)) return;
+            if (p.status && p.status !== 'active') return;
+            const v = (state.schedule[p.id] || {})[d];
+            const swapStr = (p.canSwapTo && p.canSwapTo.length) ? p.canSwapTo.join('') : '無';
+            const tag = `${p.name}(可跳:${swapStr})`;
+            if (v === sh) onShift.push(tag);
+            else if (['off','o','V'].includes(v)) onOff.push(tag);
+            else if (['D','E','N','M'].includes(v)) onOther.push(`${p.name}=${v}(可跳:${swapStr})`);
+          });
+          s += `  ${d}日(${dowStr}) ${sh}=${dailyCounts[d][sh]}/${dailyNeed[d][sh]}★:\n`;
+          s += `    當天上${sh}班(${onShift.length}人):${onShift.join('、') || '(無)'}\n`;
+          s += `    當天 off 可調(${onOff.length}人):${onOff.join('、') || '(無)'}\n`;
+          if (sh === 'N' && onOther.length > 0 && onOther.length <= 15) {
+            // N 短缺時,知道誰那天上其他班可能要被挪過來,但只列在可控人數內
+            s += `    當天上其他班(${onOther.length}人):${onOther.join('、')}\n`;
+          }
+        });
+      }
+
+      // 多人日:列當天上 ${sh} 的人(這些是 N→off 的候選)
+      if (overList.length > 0) {
+        s += `**${sh} 多人日(${overList.length} 天):${overList.map(d => `${d}日`).join('、')}**\n`;
+        overList.forEach(d => {
+          const dow = getDayOfWeek(state.month, d);
+          const dowStr = '日一二三四五六'[dow];
+          const onShift = [];
+          visible.forEach(p => {
+            if (!isCountingForCapacity(p)) return;
+            if (p.status && p.status !== 'active') return;
+            const v = (state.schedule[p.id] || {})[d];
+            const swapStr = (p.canSwapTo && p.canSwapTo.length) ? p.canSwapTo.join('') : '無';
+            if (v === sh) onShift.push(`${p.name}(可跳:${swapStr})`);
+          });
+          s += `  ${d}日(${dowStr}) ${sh}=${dailyCounts[d][sh]}/${dailyNeed[d][sh]}△:\n`;
+          s += `    當天上${sh}班(${onShift.length}人):${onShift.join('、') || '(無)'}\n`;
+        });
+      }
+      s += `\n`;
+    });
   }
 
   const consecIssues = [];
@@ -10664,8 +10746,12 @@ function validateAIChange(c) {
   // Check current value matches from
   const sched = state.schedule[person.id] || {};
   const currentValue = sched[c.day] || '';
-  if (c.from && currentValue !== c.from) {
-    errors.push(`目前實際是「${currentValue || '(空)'}」,不是「${c.from}」`);
+  // C 方案:強制 c.from 必填,避免 AI 省略 from 偷渡錯誤建議
+  if (!c.from) {
+    errors.push(`AI 未指定原班別(from),無法驗證(目前 ${person.name} ${c.day}日 實際是「${currentValue || '(空)'}」)`);
+  } else if (currentValue !== c.from) {
+    // AI 引用了不存在的事實:給更明確的錯誤訊息協助 debug
+    errors.push(`🚫 AI 建議與班表不符:${person.name} ${c.day}日 實際是「${currentValue || '(空)'}」,AI 卻寫成「${c.from}」`);
   }
 
   // CRITICAL: OFF is sacred — cannot be the source or target of any change
