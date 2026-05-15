@@ -1101,6 +1101,16 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
       <h2>👋 歡迎使用急診排班輔助工具</h2>
       <p class="muted" id="empty-state-msg">請先匯入 Excel 檔案開始</p>
 
+      <!-- 雲端載入卡片 (救援優先,放最上面) -->
+      <div id="empty-state-cloud" style="display:none; margin-bottom: 1.5rem; padding: 1rem; background: #eff6ff; border: 2px solid #2563eb; border-radius: 8px; max-width: 600px; margin-left: auto; margin-right: auto; text-align: left">
+        <div style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.4rem; color: #1e40af; text-align: center">☁ 從雲端載入既有班表</div>
+        <p style="font-size: 0.88rem; margin-bottom: 0.7rem; color: var(--ink-soft); text-align: center" id="empty-state-cloud-info">偵測到雲端有以下班表,可直接載入</p>
+        <div id="empty-state-cloud-list"></div>
+        <div style="text-align: center; margin-top: 0.6rem">
+          <button onclick="openCloudSchedules()" style="background: transparent; color: #2563eb; border: 1px solid #2563eb; padding: 4px 12px; font-size: 0.85rem">看全部雲端班表</button>
+        </div>
+      </div>
+
       <div id="empty-state-from-master" style="display:none; margin-bottom: 1.5rem; padding: 1rem; background: var(--accent-soft); border: 2px solid var(--accent); border-radius: 8px; max-width: 500px; margin-left: auto; margin-right: auto">
         <div style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.4rem; color: var(--accent)">⚡ 從主檔建立空白班表</div>
         <p style="font-size: 0.92rem; margin-bottom: 0.7rem; color: var(--ink-soft)" id="from-master-info"></p>
@@ -2515,8 +2525,13 @@ function showWelcomeMessage(name) {
 
   // 自動從雲端載入主檔(靜默) — 不阻塞 UI
   setTimeout(() => {
-    loadStaffFromCloud(false).catch(e => console.warn('Auto-load staff master failed:', e));
+    loadStaffFromCloud(false)
+      .then(() => updateEmptyStateForMaster())
+      .catch(e => console.warn('Auto-load staff master failed:', e));
   }, 1500);  // 延遲 1.5 秒,讓 monthlyStatusBar 先初始化
+
+  // 首頁雲端載入卡片(救援用) — 並行載入,不阻塞
+  updateEmptyStateForCloud();
 }
 
 // ============================================================
@@ -3274,6 +3289,9 @@ window.addEventListener('DOMContentLoaded', () => {
       document.getElementById('logout-btn').style.display = '';
       // Already logged in - show monthly status bar
       initMonthlyStatusBar();
+      // 首頁雲端載入卡片(救援用),只在 empty-state 顯示時有作用
+      updateEmptyStateForCloud();
+      updateEmptyStateForMaster();
     } else {
       showLoginScreen();
     }
@@ -7272,6 +7290,58 @@ function updateEmptyStateForMaster() {
     fromMasterEl.style.display = 'none';
     if (msgEl) msgEl.textContent = '請先匯入 Excel 檔案開始';
   }
+}
+
+// 首頁顯示雲端最近班表(救援用),只在已登入且雲端有班表時顯示
+async function updateEmptyStateForCloud() {
+  const cloudEl = $('empty-state-cloud');
+  const listEl = $('empty-state-cloud-list');
+  const msgEl = $('empty-state-msg');
+  if (!cloudEl || !listEl) return;
+
+  // 未登入就不顯示
+  const token = getAuthToken();
+  if (!token) {
+    cloudEl.style.display = 'none';
+    return;
+  }
+
+  // 取得雲端班表清單
+  const schedules = await loadSchedulesList(false);
+  if (!schedules || schedules.length === 0) {
+    cloudEl.style.display = 'none';
+    return;
+  }
+
+  // 依儲存時間排序,取最近 3 筆
+  const sorted = [...schedules].sort((a, b) => {
+    const ta = a.savedAt ? new Date(a.savedAt).getTime() : 0;
+    const tb = b.savedAt ? new Date(b.savedAt).getTime() : 0;
+    return tb - ta;
+  });
+  const recent = sorted.slice(0, 3);
+
+  let html = '';
+  recent.forEach((s, idx) => {
+    const d = s.savedAt ? new Date(s.savedAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    const isLatest = idx === 0;
+    // 最近一筆用主按鈕樣式,其餘較低調
+    const btnStyle = isLatest
+      ? 'background: #2563eb; color: white; border: none; padding: 8px 20px; font-size: 1rem; font-weight: 700; border-radius: 4px; cursor: pointer; min-width: 160px'
+      : 'background: white; color: #2563eb; border: 1px solid #2563eb; padding: 6px 16px; font-size: 0.9rem; border-radius: 4px; cursor: pointer; min-width: 160px';
+
+    html += `<div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.7rem; ${idx < recent.length - 1 ? 'border-bottom: 1px solid #dbeafe;' : ''} gap: 1rem">
+      <div style="flex: 1; min-width: 0">
+        <div style="font-weight: 700; color: #1e40af">${isLatest ? '⭐ ' : ''}${s.month}</div>
+        <div style="font-size: 0.82rem; color: var(--ink-mute)">${s.savedByName} · ${d}</div>
+      </div>
+      <button onclick="loadCloudScheduleDirectly('${s.month}')" style="${btnStyle}">⬇ 載入${isLatest ? '(最新)' : ''}</button>
+    </div>`;
+  });
+
+  listEl.innerHTML = html;
+  cloudEl.style.display = 'block';
+  if (msgEl) msgEl.textContent = '選擇下面其中一種方式開始:';
 }
 
 function createBlankFromMaster() {
