@@ -417,6 +417,14 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   margin-bottom: 1.5rem;
 }
 
+.reorder-item:hover {
+  background: var(--accent-soft) !important;
+  border-color: var(--accent) !important;
+}
+.reorder-item:active {
+  cursor: grabbing !important;
+}
+
 .stat-box {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1237,6 +1245,18 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
           留停人員不會在班表畫面顯示,也不會出現在匯出檔。要把人設為留停,點班表中的「姓名」進入員工編輯。
         </div>
         <div id="leave-staff-list" style="font-size: 0.9rem"></div>
+      </div>
+    </div>
+
+    <div class="section" id="reorder-section">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleReorderSection()">
+        <span id="reorder-section-arrow">▶</span> 📋 調整人員順序
+      </h3>
+      <div id="reorder-section-body" style="display: none">
+        <div style="font-size: 0.82rem; color: var(--ink-mute); margin-bottom: 0.5rem">
+          拖曳調整人員在班表上的顯示順序。
+        </div>
+        <div id="reorder-staff-list" style="font-size: 0.9rem; max-height: 400px; overflow-y: auto"></div>
       </div>
     </div>
   </div>
@@ -2844,6 +2864,9 @@ async function loadCloudScheduleDirectly(month) {
   state.holidays = data.holidays || [];
   if (data.rules) state.rules = data.rules;
 
+  // 套用使用者調整過的順序(獨立存的 preference,不被雲端覆蓋)
+  if (typeof applySavedStaffOrder === 'function') applySavedStaffOrder();
+
   // 同時寫進 localStorage (雙存)
   // 修:原本呼叫的 saveAll() 不存在,改用實際的三個存檔函式
   try { saveScheduleLocalNow(); } catch (e) { console.warn('save schedule:', e); }
@@ -3502,6 +3525,93 @@ function restoreFromLeave(pid) {
   if (typeof saveStaffData === 'function') saveStaffData();
   renderTable();
   renderLeaveStaffList();
+}
+
+// ============================================================
+// 人員順序調整(拖曳)
+// ============================================================
+function toggleReorderSection() {
+  const body = $('reorder-section-body');
+  const arrow = $('reorder-section-arrow');
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  if (arrow) arrow.textContent = open ? '▶' : '▼';
+  if (!open) renderReorderList();
+}
+
+function renderReorderList() {
+  const listEl = $('reorder-staff-list');
+  if (!listEl) return;
+  if (state.staff.length === 0) {
+    listEl.innerHTML = '<div style="color: var(--ink-mute); font-style: italic; padding: 0.3rem 0">尚無人員資料</div>';
+    return;
+  }
+
+  listEl.innerHTML = state.staff.map((p, i) => {
+    const lv = p.level || '';
+    const lvTag = lv ? `<span class="level-tag level-${lv}" style="font-size: 0.78rem; margin-right: 0.4rem">${lv}</span>` : '';
+    return `<div class="reorder-item" draggable="true" data-pid="${p.id}" data-idx="${i}"
+      ondragstart="onReorderDragStart(event)"
+      ondragover="onReorderDragOver(event)"
+      ondragleave="onReorderDragLeave(event)"
+      ondrop="onReorderDrop(event)"
+      ondragend="onReorderDragEnd(event)"
+      style="display: flex; align-items: center; padding: 0.4rem 0.5rem; background: white; border: 1px solid var(--line); border-radius: 3px; margin-bottom: 3px; cursor: grab; user-select: none">
+      <span style="color: var(--ink-mute); font-size: 0.82rem; min-width: 24px">${i + 1}.</span>
+      <span style="margin-right: 0.4rem; color: var(--ink-mute); cursor: grab">⋮⋮</span>
+      ${lvTag}
+      <span style="font-weight: 600">${p.name}</span>
+    </div>`;
+  }).join('');
+}
+
+let _reorderDragFromIdx = null;
+
+function onReorderDragStart(e) {
+  const item = e.currentTarget;
+  _reorderDragFromIdx = parseInt(item.dataset.idx, 10);
+  item.style.opacity = '0.4';
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function onReorderDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const item = e.currentTarget;
+  item.style.borderTop = '2px solid var(--accent)';
+}
+
+function onReorderDragLeave(e) {
+  e.currentTarget.style.borderTop = '';
+}
+
+function onReorderDrop(e) {
+  e.preventDefault();
+  const item = e.currentTarget;
+  item.style.borderTop = '';
+  const toIdx = parseInt(item.dataset.idx, 10);
+  if (_reorderDragFromIdx == null || _reorderDragFromIdx === toIdx) return;
+
+  // 把 from 從陣列移到 to 之前(或之後,依方向決定)
+  const arr = state.staff;
+  const [moved] = arr.splice(_reorderDragFromIdx, 1);
+  // 移除 from 後,如果 to 在 from 後方,索引要減一
+  const adjustedTo = toIdx > _reorderDragFromIdx ? toIdx - 1 : toIdx;
+  arr.splice(adjustedTo, 0, moved);
+
+  _reorderDragFromIdx = null;
+  // 重新渲染
+  if (typeof saveStaffData === 'function') saveStaffData();
+  renderReorderList();
+  renderTable();
+}
+
+function onReorderDragEnd(e) {
+  e.currentTarget.style.opacity = '';
+  _reorderDragFromIdx = null;
+  // 清掉所有 borderTop
+  document.querySelectorAll('.reorder-item').forEach(el => el.style.borderTop = '');
 }
 
 // ============================================================
@@ -4432,7 +4542,20 @@ function openPersonModal(pid) {
   body.innerHTML = `
     <div class="person-info-grid">
       <span class="label">職級</span>
-      <span><span class="level-tag level-${p.level}">${p.level}</span></span>
+      <div style="display: flex; gap: 0.5rem; align-items: center">
+        <select id="pm-level" style="padding: 4px 8px; font-family: inherit" onchange="onLevelChange()">
+          <option value="HN" ${p.level === 'HN' ? 'selected' : ''}>HN(護理長)</option>
+          <option value="N4" ${p.level === 'N4' ? 'selected' : ''}>N4</option>
+          <option value="N3" ${p.level === 'N3' ? 'selected' : ''}>N3</option>
+          <option value="N2" ${p.level === 'N2' ? 'selected' : ''}>N2</option>
+          <option value="N1" ${p.level === 'N1' ? 'selected' : ''}>N1</option>
+          <option value="N" ${p.level === 'N' ? 'selected' : ''}>N(新進)</option>
+          <option value="半日" ${p.level === '半日' ? 'selected' : ''}>半日</option>
+          <option value="實習" ${p.level === '實習' ? 'selected' : ''}>實習</option>
+          <option value="__custom__" ${!['HN','N4','N3','N2','N1','N','半日','實習'].includes(p.level) ? 'selected' : ''}>其他(自訂)...</option>
+        </select>
+        <input type="text" id="pm-level-custom" value="${!['HN','N4','N3','N2','N1','N','半日','實習'].includes(p.level) ? p.level : ''}" placeholder="自訂職級" style="padding: 4px 8px; font-family: inherit; flex: 1; display: ${!['HN','N4','N3','N2','N1','N','半日','實習'].includes(p.level) ? 'inline-block' : 'none'}">
+      </div>
 
       <span class="label">備註</span>
       <input type="text" id="pm-note" value="${p.note || ''}" style="padding: 4px 8px; font-family: inherit">
@@ -4682,6 +4805,19 @@ function onStatusChange() {
   }
 }
 
+// 職級下拉切換:選「其他」時顯示自訂輸入框
+function onLevelChange() {
+  const sel = $('pm-level');
+  const custom = $('pm-level-custom');
+  if (!sel || !custom) return;
+  if (sel.value === '__custom__') {
+    custom.style.display = 'inline-block';
+    custom.focus();
+  } else {
+    custom.style.display = 'none';
+  }
+}
+
 // 外派切換 handler
 function onDispatchToggle() {
   const on = $('pm-dispatch-on').checked;
@@ -4720,6 +4856,16 @@ function onDispatchUnitChange() {
 function savePersonInfo() {
   const p = state.staff.find(s => s.id === state.selectedPersonId);
   if (!p) return;
+
+  // 職級(下拉 + 自訂)
+  const levelEl = $('pm-level');
+  const levelCustomEl = $('pm-level-custom');
+  if (levelEl) {
+    const newLevel = levelEl.value === '__custom__'
+      ? (levelCustomEl ? levelCustomEl.value.trim() : '')
+      : levelEl.value;
+    if (newLevel) p.level = newLevel;
+  }
 
   p.note = $('pm-note').value;
   p.preferredShift = $('pm-pref').value;
@@ -6948,8 +7094,29 @@ function saveStaffData() {
       };
     });
     localStorage.setItem('schedulerStaff', JSON.stringify(data));
+    // 順序獨立存(不污染主檔 schema)
+    const order = state.staff.map(p => p.name).filter(n => n);
+    localStorage.setItem('schedulerStaffOrder', JSON.stringify(order));
   } catch (e) {
     console.warn('Failed to save staff data:', e);
+  }
+}
+
+// 套用儲存的順序到 state.staff(載入或匯入後呼叫一次)
+function applySavedStaffOrder() {
+  try {
+    const raw = localStorage.getItem('schedulerStaffOrder');
+    if (!raw) return;
+    const order = JSON.parse(raw);
+    if (!Array.isArray(order) || order.length === 0) return;
+    const indexOf = new Map(order.map((name, i) => [name, i]));
+    state.staff.sort((a, b) => {
+      const ia = indexOf.has(a.name) ? indexOf.get(a.name) : 99999;
+      const ib = indexOf.has(b.name) ? indexOf.get(b.name) : 99999;
+      return ia - ib;
+    });
+  } catch (e) {
+    console.warn('Failed to apply staff order:', e);
   }
 }
 
