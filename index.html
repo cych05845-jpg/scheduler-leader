@@ -2242,11 +2242,15 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
           <div style="display: flex; gap: 1.2rem; font-size: 0.88rem; flex-wrap: wrap">
             <label style="cursor: pointer">
               <input type="radio" name="gemini-model" value="auto" checked onchange="onGeminiModelChange()">
-              <strong>自動</strong>(撞限制自動降級)
+              <strong>自動</strong>(Pro 優先,撞限制自動降級)
+            </label>
+            <label style="cursor: pointer" title="最強推理,適合 SOP 嚴謹的調班建議;速度較慢、成本較高">
+              <input type="radio" name="gemini-model" value="pro" onchange="onGeminiModelChange()">
+              <strong>Pro 2.5</strong>(最聰明,推薦複雜調班)
             </label>
             <label style="cursor: pointer">
               <input type="radio" name="gemini-model" value="flash" onchange="onGeminiModelChange()">
-              Flash(聰明,10/分鐘)
+              Flash(中等,10/分鐘)
             </label>
             <label style="cursor: pointer">
               <input type="radio" name="gemini-model" value="flash-lite" onchange="onGeminiModelChange()">
@@ -10031,13 +10035,15 @@ ${historyText}
       } else {
       // ========== Personal edition: direct call to Gemini ==========
       let modelsToTry;
-      if (modelChoice === 'flash') {
+      if (modelChoice === 'pro') {
+        modelsToTry = ['gemini-2.5-pro'];
+      } else if (modelChoice === 'flash') {
         modelsToTry = ['gemini-2.5-flash'];
       } else if (modelChoice === 'flash-lite') {
         modelsToTry = ['gemini-2.5-flash-lite'];
       } else {
-        // Auto: try flash first, fall back to flash-lite on rate limit
-        modelsToTry = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+        // Auto: Pro 先試,撞限制降到 Flash,再撞限制降到 Flash Lite
+        modelsToTry = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
       }
 
       let lastError = null;
@@ -10098,9 +10104,12 @@ ${historyText}
       usedModel = usedModel2;
 
       // Show fallback indicator if not using preferred model
-      if (modelChoice === 'auto' && usedModel === 'gemini-2.5-flash-lite') {
-        // Prepend a note to AI response
-        aiText = `[ℹ Flash 撞限制,自動降級到 Flash Lite]\n\n${aiText}`;
+      if (modelChoice === 'auto') {
+        if (usedModel === 'gemini-2.5-flash') {
+          aiText = `[ℹ Pro 撞限制,自動降級到 Flash]\n\n${aiText}`;
+        } else if (usedModel === 'gemini-2.5-flash-lite') {
+          aiText = `[ℹ Pro 和 Flash 撞限制,自動降級到 Flash Lite — 此模型較弱,複雜建議可能不夠精準]\n\n${aiText}`;
+        }
       }
       } // end of personal edition Gemini block
 
