@@ -344,6 +344,11 @@ td.cell {
   transition: transform 0.05s;
 }
 td.cell:hover { transform: scale(1.15); z-index: 3; position: relative; box-shadow: 0 0 0 2px var(--accent); }
+/* 滾動期間關掉 hover 動畫,避免 transform repaint 加重 lag */
+.schedule-wrap.is-scrolling td.cell:hover {
+  transform: none;
+  box-shadow: none;
+}
 
 td.shift-D { background: var(--D); color: var(--D-text); }
 td.shift-E { background: var(--E); color: var(--E-text); }
@@ -3977,22 +3982,59 @@ function syncColumnWidths() {
 }
 
 // 上下橫向滾動同步(垂直只有上半會滾)
+// 用 rAF 節流:每幀最多同步一次,避免每個 scroll 事件都觸發 layout
 function initSplitScrollSync() {
   const top = document.getElementById('schedule-top');
   const bottom = document.getElementById('schedule-bottom');
+  const wrap = document.getElementById('schedule-wrap');
   if (!top || !bottom) return;
+
+  let pendingFrom = null;  // 'top' | 'bottom' | null
+  let rafScheduled = false;
+  let scrollEndTimer = null;
+
+  function markScrolling() {
+    if (!wrap) return;
+    wrap.classList.add('is-scrolling');
+    if (scrollEndTimer) clearTimeout(scrollEndTimer);
+    scrollEndTimer = setTimeout(() => {
+      wrap.classList.remove('is-scrolling');
+    }, 150);
+  }
+
+  function flush() {
+    rafScheduled = false;
+    if (pendingFrom === 'top') {
+      _syncingScroll = true;
+      bottom.scrollLeft = top.scrollLeft;
+      _syncingScroll = false;
+    } else if (pendingFrom === 'bottom') {
+      _syncingScroll = true;
+      top.scrollLeft = bottom.scrollLeft;
+      _syncingScroll = false;
+    }
+    pendingFrom = null;
+  }
+
   top.addEventListener('scroll', () => {
+    markScrolling();
     if (_syncingScroll) return;
-    _syncingScroll = true;
-    bottom.scrollLeft = top.scrollLeft;
-    _syncingScroll = false;
-  });
+    pendingFrom = 'top';
+    if (!rafScheduled) {
+      rafScheduled = true;
+      requestAnimationFrame(flush);
+    }
+  }, { passive: true });
+
   bottom.addEventListener('scroll', () => {
+    markScrolling();
     if (_syncingScroll) return;
-    _syncingScroll = true;
-    top.scrollLeft = bottom.scrollLeft;
-    _syncingScroll = false;
-  });
+    pendingFrom = 'bottom';
+    if (!rafScheduled) {
+      rafScheduled = true;
+      requestAnimationFrame(flush);
+    }
+  }, { passive: true });
 }
 
 // 分割線拖拉
