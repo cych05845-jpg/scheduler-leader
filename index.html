@@ -357,6 +357,14 @@ td.shift-M { background: var(--M); color: var(--M-text); }
 td.shift-O { background: #f5f5f0; color: #8a8a8a; font-style: italic; }
 td.shift-OFF { background: #fce8e8; color: #b91c1c; font-weight: 800; }
 td.shift-off { background: #f5f5f0; color: #6b6b6b; font-style: italic; text-decoration: underline; }
+/* 底線標記:cell-underline 用粗下框線,跟 shift-off 的 text-decoration 區分(後者標文字,前者標格子) */
+td.cell-underline {
+  box-shadow: inset 0 -3px 0 0 #d97706;  /* 橘色粗下框,代表「預約延續記憶」 */
+}
+td.shift-off.cell-underline {
+  /* 軟假本身就有 text-decoration: underline,額外加粗下框會雙重底線。
+     換成單一明確視覺:粗下框,並把字本身的 underline 保留 */
+}
 td.shift-o { background: #fafaf5; color: #999; font-style: italic; }
 td.shift-V { background: var(--V); color: var(--V-text); }
 td.shift-empty { background: #fff; color: #ccc; }
@@ -1257,46 +1265,98 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   <!-- Side panel -->
   <div class="side-panel" id="side-panel" style="display: none">
 
+    <!-- ============== 頂部:核心摘要(永遠展開) ============== -->
     <div id="month-target-banner" style="background: linear-gradient(135deg, #fee2e2 0%, #fef3c7 100%); padding: 0.8rem; border-radius: 6px; margin-bottom: 0.8rem; border: 2px solid #b91c1c">
       <div style="font-size: 0.85rem; color: #7f1d1d; font-weight: 600; margin-bottom: 0.2rem">📅 本月目標休假</div>
       <div id="month-target-display" style="font-size: 1.2rem; font-weight: 800; color: #991b1b"></div>
       <div id="month-target-detail" style="font-size: 0.82rem; color: #7f1d1d; margin-top: 0.2rem"></div>
     </div>
 
-    <div class="section">
-      <h3>📊 本月概況</h3>
-      <div class="stat-box" id="month-overview"></div>
+    <!-- 進度+警告摘要(永遠看得到的單行摘要) -->
+    <div id="quick-summary" style="display: flex; gap: 0.5rem; margin-bottom: 0.8rem; flex-wrap: wrap; font-size: 0.88rem">
+      <div id="quick-empty-cells" style="padding: 0.3rem 0.6rem; background: #d1fae5; border-radius: 4px; color: #065f46; font-weight: 600"></div>
+      <div id="quick-viol-count" style="padding: 0.3rem 0.6rem; background: #fef3c7; border-radius: 4px; color: #92400e; font-weight: 600; cursor: pointer" onclick="toggleSidePanelSection('sec-viol', true)" title="點擊展開規則檢查"></div>
+      <div id="quick-fair-count" style="padding: 0.3rem 0.6rem; background: #fee2e2; border-radius: 4px; color: #991b1b; font-weight: 600; cursor: pointer" onclick="toggleSidePanelSection('sec-fair', true)" title="點擊展開個人公平性"></div>
     </div>
 
-    <div class="section">
-      <h3>🎯 每日人力需求</h3>
-      <div id="demand-summary" style="font-size: 0.92rem; color: var(--ink-soft)"></div>
-      <button onclick="openRulesModal()" style="width: 100%; margin-top: 0.5rem; padding: 4px; font-size: 0.9rem">⚙ 修改規則</button>
-    </div>
+    <!-- ============== 中段:主操作(預設展開:排序;其他預設摺疊) ============== -->
 
-    <div class="section">
-      <h3>⚠ 規則檢查</h3>
-      <div class="viol-list" id="viol-list"></div>
-    </div>
-
-    <div class="section">
-      <h3>🗓 可休天數計算</h3>
-      <div style="font-size: 0.9rem; color: var(--ink-soft)" id="off-calculator"></div>
-    </div>
-
-    <div class="section">
-      <h3>⚖ 個人公平性</h3>
-      <div style="font-size: 0.85rem; color: var(--ink-mute); margin-bottom: 0.4rem">
-        應放 vs 實放(綠=符合、黃=差異小、紅=差異大)
-      </div>
-      <div id="fairness-list" style="max-height: 400px; overflow-y: auto"></div>
-    </div>
-
-    <div class="section" id="leave-section">
-      <h3 style="cursor: pointer; user-select: none" onclick="toggleLeaveSection()">
-        <span id="leave-section-arrow">▶</span> ⏸ 留停人員 <span id="leave-section-count" style="font-size: 0.85rem; color: var(--ink-mute); font-weight: 400"></span>
+    <!-- 📋 調整人員順序:預設展開,加紅字提示 -->
+    <div class="section side-collapsible" id="sec-reorder" data-default="open">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-reorder')">
+        <span class="side-arrow">▼</span> 📋 調整人員順序
+        <span style="font-size: 0.78rem; color: #dc2626; font-weight: 600; margin-left: 0.4rem">← 拖 ⋮⋮ 換位置</span>
       </h3>
-      <div id="leave-section-body" style="display: none">
+      <div class="side-collapsible-body">
+        <div style="font-size: 0.82rem; color: var(--ink-mute); margin-bottom: 0.5rem">
+          拖曳調整人員在班表上的顯示順序。
+        </div>
+        <div id="reorder-staff-list" style="font-size: 0.9rem; max-height: 400px; overflow-y: auto"></div>
+      </div>
+    </div>
+
+    <!-- ⚠ 規則檢查 -->
+    <div class="section side-collapsible" id="sec-viol" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-viol')">
+        <span class="side-arrow">▶</span> ⚠ 規則檢查
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
+        <div class="viol-list" id="viol-list"></div>
+      </div>
+    </div>
+
+    <!-- ⚖ 個人公平性 -->
+    <div class="section side-collapsible" id="sec-fair" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-fair')">
+        <span class="side-arrow">▶</span> ⚖ 個人公平性
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
+        <div style="font-size: 0.85rem; color: var(--ink-mute); margin-bottom: 0.4rem">
+          應放 vs 實放(綠=符合、黃=差異小、紅=差異大)
+        </div>
+        <div id="fairness-list" style="max-height: 400px; overflow-y: auto"></div>
+      </div>
+    </div>
+
+    <!-- 📊 本月概況(D/E/N/休 統計) -->
+    <div class="section side-collapsible" id="sec-overview" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-overview')">
+        <span class="side-arrow">▶</span> 📊 本月概況
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
+        <div class="stat-box" id="month-overview"></div>
+      </div>
+    </div>
+
+    <!-- ============== 底部:設定/參考(預設摺疊) ============== -->
+
+    <!-- 🎯 每日人力需求 -->
+    <div class="section side-collapsible" id="sec-demand" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-demand')">
+        <span class="side-arrow">▶</span> 🎯 每日人力需求
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
+        <div id="demand-summary" style="font-size: 0.92rem; color: var(--ink-soft)"></div>
+        <button onclick="openRulesModal()" style="width: 100%; margin-top: 0.5rem; padding: 4px; font-size: 0.9rem">⚙ 修改規則</button>
+      </div>
+    </div>
+
+    <!-- 🗓 可休天數計算 -->
+    <div class="section side-collapsible" id="sec-offcalc" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-offcalc')">
+        <span class="side-arrow">▶</span> 🗓 可休天數計算
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
+        <div style="font-size: 0.9rem; color: var(--ink-soft)" id="off-calculator"></div>
+      </div>
+    </div>
+
+    <!-- ⏸ 留停人員(沿用既有 toggleLeaveSection 邏輯,改成統一 pattern) -->
+    <div class="section side-collapsible" id="sec-leave" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-leave')">
+        <span class="side-arrow">▶</span> ⏸ 留停人員 <span id="leave-section-count" style="font-size: 0.85rem; color: var(--ink-mute); font-weight: 400"></span>
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
         <div style="font-size: 0.82rem; color: var(--ink-mute); margin-bottom: 0.5rem">
           留停人員不會在班表畫面顯示,也不會出現在匯出檔。要把人設為留停,點班表中的「姓名」進入員工編輯。
         </div>
@@ -1304,17 +1364,6 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
       </div>
     </div>
 
-    <div class="section" id="reorder-section">
-      <h3 style="cursor: pointer; user-select: none" onclick="toggleReorderSection()">
-        <span id="reorder-section-arrow">▶</span> 📋 調整人員順序
-      </h3>
-      <div id="reorder-section-body" style="display: none">
-        <div style="font-size: 0.82rem; color: var(--ink-mute); margin-bottom: 0.5rem">
-          拖曳調整人員在班表上的顯示順序。
-        </div>
-        <div id="reorder-staff-list" style="font-size: 0.9rem; max-height: 400px; overflow-y: auto"></div>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -2798,6 +2847,7 @@ async function saveScheduleToCloud(month, silent) {
   const payload = {
     staff: state.staff,
     schedule: state.schedule,
+    scheduleFlags: state.scheduleFlags || {},
     notes: state.notes || {},
     fixed: state.fixed,
     holidays: state.holidays,
@@ -2919,6 +2969,7 @@ async function loadCloudScheduleDirectly(month) {
   state.month = month;
   state.staff = data.staff || [];
   state.schedule = data.schedule || {};
+  state.scheduleFlags = data.scheduleFlags || {};
   state.notes = data.notes || {};
   state.fixed = data.fixed || {};
   state.holidays = data.holidays || [];
@@ -3006,6 +3057,7 @@ async function copyCloudScheduleToCurrent(fromMonth) {
 
   state.fixed = {};      // 清空(因為日期變了)
   state.schedule = {};   // 清空
+state.scheduleFlags = {};  // 同步重置底線旗標
   state.notes = {};      // 清空備註(備註是 per 月的)
   if (data.rules) state.rules = data.rules;
   // holidays 清空(本月跟上月日期不同)
@@ -3076,6 +3128,7 @@ async function expandToNextMonth(currentMonth) {
   state.month = nextMonth;
   if ($('month-input')) $('month-input').value = nextMonth;
   state.schedule = {};
+state.scheduleFlags = {};  // 同步重置底線旗標
   state.notes = {};
   state.fixed = {};
   state.holidays = [];
@@ -3407,6 +3460,7 @@ const state = {
   month: '2026-06',
   staff: [],           // [{id, name, level, note, fixedShift, preferredShift, canSwapTo: []}]
   schedule: {},        // {staffId: {day: shift}}
+  scheduleFlags: {},   // {staffId: {day: {underline: true}}} - 底線旗標(預約延續記憶)
   notes: {},           // {staffId: {day: noteString}} - 個人日備註 (ACLS/中油/友善 等)
   fixed: {},           // {staffId: {day: true}} - cells locked as fixed (preset)
   holidays: ['2026-05-01'], // list of holiday dates
@@ -3538,16 +3592,126 @@ function shouldHideStaff(p, monthStr) {
   return false;
 }
 
-// 右下 sidebar 「留停人員」區的展開/收合
-function toggleLeaveSection() {
-  const body = $('leave-section-body');
-  const arrow = $('leave-section-arrow');
-  if (!body) return;
-  const open = body.style.display !== 'none';
-  body.style.display = open ? 'none' : 'block';
-  if (arrow) arrow.textContent = open ? '▶' : '▼';
-  if (!open) renderLeaveStaffList();  // 展開時刷新
+// ============================================================
+// 側欄統一摺疊系統(新版)
+// 每個摺疊區塊有 .side-collapsible 容器、.side-collapsible-body、.side-arrow
+// 狀態存 localStorage:sidePanel.{sectionId} = 'open' | 'closed'
+// ============================================================
+const SIDE_PANEL_LS_PREFIX = 'sidePanel.';
+
+function getSidePanelState(secId) {
+  return localStorage.getItem(SIDE_PANEL_LS_PREFIX + secId);
 }
+function setSidePanelState(secId, state) {
+  try { localStorage.setItem(SIDE_PANEL_LS_PREFIX + secId, state); } catch (e) {}
+}
+
+function toggleSidePanelSection(secId, forceOpen) {
+  const sec = document.getElementById(secId);
+  if (!sec) return;
+  const body = sec.querySelector('.side-collapsible-body');
+  const arrow = sec.querySelector('.side-arrow');
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  const willOpen = forceOpen === true ? true : !isOpen;
+  body.style.display = willOpen ? 'block' : 'none';
+  if (arrow) arrow.textContent = willOpen ? '▼' : '▶';
+  setSidePanelState(secId, willOpen ? 'open' : 'closed');
+
+  // 展開時刷新內容(某些區塊內容是 lazy 渲染的)
+  if (willOpen) {
+    if (secId === 'sec-leave' && typeof renderLeaveStaffList === 'function') renderLeaveStaffList();
+    if (secId === 'sec-reorder' && typeof renderReorderList === 'function') renderReorderList();
+  }
+}
+
+// 初始化:依 data-default 和 localStorage 設定每個區塊的展開狀態
+function initSidePanelSections() {
+  document.querySelectorAll('.side-collapsible').forEach(sec => {
+    const secId = sec.id;
+    if (!secId) return;
+    const saved = getSidePanelState(secId);
+    const def = sec.dataset.default || 'closed';
+    const shouldOpen = saved ? (saved === 'open') : (def === 'open');
+    const body = sec.querySelector('.side-collapsible-body');
+    const arrow = sec.querySelector('.side-arrow');
+    if (body) body.style.display = shouldOpen ? 'block' : 'none';
+    if (arrow) arrow.textContent = shouldOpen ? '▼' : '▶';
+  });
+}
+
+// 摘要快速指標:尚未填入、規則違反數、公平性差異數
+function updateSidePanelSummary() {
+  if (!state || !state.month || state.staff.length === 0) return;
+  const [year, month] = state.month.split('-').map(Number);
+  const days = new Date(year, month, 0).getDate();
+
+  // 1. 尚未填入格數
+  let empty = 0;
+  state.staff.forEach(p => {
+    if (p.status === 'leave' || p.status === 'resigned') return;
+    if (p.dispatch) return;
+    const sched = state.schedule[p.id] || {};
+    for (let d = 1; d <= days; d++) {
+      const v = sched[d];
+      if (!v) empty++;
+    }
+  });
+  const emptyEl = document.getElementById('quick-empty-cells');
+  if (emptyEl) {
+    if (empty === 0) {
+      emptyEl.textContent = '✓ 全部填好';
+      emptyEl.style.background = '#d1fae5';
+      emptyEl.style.color = '#065f46';
+    } else {
+      emptyEl.textContent = `📝 ${empty} 格未填`;
+      emptyEl.style.background = '#fef3c7';
+      emptyEl.style.color = '#92400e';
+    }
+  }
+
+  // 2. 規則違反數(viol-list 內的 .viol-item 數量)
+  const violEl = document.getElementById('quick-viol-count');
+  if (violEl) {
+    const violList = document.getElementById('viol-list');
+    const violCount = violList ? violList.querySelectorAll('.viol-item, [class*="viol"]').length : 0;
+    // 退而求其次:用 children 數估算
+    const fallbackCount = violList ? violList.children.length : 0;
+    const c = violCount || fallbackCount;
+    if (c === 0) {
+      violEl.style.display = 'none';
+    } else {
+      violEl.style.display = 'block';
+      violEl.textContent = `⚠ ${c} 條規則警告`;
+    }
+  }
+
+  // 3. 個人公平性差異(fairness-list 內紅字數量)
+  const fairEl = document.getElementById('quick-fair-count');
+  if (fairEl) {
+    const fairList = document.getElementById('fairness-list');
+    // 抓 .fair-row 裡標紅(差異大)的數量;結構不確定就跳過
+    let diffCount = 0;
+    if (fairList) {
+      fairList.querySelectorAll('[style*="color"]').forEach(el => {
+        const txt = el.textContent || '';
+        // 抓「+2.0」「-1.5」這種數字大於等於 1 的
+        const m = txt.match(/[+\-]([\d.]+)/);
+        if (m && parseFloat(m[1]) >= 1) diffCount++;
+      });
+    }
+    if (diffCount === 0) {
+      fairEl.style.display = 'none';
+    } else {
+      fairEl.style.display = 'block';
+      fairEl.textContent = `⚖ ${diffCount} 人公平性差異`;
+    }
+  }
+}
+
+// 舊 toggle 函式保留為相容墊片(萬一還有別處呼叫)
+function toggleLeaveSection() { toggleSidePanelSection('sec-leave'); }
+function toggleReorderSection() { toggleSidePanelSection('sec-reorder'); }
 
 // 渲染留停人員清單(在右下角)
 function renderLeaveStaffList() {
@@ -3589,16 +3753,9 @@ function restoreFromLeave(pid) {
 
 // ============================================================
 // 人員順序調整(拖曳)
+// 註:舊 toggleReorderSection 已由 toggleSidePanelSection('sec-reorder') 取代
+// 此處 toggleReorderSection 函式已於上方定義為相容墊片
 // ============================================================
-function toggleReorderSection() {
-  const body = $('reorder-section-body');
-  const arrow = $('reorder-section-arrow');
-  if (!body) return;
-  const open = body.style.display !== 'none';
-  body.style.display = open ? 'none' : 'block';
-  if (arrow) arrow.textContent = open ? '▶' : '▼';
-  if (!open) renderReorderList();
-}
 
 function renderReorderList() {
   const listEl = $('reorder-staff-list');
@@ -3691,6 +3848,11 @@ document.querySelectorAll('.brush-btn').forEach(btn => {
 function renderTable() {
   if (state.staff.length === 0) return;
 
+  // 記住目前捲動位置,renderTable 後還原(避免改班後畫面跳回左上)
+  const _scrollTopEl = document.getElementById('schedule-top');
+  const _savedScrollLeft = _scrollTopEl ? _scrollTopEl.scrollLeft : 0;
+  const _savedScrollTop = _scrollTopEl ? _scrollTopEl.scrollTop : 0;
+
   const days = getDaysInMonth(state.month);
   const showWeekends = $('show-weekends').checked;
   const showViol = $('show-viol').checked;
@@ -3752,7 +3914,7 @@ function renderTable() {
       : '';
 
     html += `<tr data-pid="${p.id}"${rowStyle}>`;
-    html += `<td class="col-meta col-name" onclick="openPersonModal('${p.id}')" style="cursor:pointer">${p.name}${dispatchTag}</td>`;
+    html += `<td class="col-meta col-name" onclick="openPersonModal('${p.id}')" style="cursor:pointer" title="點擊查看設定">${p.name}${dispatchTag}</td>`;
     html += `<td class="col-meta col-level"><span class="level-tag level-${p.level}">${p.level}</span></td>`;
     html += `<td class="col-meta col-pref">${pref ? `<span class="tag">${pref}</span>` : ''}</td>`;
 
@@ -3790,6 +3952,12 @@ function renderTable() {
       } else {
         cls += ' shift-empty';
       }
+
+      // 底線標記(預約延續記憶)
+      // - off 有底線 = 軟假(預約未中)
+      // - D/E/N/M/V 有底線 = 被動上班(原本預約 off)
+      const hasUnderlineFlag = !!(state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d] && state.scheduleFlags[p.id][d].underline);
+      if (hasUnderlineFlag) cls += ' cell-underline';
 
       if (showWeekends) {
         if (isHoliday(state.month, d)) cls += ' holiday';
@@ -3861,6 +4029,19 @@ function renderTable() {
 
   // 渲染下半 + 同步欄寬 + 同步橫向滾動
   if (typeof renderBottomTable === 'function') renderBottomTable();
+
+  // 還原捲動位置(改班後不要跳回左上)
+  // 等下一幀讓 layout 完成後再設,避免被瀏覽器的預設 scroll reset 蓋掉
+  if (_scrollTopEl) {
+    requestAnimationFrame(() => {
+      _syncingScroll = true;  // 暫時擋 scroll sync,避免雙向觸發
+      _scrollTopEl.scrollLeft = _savedScrollLeft;
+      _scrollTopEl.scrollTop = _savedScrollTop;
+      const _bot = document.getElementById('schedule-bottom');
+      if (_bot) _bot.scrollLeft = _savedScrollLeft;
+      _syncingScroll = false;
+    });
+  }
 
   renderSidePanel();
 }
@@ -4097,7 +4278,9 @@ function initSplitView() {
   initSplitScrollSync();
   initSplitDivider();
   initSplitResizeHandler();
+  if (typeof initSidePanelSections === 'function') initSidePanelSections();
 }
+
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initSplitView);
 } else {
@@ -4203,8 +4386,19 @@ function onCellClick(e) {
 
   if (state.currentBrush === '') {
     delete state.schedule[pid][day];
+    // 清空時也清掉底線旗標
+    if (state.scheduleFlags && state.scheduleFlags[pid]) {
+      delete state.scheduleFlags[pid][day];
+    }
   } else {
     state.schedule[pid][day] = state.currentBrush;
+    // 改成 OFF(中籤)時,底線旗標失效(他真的休到了,不是被動上班)
+    if (state.currentBrush === 'OFF') {
+      if (state.scheduleFlags && state.scheduleFlags[pid]) {
+        delete state.scheduleFlags[pid][day];
+      }
+    }
+    // 改成 off / D / E / N / M / V 時:scheduleFlags 維持(若原本有底線就保留)
   }
 
   renderTable();
@@ -4228,6 +4422,7 @@ function saveScheduleLocalNow() {
     const data = {
       month: state.month,
       schedule: state.schedule || {},
+      scheduleFlags: state.scheduleFlags || {},
       notes: state.notes || {},
       fixed: state.fixed || {},
       holidays: state.holidays || [],
@@ -4260,6 +4455,7 @@ function restoreScheduleFromLocal() {
   const data = loadScheduleLocal();
   if (!data) return false;
   state.schedule = data.schedule || {};
+  state.scheduleFlags = data.scheduleFlags || {};
   state.notes = data.notes || {};
   state.fixed = data.fixed || {};
   if (data.holidays && data.holidays.length > 0) state.holidays = data.holidays;
@@ -4327,15 +4523,28 @@ function renderSidePanel() {
   // Fairness dashboard
   renderFairness();
 
-  // 留停人員計數(右下角區段標題的「(X 人)」),展開時也順便刷新清單
+  // 留停人員計數(改成新 id sec-leave 結構)
   if (typeof renderLeaveStaffList === 'function') {
-    const body = $('leave-section-body');
+    const sec = document.getElementById('sec-leave');
+    const body = sec ? sec.querySelector('.side-collapsible-body') : null;
     const countEl = $('leave-section-count');
     if (countEl) {
       const n = state.staff.filter(p => p.status === 'leave').length;
       countEl.textContent = n > 0 ? `(${n} 人)` : '';
     }
     if (body && body.style.display !== 'none') renderLeaveStaffList();
+  }
+
+  // 排序區若展開,刷新清單(因為人員可能改名)
+  const reorderSec = document.getElementById('sec-reorder');
+  const reorderBody = reorderSec ? reorderSec.querySelector('.side-collapsible-body') : null;
+  if (reorderBody && reorderBody.style.display !== 'none' && typeof renderReorderList === 'function') {
+    renderReorderList();
+  }
+
+  // 摘要(尚未填入、警告、公平性)— 在區塊渲染完才能算
+  if (typeof updateSidePanelSummary === 'function') {
+    setTimeout(updateSidePanelSummary, 0);  // 延後一拍,等 viol-list / fairness-list 渲染完
   }
 }
 
@@ -4788,12 +4997,6 @@ function renderOffCalculator() {
         : '<div style="font-size: 0.82rem; color: var(--ink-mute)">人力充足,可達基本天數以上</div>'
       }
     </div>
-
-    <div style="padding: 0.5rem; background: var(--ink); color: white; border-radius: 3px">
-      <div style="font-size: 0.85rem; color: #aaa">🎯 本月目標休假</div>
-      <div style="font-size: 1.6rem; font-weight: 900">${t.targetDays.toFixed(1)} 天/人</div>
-      <div style="font-size: 0.82rem; color: #aaa">= max(基本, 公式)</div>
-    </div>
   `;
 }
 
@@ -4936,6 +5139,12 @@ function openPersonModal(pid) {
         ${computePersonStats(p.id)}
       </div>
     </div>
+
+    <!-- 本月預約統計(底線旗標的延續記憶) -->
+    <div style="margin-top: 1rem; padding: 0.7rem; background: #fef3c7; border-radius: 6px; border-left: 4px solid #d97706">
+      <div style="font-size: 0.88rem; font-weight: 700; color: #78350f; margin-bottom: 0.4rem">📌 本月預約 / 上班記錄</div>
+      ${computePersonReserveStats(p.id)}
+    </div>
   `;
   $('person-modal').classList.add('active');
 
@@ -5051,6 +5260,62 @@ function computePersonStats(pid) {
     <div style="margin-top: 0.4rem; font-size: 0.95rem">
       <b>總工作:</b> ${D+E+N+M}
     </div>
+  `;
+}
+
+// 預約延續統計:本月預約幾次/中籤幾次/被動上班幾次
+// 中籤 (OFF 大寫) → 神聖不可動,得償所願
+// 軟假 (off 有底線) → 預約但未中籤,系統盡量給休
+// 被動上班 (D/E/N/M/V 有底線) → 預約但因人力不足被排上班,下次要優先補
+function computePersonReserveStats(pid) {
+  const days = getDaysInMonth(state.month);
+  const sched = state.schedule[pid] || {};
+  const flags = (state.scheduleFlags && state.scheduleFlags[pid]) || {};
+  let drawn = 0;       // 中籤:OFF 大寫
+  let softGranted = 0; // 預約成功給休:有底線且還是 off
+  let passive = 0;     // 預約失敗被動上班:有底線且是 D/E/N/M/V
+  const passiveDays = [];
+  const softDays = [];
+
+  for (let d = 1; d <= days; d++) {
+    const v = sched[d];
+    const u = flags[d] && flags[d].underline;
+    if (v === 'OFF') drawn++;
+    else if (v === 'off' && u) { softGranted++; softDays.push(d); }
+    else if (u && ['D','E','N','M','V'].includes(v)) { passive++; passiveDays.push(d); }
+  }
+
+  const totalReserved = drawn + softGranted + passive;  // 本月「預約意圖」總次數
+  if (totalReserved === 0) {
+    return `<div style="font-size: 0.88rem; color: #78350f">本月沒有預約紀錄</div>`;
+  }
+
+  return `
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; font-size: 0.88rem">
+      <div style="text-align: center; padding: 0.3rem; background: #fee2e2; border-radius: 3px">
+        <div style="font-size: 0.78rem; color: #7f1d1d">中籤 OFF</div>
+        <div style="font-size: 1.2rem; font-weight: 800; color: #991b1b">${drawn}</div>
+      </div>
+      <div style="text-align: center; padding: 0.3rem; background: #f5f5f0; border-radius: 3px">
+        <div style="font-size: 0.78rem; color: #6b6b6b">軟假給休 <u>off</u></div>
+        <div style="font-size: 1.2rem; font-weight: 800; color: #6b6b6b">${softGranted}</div>
+      </div>
+      <div style="text-align: center; padding: 0.3rem; background: ${passive > 0 ? '#fed7aa' : '#f3f4f6'}; border-radius: 3px; ${passive > 0 ? 'border: 2px solid #d97706' : ''}">
+        <div style="font-size: 0.78rem; color: #78350f">被動上班</div>
+        <div style="font-size: 1.2rem; font-weight: 800; color: ${passive > 0 ? '#92400e' : '#9ca3af'}">${passive}</div>
+      </div>
+    </div>
+    ${passive > 0 ? `
+      <div style="margin-top: 0.5rem; font-size: 0.82rem; color: #78350f">
+        ⚠ <b>被動上班日:</b>${passiveDays.map(d => `${d}日`).join('、')}
+        <br><span style="color: #92400e">下次排班應優先給這人預約</span>
+      </div>
+    ` : ''}
+    ${softGranted > 0 ? `
+      <div style="margin-top: 0.4rem; font-size: 0.82rem; color: #6b6b6b">
+        軟假給休日:${softDays.map(d => `${d}日`).join('、')}
+      </div>
+    ` : ''}
   `;
 }
 
@@ -5604,7 +5869,7 @@ function handleFileSelect(e) {
   reader.onload = (ev) => {
     try {
       const data = new Uint8Array(ev.target.result);
-      const wb = XLSX.read(data, { type: 'array' });
+      const wb = XLSX.read(data, { type: 'array', cellStyles: true });
 
       // Try to find the right sheet AND detect month from its name
       let targetSheet = null;
@@ -5721,6 +5986,7 @@ function handleFileSelect(e) {
       // Save to pending — will be used in executeImport
       pendingImport = {
         rows, headerIdx, parseMode, sheetName: targetSheetName, fileName: file.name,
+        worksheet: targetSheet,  // 為讀 cell style(underline)用
       };
 
       // Show stage 2 (month input) and stage 3 (purpose)
@@ -5765,7 +6031,7 @@ function updateNextMonthLabel() {
 // ============================================================
 // PARSER A:單列格式(每人一列,姓名/職級/1/2/3…)
 // ============================================================
-function parseSingleRowFormat(rows, headerIdx) {
+function parseSingleRowFormat(rows, headerIdx, worksheet) {
   const header = rows[headerIdx];
   const nameIdx = header.findIndex(c => String(c).includes('姓名'));
   const levelIdx = header.findIndex(c => String(c).includes('職級') || String(c).includes('資歷') || String(c).includes('等級'));
@@ -5778,8 +6044,25 @@ function parseSingleRowFormat(rows, headerIdx) {
     if (num >= 1 && num <= 31) dayCols[num] = i;
   });
 
+  // 工具:讀 worksheet 對應 cell 的 underline 屬性
+  // SheetJS 社群版讀到的 style 結構可能是 cell.s.font.underline 或 cell.s.font.u
+  function hasUnderline(rowIdx, colIdx) {
+    if (!worksheet) return false;
+    try {
+      const addr = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
+      const cell = worksheet[addr];
+      if (!cell || !cell.s || !cell.s.font) return false;
+      const f = cell.s.font;
+      // 各種可能的 underline 表示法
+      return !!(f.underline || f.u || f.U);
+    } catch (e) {
+      return false;
+    }
+  }
+
   const staff = [];
   const schedule = {};
+  const scheduleFlags = {};
   let dataStart = headerIdx + 1;
   if (rows[dataStart] && rows[dataStart].some(c => /^[日一二三四五六]$/.test(String(c).trim()))) {
     dataStart++;
@@ -5801,21 +6084,29 @@ function parseSingleRowFormat(rows, headerIdx) {
     });
 
     schedule[id] = {};
+    scheduleFlags[id] = {};
     for (let d = 1; d <= 31; d++) {
       if (dayCols[d] !== undefined) {
-        const raw = String(row[dayCols[d]] || '').trim();
+        const colIdx = dayCols[d];
+        const raw = String(row[colIdx] || '').trim();
+        const underlined = hasUnderline(r, colIdx);
         if (['D', 'E', 'N', 'M', 'V'].includes(raw)) {
           schedule[id][d] = raw;
+          // 上班班別有底線 → 代表是「預約 off 但被動上班」的記憶,要保留
+          if (underlined) scheduleFlags[id][d] = { underline: true };
         } else if (raw === 'OFF') {
           schedule[id][d] = 'OFF';
         } else if (raw === 'off' || raw === 'O') {
+          // 區分有/無底線:有底線 = 軟假(預約未中);無底線 = 一般休假
+          // 都存成 'off' 字串,但 scheduleFlags 記錄底線
           schedule[id][d] = 'off';
+          if (underlined) scheduleFlags[id][d] = { underline: true };
         }
       }
     }
   }
 
-  return { staff, schedule };
+  return { staff, schedule, scheduleFlags };
 }
 
 // ============================================================
@@ -5828,9 +6119,23 @@ function parseSingleRowFormat(rows, headerIdx) {
 //   ... 每人兩列 ...
 // 班別代碼轉換:8-5' / 8-5 → M ; 8-4 → D ; 其他原樣 / 無法識別跳過
 // ============================================================
-function parseDualRowFormat(rows, headerIdx, importMonth) {
+function parseDualRowFormat(rows, headerIdx, importMonth, worksheet) {
   const headerRow = rows[headerIdx];
   const dateRow = rows[headerIdx + 1];
+
+  // 工具:讀 worksheet 對應 cell 的 underline 屬性
+  function hasUnderline(rowIdx, colIdx) {
+    if (!worksheet) return false;
+    try {
+      const addr = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
+      const cell = worksheet[addr];
+      if (!cell || !cell.s || !cell.s.font) return false;
+      const f = cell.s.font;
+      return !!(f.underline || f.u || f.U);
+    } catch (e) {
+      return false;
+    }
+  }
 
   // 姓名欄 = headerRow 裡含「星期」or dateRow 裡含「日期」的那欄
   let nameCol = headerRow.findIndex(c => String(c).includes('星期'));
@@ -5924,6 +6229,7 @@ function parseDualRowFormat(rows, headerIdx, importMonth) {
 
   const staff = [];
   const schedule = {};
+  const scheduleFlags = {};
   // warning 按「人+代碼」歸納,並計算天數,避免一整月病假產生 30 條 warning
   const warnAgg = {};  // key = "name|code" -> { name, code, days: [d1, d2, ...] }
 
@@ -5995,6 +6301,7 @@ function parseDualRowFormat(rows, headerIdx, importMonth) {
     });
 
     schedule[id] = {};
+    scheduleFlags[id] = {};
 
     // 逐日讀班別
     for (const dayStr in dayCols) {
@@ -6005,6 +6312,13 @@ function parseDualRowFormat(rows, headerIdx, importMonth) {
       const { shift, ok } = convertShift(raw);
       if (ok && shift) {
         schedule[id][day] = shift;
+        // 雙列格式:班別在下列(r+1, col)
+        if (hasUnderline(r + 1, col)) {
+          // off + 底線 = 軟假;D/E/N + 底線 = 被動上班(原本預約)
+          if (shift === 'off' || ['D','E','N','M','V'].includes(shift)) {
+            scheduleFlags[id][day] = { underline: true };
+          }
+        }
       } else if (!ok) {
         const code = String(raw).trim();
         const key = name + '|' + code;
@@ -6023,7 +6337,7 @@ function parseDualRowFormat(rows, headerIdx, importMonth) {
     return `${w.name}: d${w.days.join(',d')} "${w.code}"`;
   });
 
-  return { staff, schedule, warnings };
+  return { staff, schedule, scheduleFlags, warnings };
 }
 
 function executeImport() {
@@ -6041,23 +6355,25 @@ function executeImport() {
   const purpose = document.querySelector('input[name="import-purpose"]:checked').value;
   // 'reference' or 'edit'
 
-  const { rows, headerIdx, parseMode } = pendingImport;
+  const { rows, headerIdx, parseMode, worksheet } = pendingImport;
 
   // ⤴ 分流:雙列原始格式走 parseDualRowFormat
-  let staff, schedule;
+  let staff, schedule, scheduleFlags = {};
   if (parseMode === 'dual') {
-    const result = parseDualRowFormat(rows, headerIdx, importMonth);
+    const result = parseDualRowFormat(rows, headerIdx, importMonth, worksheet);
     staff = result.staff;
     schedule = result.schedule;
+    scheduleFlags = result.scheduleFlags || {};
     pendingImport._warnings = result.warnings || [];
     if (result.warnings && result.warnings.length > 0) {
       console.warn('[匯入警告] 以下班別代碼無法自動轉換,已跳過:\n' + result.warnings.join('\n'));
     }
   } else {
     // 原本的單列 parser
-    const parsed = parseSingleRowFormat(rows, headerIdx);
+    const parsed = parseSingleRowFormat(rows, headerIdx, worksheet);
     staff = parsed.staff;
     schedule = parsed.schedule;
+    scheduleFlags = parsed.scheduleFlags || {};
   }
 
   // 暫存 warnings 供下方訊息用
@@ -6068,6 +6384,7 @@ function executeImport() {
   $('month-input').value = importMonth;
   state.staff = staff;
   state.schedule = schedule;
+  state.scheduleFlags = scheduleFlags;
   state.fixed = {};
 
   // Merge stored data
@@ -6141,6 +6458,7 @@ function referenceModeAfterImport(refMonth) {
   state.month = nextMonth;
   $('month-input').value = nextMonth;
   state.schedule = {};  // clear schedule (was reference month's data)
+state.scheduleFlags = {};  // 同步重置底線旗標
   // Keep staff list — but apply preferences for new month
   state.staff.forEach(p => {
     state.schedule[p.id] = {};
@@ -6277,7 +6595,7 @@ async function exportXlsx() {
   const SUN_FILL = 'FFFFE4E6';
   const HOL_FILL = 'FFFEF3C7';
 
-  function styleShiftCell(cell, raw) {
+  function styleShiftCell(cell, raw, forceUnderline) {
     if (!raw) return;
     const s = SHIFT_STYLES[raw];
     if (!s) return;
@@ -6286,7 +6604,7 @@ async function exportXlsx() {
       color: { argb: s.fontColor },
       bold: !!s.bold,
       italic: !!s.italic,
-      underline: !!s.underline,
+      underline: !!s.underline || !!forceUnderline,  // 外部旗標可加上底線(D/E/N 被動上班)
       name: 'Microsoft JhengHei',
       size: 10,
     };
@@ -6445,7 +6763,10 @@ async function exportXlsx() {
         };
       } else {
         const v = sched[d];
-        if (v) styleShiftCell(cell, v);
+        // 讀 scheduleFlags 看是否有底線(預約延續記憶)
+        const flags = (state.scheduleFlags && state.scheduleFlags[p.id]) || {};
+        const isUnderlined = !!(flags[d] && flags[d].underline);
+        if (v) styleShiftCell(cell, v, isUnderlined);
       }
     }
 
@@ -6904,6 +7225,7 @@ function loadSampleData() {
     special: '',
   }));
   state.schedule = {};
+state.scheduleFlags = {};  // 同步重置底線旗標
   state.staff.forEach(p => state.schedule[p.id] = {});
 
   $('empty-state').style.display = 'none';
@@ -7910,7 +8232,7 @@ function importMasterFile(e) {
   const reader = new FileReader();
   reader.onload = (ev) => {
     try {
-      const wb = XLSX.read(ev.target.result, { type: 'binary' });
+      const wb = XLSX.read(ev.target.result, { type: 'binary', cellStyles: true });
       const sheet = wb.Sheets['人員資料'] || wb.Sheets[wb.SheetNames[0]];
       if (!sheet) throw new Error('找不到工作表');
 
@@ -8576,9 +8898,11 @@ function executeNewMonth() {
   // Build schedule
   if (overwrite) {
     state.schedule = {};
+state.scheduleFlags = {};  // 同步重置底線旗標
     state.fixed = {};
   } else {
     if (!state.schedule) state.schedule = {};
+state.scheduleFlags = {};  // 同步重置底線旗標
   }
 
   staffList.forEach(p => {
@@ -8813,7 +9137,7 @@ function importVacationSummary(e) {
   const reader = new FileReader();
   reader.onload = (ev) => {
     try {
-      const wb = XLSX.read(ev.target.result, { type: 'binary' });
+      const wb = XLSX.read(ev.target.result, { type: 'binary', cellStyles: true });
       const sheet = wb.Sheets[wb.SheetNames[0]];
       if (!sheet) throw new Error('找不到工作表');
 
@@ -8905,6 +9229,7 @@ function applyVacationsToSchedule(vacations, month, parsedRows) {
 
     state.staff = [];
     state.schedule = {};
+state.scheduleFlags = {};  // 同步重置底線旗標
     Object.keys(stored).forEach(name => {
       const d = stored[name];
       const status = d.status || 'active';
@@ -9875,7 +10200,11 @@ function buildScheduleSummary() {
     s += `\n## 🔍 缺人日 / 多人日逐人明細(AI 補人必看)\n`;
     s += `**重要**:以下列表是當天每人實際班別。給建議時請依此列表查證,不要憑空假設誰那天是什麼班。\n`;
     s += `格式:[人名(可跳:X)] — D=...|E=...|N=...|off(可調)=...\n`;
-    s += `說明:off(可調)= 當天為 off / o / V(可改);OFF/中籤 不列入(神聖不可動)\n\n`;
+    s += `說明:off(可調)= 當天為 off / o / V(可改);OFF/中籤 不列入(神聖不可動)\n`;
+    s += `\n**底線標記(★ 預約延續記憶 ★)**:\n`;
+    s += `- 名字後標 [軟休]:這人那天 off 是預約軟假(盡量別動,動了就成「被動上班」)\n`;
+    s += `- 名字後標 [⚠被動]:這人原本預約 off 但已被排上班(本月已虧待過,排班時優先給他休)\n`;
+    s += `- 給建議時,**避免再動有 [軟休] 標記的人**,且**避免讓 [⚠被動] 的人再次被動上班**\n\n`;
 
     ['N','E','D'].forEach(sh => {
       const shortList = shortDays[sh];
@@ -9897,11 +10226,19 @@ function buildScheduleSummary() {
             if (!isCountingForCapacity(p)) return;
             if (p.status && p.status !== 'active') return;
             const v = (state.schedule[p.id] || {})[d];
+            const flag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d]);
+            const underline = !!(flag && flag.underline);
             const swapStr = (p.canSwapTo && p.canSwapTo.length) ? p.canSwapTo.join('') : '無';
-            const tag = `${p.name}(可跳:${swapStr})`;
+            // 底線標記:off+底線 = 軟休;D/E/N/M/V+底線 = 被動上班
+            let umark = '';
+            if (underline) {
+              if (v === 'off' || v === 'o') umark = '[軟休]';
+              else if (['D','E','N','M','V'].includes(v)) umark = '[⚠被動]';
+            }
+            const tag = `${p.name}${umark}(可跳:${swapStr})`;
             if (v === sh) onShift.push(tag);
             else if (['off','o','V'].includes(v)) onOff.push(tag);
-            else if (['D','E','N','M'].includes(v)) onOther.push(`${p.name}=${v}(可跳:${swapStr})`);
+            else if (['D','E','N','M'].includes(v)) onOther.push(`${p.name}${umark}=${v}(可跳:${swapStr})`);
           });
           s += `  ${d}日(${dowStr}) ${sh}=${dailyCounts[d][sh]}/${dailyNeed[d][sh]}★:\n`;
           s += `    當天上${sh}班(${onShift.length}人):${onShift.join('、') || '(無)'}\n`;
@@ -9924,8 +10261,12 @@ function buildScheduleSummary() {
             if (!isCountingForCapacity(p)) return;
             if (p.status && p.status !== 'active') return;
             const v = (state.schedule[p.id] || {})[d];
+            const flag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d]);
+            const underline = !!(flag && flag.underline);
             const swapStr = (p.canSwapTo && p.canSwapTo.length) ? p.canSwapTo.join('') : '無';
-            if (v === sh) onShift.push(`${p.name}(可跳:${swapStr})`);
+            let umark = '';
+            if (underline && ['D','E','N','M','V'].includes(v)) umark = '[⚠被動]';
+            if (v === sh) onShift.push(`${p.name}${umark}(可跳:${swapStr})`);
           });
           s += `  ${d}日(${dowStr}) ${sh}=${dailyCounts[d][sh]}/${dailyNeed[d][sh]}△:\n`;
           s += `    當天上${sh}班(${onShift.length}人):${onShift.join('、') || '(無)'}\n`;
@@ -10071,11 +10412,19 @@ async function askAI(mode) {
     // Structured output for one-click apply
     // Build apply-specific history (full conversation summary)
     let applyHistory = '';
+    let hasHistory = false;
     if (window._aiConversation && window._aiConversation.length > 0) {
-      applyHistory = '\n\n# 之前的對話討論(請根據此整理建議)\n';
+      hasHistory = true;
+      applyHistory = '\n\n# 🔴 之前的對話討論(★★ 整理建議的依據,優先級高於下方預設優先處理 ★★)\n';
       window._aiConversation.forEach(m => {
         applyHistory += `${m.role === 'user' ? '護理長' : 'AI'}:${m.content}\n\n`;
       });
+      applyHistory += `\n# 🔴 整理規則(必看)\n`;
+      applyHistory += `1. 護理長按「轉清單」是要把**上一輪 AI 回應的具體建議**整理成 JSON\n`;
+      applyHistory += `2. **不要換主題**:上一輪在講「孤立班補救」就只整理孤立班的建議;在講「N 短缺」就只整理 N 短缺。**不要重新從「每日人力短缺」優先順序開始**\n`;
+      applyHistory += `3. 上一輪 AI 已經列出的具體姓名/日期/動作(如「林素娥 6/26 D→o」),**直接抄進 JSON**,不要自己重新生成新建議\n`;
+      applyHistory += `4. 上一輪 AI 列為「難以調整」的孤立班,**不要硬塞進 changes**,在 summary 註明即可\n`;
+      applyHistory += `5. 下方「優先處理」段落只有在**上一輪對話沒有具體建議**(例如護理長第一次就點轉清單)時才參考\n\n`;
     }
 
     prompt = `你是急診部護理排班專家。請根據以下班表狀況,給出**具體的、可執行的、結構化的**調整建議。
@@ -10600,7 +10949,7 @@ function addMessageToConversation(role, content, mode) {
       convertBtn.style.cssText = 'font-size: 0.85rem; padding: 4px 10px; background: #16a34a; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600';
       convertBtn.innerHTML = '📋 把這個建議轉成可勾選清單';
       convertBtn.onclick = () => {
-        $('ai-question').value = '把剛才的建議整理成 JSON 清單格式';
+        $('ai-question').value = '把你上一則回應裡列出的具體建議(姓名+日期+動作)整理成 JSON 清單。不要換主題、不要從頭分析班表,只整理剛才列的那幾條。';
         askAI('apply');
       };
       actionBar.appendChild(convertBtn);
