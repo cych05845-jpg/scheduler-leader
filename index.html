@@ -4392,13 +4392,18 @@ function onCellClick(e) {
     }
   } else {
     state.schedule[pid][day] = state.currentBrush;
-    // 改成 OFF(中籤)時,底線旗標失效(他真的休到了,不是被動上班)
+    // 確保該人有 scheduleFlags 物件
+    if (!state.scheduleFlags) state.scheduleFlags = {};
+    if (!state.scheduleFlags[pid]) state.scheduleFlags[pid] = {};
+
     if (state.currentBrush === 'OFF') {
-      if (state.scheduleFlags && state.scheduleFlags[pid]) {
-        delete state.scheduleFlags[pid][day];
-      }
+      // 中籤:清掉底線旗標(他真的休到了)
+      delete state.scheduleFlags[pid][day];
+    } else if (state.currentBrush === 'off') {
+      // 軟假(預約):工具列的 off 畫筆代表「底線版」,主動設 underline
+      state.scheduleFlags[pid][day] = { underline: true };
     }
-    // 改成 off / D / E / N / M / V 時:scheduleFlags 維持(若原本有底線就保留)
+    // 改成 D / E / N / M / V:scheduleFlags 維持(若原本有底線就保留 = 被動上班記憶)
   }
 
   renderTable();
