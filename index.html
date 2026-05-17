@@ -1964,12 +1964,12 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   }
 
   /* ============================================================
-     AI 違規修復 — 對話面板 (Inline 展開)
+     AI 修復助理 — 浮動對話窗
      ============================================================ */
-  .viol-item {
-    position: relative;
-  }
-  .viol-item .ai-fix-btn {
+
+  /* 違規卡片右上角的「問 AI」按鈕 */
+  .viol-item { position: relative; }
+  .viol-item .ai-ask-btn {
     position: absolute;
     top: 4px;
     right: 4px;
@@ -1978,151 +1978,481 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     border: none;
     border-radius: 4px;
     padding: 2px 8px;
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     cursor: pointer;
     opacity: 0;
-    transition: opacity 0.15s;
+    transition: opacity 0.15s, transform 0.1s;
     line-height: 1.3;
+    z-index: 1;
   }
-  .viol-item:hover .ai-fix-btn {
-    opacity: 1;
+  .viol-item:hover .ai-ask-btn { opacity: 1; }
+  .viol-item .ai-ask-btn:hover { transform: scale(1.05); }
+  .viol-item.in-chat {
+    background: linear-gradient(180deg, #faf5ff 0%, #fdf4ff 100%) !important;
+    border-left: 3px solid #7c3aed !important;
   }
-  .viol-item .ai-fix-btn:hover {
-    transform: scale(1.05);
-  }
-  .viol-item .ai-fix-btn.thinking {
+  .viol-item.in-chat .ai-ask-btn {
     opacity: 1;
     background: var(--ink-mute);
-    cursor: wait;
-  }
-  .viol-item .ai-fix-btn.solved {
-    opacity: 1;
-    background: #16a34a;
     cursor: default;
   }
-  /* AI 對話展開區 — inline 在違規卡片下方 */
-  .ai-fix-panel {
-    margin-top: 8px;
-    padding: 8px 10px;
-    background: linear-gradient(180deg, #faf5ff 0%, #fdf2f8 100%);
+  .viol-item.solved-anim {
+    background: #dcfce7 !important;
+    transition: background 0.4s;
+  }
+
+  /* 違規區頂部的「跟 AI 討論」總按鈕 */
+  .ai-chat-toolbar {
+    display: flex;
+    gap: 6px;
+    padding: 6px 8px;
+    background: linear-gradient(135deg, rgba(124,58,237,0.06) 0%, rgba(236,72,153,0.06) 100%);
     border: 1px solid #e9d5ff;
     border-radius: 6px;
-    font-size: 0.88rem;
-    animation: ai-fix-slide 0.2s ease-out;
-  }
-  @keyframes ai-fix-slide {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .ai-fix-panel-header {
-    display: flex;
-    justify-content: space-between;
+    margin-bottom: 8px;
     align-items: center;
-    margin-bottom: 6px;
-    color: #7c3aed;
-    font-weight: 600;
-    font-size: 0.82rem;
   }
-  .ai-fix-panel-close {
+  .ai-chat-toolbar button {
+    background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 0.84rem;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .ai-chat-toolbar button:hover { transform: scale(1.02); }
+  .ai-chat-toolbar .hint {
+    font-size: 0.78rem;
+    color: var(--ink-mute);
+    flex: 1;
+  }
+
+  /* === 浮動對話窗主體 === */
+  #ai-chat-window {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    width: 380px;
+    height: 540px;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.25), 0 2px 8px rgba(0,0,0,0.1);
+    display: none;
+    flex-direction: column;
+    z-index: 9000;
+    overflow: hidden;
+    transition: opacity 0.2s;
+  }
+  #ai-chat-window.active { display: flex; }
+  #ai-chat-window.dragging { transition: none; user-select: none; }
+
+  /* 對話窗 header(可拖動) */
+  .ai-chat-header {
+    background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
+    color: white;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: move;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .ai-chat-header .ai-chat-title {
+    flex: 1;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+  .ai-chat-header .ai-chat-subtitle {
+    font-size: 0.74rem;
+    opacity: 0.85;
+    font-weight: 400;
+    margin-left: 4px;
+  }
+  .ai-chat-header button {
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: white;
+    width: 26px;
+    height: 26px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+  }
+  .ai-chat-header button:hover { background: rgba(255,255,255,0.32); }
+
+  /* 違規 chips 區(對話的「上下文」) */
+  .ai-chat-context {
+    padding: 6px 10px;
+    background: #faf5ff;
+    border-bottom: 1px solid #e9d5ff;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    flex-shrink: 0;
+    max-height: 80px;
+    overflow-y: auto;
+  }
+  .ai-chat-context-empty {
+    color: var(--ink-mute);
+    font-size: 0.78rem;
+    padding: 2px 4px;
+    width: 100%;
+  }
+  .ai-chat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: white;
+    border: 1px solid #d8b4fe;
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 0.78rem;
+    color: #6b21a8;
+    max-width: 100%;
+  }
+  .ai-chat-chip.solved {
+    background: #dcfce7;
+    border-color: #86efac;
+    color: #166534;
+    text-decoration: line-through;
+    opacity: 0.7;
+  }
+  .ai-chat-chip-text {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ai-chat-chip-close {
     background: transparent;
     border: none;
-    color: var(--ink-mute);
-    font-size: 1.1rem;
+    color: inherit;
     cursor: pointer;
+    padding: 0 2px;
+    font-size: 0.95rem;
     line-height: 1;
-    padding: 0 4px;
   }
-  .ai-fix-panel-close:hover { color: var(--ink); }
-  .ai-fix-suggestion {
+  .ai-chat-chip-add {
+    background: white;
+    border: 1px dashed #c084fc;
+    color: #7c3aed;
+    cursor: pointer;
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 0.78rem;
+  }
+  .ai-chat-chip-add:hover { background: #f3e8ff; }
+
+  /* 訊息流 */
+  .ai-chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+    background: #fafafa;
+    font-size: 0.88rem;
+  }
+  .ai-msg {
+    margin-bottom: 10px;
+    display: flex;
+    gap: 6px;
+  }
+  .ai-msg-avatar {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+  }
+  .ai-msg.user .ai-msg-avatar { background: #e0e7ff; }
+  .ai-msg.assistant .ai-msg-avatar {
+    background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
+    color: white;
+  }
+  .ai-msg.system .ai-msg-avatar { background: #fef3c7; }
+  .ai-msg-content {
+    flex: 1;
     background: white;
     border: 1px solid var(--line);
-    border-radius: 5px;
+    border-radius: 8px;
     padding: 8px 10px;
-    margin-bottom: 6px;
+    color: var(--ink);
+    line-height: 1.55;
+    word-wrap: break-word;
   }
-  .ai-fix-suggestion-head {
+  .ai-msg.user .ai-msg-content {
+    background: #f0f4ff;
+    border-color: #c7d2fe;
+  }
+  .ai-msg.system .ai-msg-content {
+    background: #fffbeb;
+    border-color: #fde68a;
+    font-size: 0.84rem;
+    color: #92400e;
+  }
+  .ai-msg-thinking {
+    color: var(--ink-mute);
+    font-style: italic;
+  }
+
+  /* AI 建議卡片(在訊息流裡) */
+  .ai-sug {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 6px 0;
+  }
+  .ai-sug-head {
     display: flex;
+    align-items: center;
     justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 3px;
+  }
+  .ai-sug-checkbox {
+    display: flex;
     align-items: center;
     gap: 6px;
-    margin-bottom: 4px;
+    flex: 1;
+    cursor: pointer;
   }
-  .ai-fix-change {
-    font-family: monospace;
+  .ai-sug-checkbox input { cursor: pointer; }
+  .ai-sug-change {
+    font-family: 'SFMono-Regular', Consolas, monospace;
     font-weight: 600;
-    color: var(--ink);
+    font-size: 0.86rem;
   }
-  .ai-fix-badge {
-    display: inline-block;
+  .ai-sug-badge {
+    font-size: 0.72rem;
     padding: 1px 6px;
     border-radius: 3px;
-    font-size: 0.72rem;
     font-weight: 600;
+    flex-shrink: 0;
   }
-  .ai-fix-badge.ok { background: #dcfce7; color: #166534; }
-  .ai-fix-badge.warn { background: #fef3c7; color: #92400e; }
-  .ai-fix-badge.err { background: #fee2e2; color: #991b1b; }
-  .ai-fix-reason {
-    color: var(--ink-soft);
+  .ai-sug-badge.ok { background: #dcfce7; color: #166534; }
+  .ai-sug-badge.warn { background: #fef3c7; color: #92400e; }
+  .ai-sug-badge.err { background: #fee2e2; color: #991b1b; }
+  .ai-sug-reason {
     font-size: 0.82rem;
+    color: var(--ink-soft);
     margin: 3px 0 6px 0;
     line-height: 1.5;
   }
-  .ai-fix-actions {
+  .ai-sug-actions {
     display: flex;
-    gap: 6px;
+    gap: 5px;
   }
-  .ai-fix-actions button {
-    padding: 3px 10px;
+  .ai-sug-actions button {
+    padding: 3px 9px;
+    font-size: 0.8rem;
     border-radius: 4px;
-    font-size: 0.82rem;
-    cursor: pointer;
     border: 1px solid var(--line);
     background: white;
+    cursor: pointer;
   }
-  .ai-fix-actions button.apply {
+  .ai-sug-actions button.apply {
     background: #16a34a;
     color: white;
     border-color: #15803d;
   }
-  .ai-fix-actions button.apply:hover { background: #15803d; }
-  .ai-fix-actions button.apply:disabled {
+  .ai-sug-actions button.apply:hover { background: #15803d; }
+  .ai-sug-actions button.apply:disabled {
+    background: var(--ink-mute);
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+  .ai-sug.applied {
+    background: #f0fdf4;
+    border-color: #86efac;
+  }
+
+  /* 批次套用列 */
+  .ai-batch-bar {
+    background: white;
+    border: 1px solid #c4b5fd;
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin: 6px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+  }
+  .ai-batch-bar button {
+    background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    margin-left: auto;
+  }
+  .ai-batch-bar button:disabled {
     background: var(--ink-mute);
     cursor: not-allowed;
   }
-  .ai-fix-actions button.skip:hover { background: #f3f4f6; }
-  .ai-fix-loading {
-    text-align: center;
-    color: var(--ink-mute);
-    padding: 12px;
-    font-style: italic;
-  }
-  .ai-fix-error {
-    background: #fee2e2;
-    color: #991b1b;
-    padding: 6px 10px;
-    border-radius: 4px;
-    font-size: 0.82rem;
-  }
-  .ai-fix-empty {
-    color: var(--ink-mute);
+
+  /* 輸入區 */
+  .ai-chat-input-area {
+    border-top: 1px solid var(--line);
     padding: 8px;
-    text-align: center;
-    font-size: 0.85rem;
+    background: white;
+    flex-shrink: 0;
   }
-  .viol-item.ai-solved {
-    background: #dcfce7 !important;
-    border-color: #86efac !important;
-    transition: all 0.3s;
+  .ai-chat-input-row {
+    display: flex;
+    gap: 6px;
   }
-  .viol-item.ai-solved::after {
-    content: '✓ 已解決';
-    position: absolute;
-    top: 4px;
-    right: 8px;
-    color: #166534;
+  .ai-chat-input-row textarea {
+    flex: 1;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 0.88rem;
+    resize: none;
+    font-family: inherit;
+    max-height: 100px;
+    min-height: 36px;
+  }
+  .ai-chat-input-row textarea:focus { outline: 2px solid #c4b5fd; outline-offset: -1px; }
+  .ai-chat-send {
+    background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    cursor: pointer;
     font-weight: 600;
+    flex-shrink: 0;
+  }
+  .ai-chat-send:disabled {
+    background: var(--ink-mute);
+    cursor: not-allowed;
+  }
+  .ai-chat-quick {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+  }
+  .ai-chat-quick button {
+    background: #f3f4f6;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 0.74rem;
+    cursor: pointer;
+    color: var(--ink-soft);
+  }
+  .ai-chat-quick button:hover { background: #e5e7eb; }
+
+  /* 最小化圖示(右下角) */
+  #ai-chat-fab {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
+    color: white;
+    border: none;
+    box-shadow: 0 6px 16px rgba(124,58,237,0.4);
+    cursor: pointer;
+    font-size: 1.6rem;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 8999;
+    transition: transform 0.15s;
+  }
+  #ai-chat-fab.active { display: flex; }
+  #ai-chat-fab:hover { transform: scale(1.08); }
+  #ai-chat-fab .fab-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: #ef4444;
+    color: white;
+    border-radius: 10px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid white;
+  }
+  #ai-chat-fab .fab-badge.empty { display: none; }
+
+  /* 違規選單(加違規時跳出) */
+  #ai-viol-picker {
+    position: fixed;
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    padding: 8px;
+    max-height: 320px;
+    overflow-y: auto;
+    z-index: 9100;
+    width: 320px;
+    display: none;
+  }
+  #ai-viol-picker.active { display: block; }
+  #ai-viol-picker .picker-head {
+    font-size: 0.82rem;
+    color: var(--ink-mute);
+    padding: 4px 6px 6px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 4px;
+  }
+  #ai-viol-picker .picker-item {
+    padding: 5px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.84rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #ai-viol-picker .picker-item:hover { background: #f3e8ff; }
+  #ai-viol-picker .picker-item.added {
+    background: #f3e8ff;
+    color: var(--ink-mute);
+    cursor: default;
+  }
+  #ai-viol-picker .picker-item.err::before {
+    content: '🚨';
     font-size: 0.85rem;
+  }
+  #ai-viol-picker .picker-item.warn::before {
+    content: '⚠';
+    font-size: 0.85rem;
+  }
+
+  /* RWD 微調(對話窗超出畫面時往內收) */
+  @media (max-width: 768px) {
+    #ai-chat-window {
+      width: calc(100vw - 24px);
+      right: 12px;
+      top: 60px;
+      height: calc(100vh - 80px);
+      max-height: 600px;
+    }
   }
 </style>
 
@@ -12692,167 +13022,552 @@ updateEmptyStateForMaster();
 setTimeout(() => { if (typeof syncTargetDaysInput === 'function') syncTargetDaysInput(); }, 100);
 
 // ============================================================
-// AI VIOLATION FIX MODULE (MVP) — 增量功能,不修改原有任何邏輯
+// AI 修復助理 — 浮動對話窗
 // 設計:
-//  1. 為每條違規附上結構化 metadata(staffId、day、shift、category)
-//  2. 在違規卡片右上角加「🤖 問 AI」按鈕(hover 顯示)
-//  3. 點按鈕 → 卡片下方 inline 展開 AI 對話面板
-//  4. AI 針對單一違規回傳 1-3 個建議(JSON schema 複用 apply mode)
-//  5. 每個建議顯示模擬結果(會不會違反硬規則)
-//  6. 套用後自動 renderTable → 違規重算 → 卡片若解決則標 ✓ 後消失
+//   - 單一浮動視窗,4 種入口(問 AI 按鈕、總按鈕、+加違規、輸入框)
+//   - 不分話題,所有對話累積上下文
+//   - 可拖動、可最小化、位置記憶
+//   - 違規 chips 是「對話上下文」
+//   - AI 回 JSON 建議 → 卡片顯示模擬徽章 → 單個/批次套用
 // ============================================================
-(function aiViolationFixModule() {
+(function aiChatAssistant() {
   'use strict';
 
-  // ---------- 1. 解析違規 → 結構化 metadata ----------
-  // 從現有 viol 的 title/detail 反推出 staff、day、shift
-  // 之所以這樣做是為了不動 checkViolations 內部 11 處 viols.push
+  // ==================== 狀態 ====================
+  const ChatState = {
+    open: false,
+    minimized: false,
+    pos: { top: 80, right: 20, left: null }, // 預設右上;若拖動過則用 left/top
+    messages: [],        // {role: 'user'|'assistant'|'system', content, sugs?}
+    contextViols: [],    // 加入對話的違規(enriched)
+    allViols: [],        // 當前所有 enriched 違規
+    pendingSugs: [],     // 訊息流裡所有 suggestion 的扁平索引(供批次套用)
+    asking: false,
+  };
+
+  const STORAGE_KEY = 'aiChatAssistant_v1';
+
+  // ==================== 工具 ====================
+  function $$(id) { return document.getElementById(id); }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function uid() { return 'sug_' + Date.now().toString(36) + '_' + Math.floor(Math.random()*10000).toString(36); }
+
+  // 載入儲存的位置與最小化狀態(不存對話內容,每次重整都重新開始)
+  function loadPrefs() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const p = JSON.parse(raw);
+      if (p.pos) ChatState.pos = p.pos;
+      if (typeof p.minimized === 'boolean') ChatState.minimized = p.minimized;
+    } catch (e) {}
+  }
+  function savePrefs() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        pos: ChatState.pos, minimized: ChatState.minimized
+      }));
+    } catch (e) {}
+  }
+
+  // ==================== 違規 enrichment ====================
   function enrichViolation(viol, index) {
-    const enriched = Object.assign({ index }, viol);
-
-    // 嘗試抓出日期(\d+日 或 \d+ 日 或 \d+/\d+)
-    const dayMatch = viol.title.match(/(\d+)\s*日/) ||
-                     viol.detail.match(/(\d+)\s*日/);
-    if (dayMatch) enriched.day = parseInt(dayMatch[1], 10);
-
-    // 抓 staff:title 是「人名: ...」格式
+    const e = Object.assign({ index }, viol);
+    const dayMatch = (viol.title + ' ' + viol.detail).match(/(\d+)\s*日/);
+    if (dayMatch) e.day = parseInt(dayMatch[1], 10);
     const nameMatch = viol.title.match(/^([^:]+?):\s/) || viol.title.match(/^([^:]+?):/);
     if (nameMatch) {
       const name = nameMatch[1].trim();
       const p = (state.staff || []).find(s => s.name === name);
-      if (p) {
-        enriched.staffId = p.id;
-        enriched.staffName = p.name;
-      }
+      if (p) { e.staffId = p.id; e.staffName = p.name; }
     }
-
-    // 抓 shift:可能是 D / E / N / M / o / O / OFF
-    const shiftMatch = viol.title.match(/\b([DENM]|OFF|o|O)\s*班/) ||
-                       viol.title.match(/接(?:大夜|小夜|白班|行政)/) ||
-                       viol.title.match(/\b([DENM])\b/);
-    if (shiftMatch) {
-      const t = shiftMatch[1];
-      enriched.shift = t === '大夜' ? 'N' : t === '小夜' ? 'E' : t === '白班' ? 'D' : t === '行政' ? 'M' : t;
-    }
-
-    // 分類
-    if (/缺.*人/.test(viol.title)) enriched.category = 'coverage';
-    else if (/連續上班|連上/.test(viol.title)) enriched.category = 'consecutive';
-    else if (/接(大夜|N)|後直接接|孤立大夜/.test(viol.title)) enriched.category = 'transition';
-    else if (/週六|週日/.test(viol.title)) enriched.category = 'weekend';
-    else if (/不應排班/.test(viol.title)) enriched.category = 'status';
-    else if (/大夜\s*\d+\s*次/.test(viol.title)) enriched.category = 'night_count';
-    else enriched.category = 'other';
-
-    // 唯一 id(prefix + index + 各欄位)
-    enriched.id = `aivx_${index}_${enriched.staffId || 'x'}_${enriched.day || 'x'}_${enriched.category}`;
-
-    return enriched;
+    const shiftMatch = viol.title.match(/\b([DENM])\s*班/) || viol.title.match(/\b([DENM])\b/);
+    if (shiftMatch) e.shift = shiftMatch[1];
+    if (/缺.*人|短缺/.test(viol.title)) e.category = 'coverage';
+    else if (/連續上班|連上/.test(viol.title)) e.category = 'consecutive';
+    else if (/接(大夜|N|D|E)|後.*接|孤立/.test(viol.title)) e.category = 'transition';
+    else if (/週六|週日/.test(viol.title)) e.category = 'weekend';
+    else if (/不應排班/.test(viol.title)) e.category = 'status';
+    else if (/大夜\s*\d+\s*次/.test(viol.title)) e.category = 'night_count';
+    else e.category = 'other';
+    e.fingerprint = (viol.title + '||' + viol.detail);
+    return e;
   }
 
-  // 暫存當前所有 enriched 違規(由 patched renderTable 流程寫入)
-  window._aiViols = [];
-
-  // ---------- 2. Patch 違規清單渲染:加按鈕 ----------
-  // 不改 checkViolations(),改在 renderTable 完成後 hook 進 DOM
-  // 用 MutationObserver 也行,但更簡單的方法是 patch renderTable 本身
+  // ==================== Patch renderTable ====================
   const _origRenderTable = window.renderTable;
   if (typeof _origRenderTable !== 'function') {
-    console.warn('[ai-fix] renderTable not found, AI fix module disabled');
+    console.warn('[ai-chat] renderTable not found, module disabled');
     return;
   }
   window.renderTable = function patchedRenderTable() {
     _origRenderTable.apply(this, arguments);
-    decorateViolations();
+    refreshViolations();
+    decorateViolItems();
+    syncContextWithViols();
   };
 
-  function decorateViolations() {
-    const listEl = document.getElementById('viol-list');
+  function refreshViolations() {
+    if (typeof checkViolations !== 'function') { ChatState.allViols = []; return; }
+    const raw = checkViolations();
+    ChatState.allViols = raw.map((v, i) => enrichViolation(v, i));
+  }
+
+  function decorateViolItems() {
+    const listEl = $$('viol-list');
     if (!listEl) return;
+
+    // 在違規清單頂部加總工具列
+    let toolbar = $$('ai-chat-toolbar');
+    const realViols = ChatState.allViols.filter(v => v.level !== 'ok');
+    if (realViols.length > 0) {
+      if (!toolbar) {
+        toolbar = document.createElement('div');
+        toolbar.id = 'ai-chat-toolbar';
+        toolbar.className = 'ai-chat-toolbar';
+        toolbar.innerHTML = `
+          <button id="ai-tb-open">💬 跟 AI 討論</button>
+          <span class="hint" id="ai-tb-hint">${realViols.length} 條違規可討論</span>
+        `;
+        listEl.parentNode.insertBefore(toolbar, listEl);
+        $$('ai-tb-open').onclick = () => openChat();
+      } else {
+        $$('ai-tb-hint').textContent = `${realViols.length} 條違規可討論`;
+      }
+    } else if (toolbar) {
+      toolbar.remove();
+    }
+
+    // 每條違規加按鈕
     const items = listEl.querySelectorAll('.viol-item:not(.ok)');
-    if (items.length === 0) return;
-
-    // 重新跑 checkViolations 拿到陣列,並 enrich
-    if (typeof checkViolations !== 'function') return;
-    const rawViols = checkViolations();
-    const enrichedList = rawViols.map((v, i) => enrichViolation(v, i));
-    window._aiViols = enrichedList;
-
-    // 用 index 對應 DOM(因為 renderTable 渲染順序跟 checkViolations 一致)
-    let domIndex = 0;
+    let idx = 0;
     items.forEach(itemEl => {
-      // 略過 .ok 已經被 filter 掉了
-      const viol = enrichedList[domIndex];
-      domIndex++;
+      const viol = ChatState.allViols.filter(v => v.level !== 'ok')[idx];
+      idx++;
       if (!viol) return;
+      if (itemEl.querySelector('.ai-ask-btn')) return;
 
-      // 已有按鈕就不重複加
-      if (itemEl.querySelector('.ai-fix-btn')) return;
+      itemEl.dataset.fingerprint = viol.fingerprint;
 
       const btn = document.createElement('button');
-      btn.className = 'ai-fix-btn';
+      btn.className = 'ai-ask-btn';
       btn.textContent = '🤖 問 AI';
-      btn.title = '請 AI 針對這條違規提出修復建議';
+      btn.title = '把這條違規加入 AI 對話';
       btn.onclick = (e) => {
         e.stopPropagation();
-        openFixPanel(itemEl, viol);
+        addViolToChat(viol);
+        openChat();
       };
       itemEl.appendChild(btn);
-      itemEl.dataset.aiViolId = viol.id;
+
+      // 已在對話中的違規 → 標記
+      if (ChatState.contextViols.some(v => v.fingerprint === viol.fingerprint)) {
+        itemEl.classList.add('in-chat');
+      }
     });
   }
 
-  // ---------- 3. 開啟 inline 對話面板 ----------
-  async function openFixPanel(itemEl, viol) {
-    // 若已展開,則收起(toggle)
-    const existing = itemEl.querySelector('.ai-fix-panel');
-    if (existing) {
-      existing.remove();
-      return;
+  // 同步 contextViols:若違規消失(已解決),標記為 solved 並通知
+  function syncContextWithViols() {
+    let changed = false;
+    ChatState.contextViols.forEach(cv => {
+      if (cv.solved) return;
+      const stillExists = ChatState.allViols.some(v => v.fingerprint === cv.fingerprint);
+      if (!stillExists) {
+        cv.solved = true;
+        changed = true;
+        // 加 system 訊息
+        addMessage('system', `✓ 已解決:${cv.title}`);
+      }
+    });
+    if (changed) renderContext();
+  }
+
+  // ==================== 對話視窗開關 ====================
+  function openChat() {
+    ChatState.open = true;
+    ChatState.minimized = false;
+    const win = $$('ai-chat-window');
+    win.classList.add('active');
+    applyPosition();
+    $$('ai-chat-fab').classList.remove('active');
+    savePrefs();
+    if (ChatState.messages.length === 0) {
+      addMessage('assistant', '哈囉!把違規卡片旁的「🤖 問 AI」按鈕點下去,或直接用下面的輸入框告訴我你想調整什麼。我會給你具體的修改建議。');
     }
+    setTimeout(() => $$('ai-chat-input')?.focus(), 100);
+  }
 
-    // 收掉其他展開中的面板(一次只允許一個)
-    document.querySelectorAll('.ai-fix-panel').forEach(p => p.remove());
+  function closeChat() {
+    ChatState.open = false;
+    $$('ai-chat-window').classList.remove('active');
+    $$('ai-chat-fab').classList.remove('active');
+  }
 
-    // 建立面板骨架
-    const panel = document.createElement('div');
-    panel.className = 'ai-fix-panel';
-    panel.innerHTML = `
-      <div class="ai-fix-panel-header">
-        <span>🤖 AI 修復建議</span>
-        <button class="ai-fix-panel-close" title="收起">×</button>
-      </div>
-      <div class="ai-fix-loading">⏳ AI 思考中...</div>
-    `;
-    panel.querySelector('.ai-fix-panel-close').onclick = () => panel.remove();
-    itemEl.appendChild(panel);
+  function minimizeChat() {
+    ChatState.minimized = true;
+    $$('ai-chat-window').classList.remove('active');
+    $$('ai-chat-fab').classList.add('active');
+    updateFabBadge();
+    savePrefs();
+  }
 
-    const btn = itemEl.querySelector('.ai-fix-btn');
-    if (btn) { btn.classList.add('thinking'); btn.textContent = '⏳'; }
+  function updateFabBadge() {
+    const badge = $$('ai-chat-fab-badge');
+    if (!badge) return;
+    const n = ChatState.pendingSugs.filter(s => !s.applied && !s.skipped).length;
+    badge.textContent = n;
+    badge.classList.toggle('empty', n === 0);
+  }
 
-    try {
-      const suggestions = await fetchAISuggestions(viol);
-      renderSuggestions(panel, itemEl, viol, suggestions);
-    } catch (err) {
-      console.error('[ai-fix] error', err);
-      panel.querySelector('.ai-fix-loading')?.remove();
-      const errDiv = document.createElement('div');
-      errDiv.className = 'ai-fix-error';
-      errDiv.textContent = '❌ ' + (err.message || '取得建議失敗');
-      panel.appendChild(errDiv);
-    } finally {
-      if (btn) { btn.classList.remove('thinking'); btn.textContent = '🤖 問 AI'; }
+  function applyPosition() {
+    const win = $$('ai-chat-window');
+    if (!win) return;
+    const p = ChatState.pos;
+    if (p.left != null) {
+      win.style.left = p.left + 'px';
+      win.style.right = 'auto';
+      win.style.top = p.top + 'px';
+    } else {
+      win.style.right = (p.right || 20) + 'px';
+      win.style.left = 'auto';
+      win.style.top = (p.top || 80) + 'px';
     }
   }
 
-  // ---------- 4. 呼叫 AI(複用現有 askAI 的 leader/personal 兩路徑) ----------
-  async function callGeminiAI(prompt) {
-    const provider = (typeof getCurrentProvider === 'function') ? getCurrentProvider() : 'gemini';
+  // ==================== 拖動 ====================
+  function initDrag() {
+    const header = $$('ai-chat-header');
+    const win = $$('ai-chat-window');
+    if (!header || !win) return;
+    let startX, startY, startLeft, startTop, dragging = false;
 
-    if (window.IS_LEADER_EDITION === true || (typeof IS_LEADER_EDITION !== 'undefined' && IS_LEADER_EDITION)) {
-      // Leader edition: backend route
+    header.addEventListener('mousedown', (e) => {
+      // 點按鈕時不拖動
+      if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+      dragging = true;
+      win.classList.add('dragging');
+      const rect = win.getBoundingClientRect();
+      startX = e.clientX;
+      startY = e.clientY;
+      startLeft = rect.left;
+      startTop = rect.top;
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      let newLeft = startLeft + (e.clientX - startX);
+      let newTop = startTop + (e.clientY - startY);
+      // 限制不要拖出視窗
+      const winW = win.offsetWidth;
+      const winH = win.offsetHeight;
+      newLeft = Math.max(0, Math.min(window.innerWidth - winW, newLeft));
+      newTop = Math.max(0, Math.min(window.innerHeight - winH, newTop));
+      win.style.left = newLeft + 'px';
+      win.style.right = 'auto';
+      win.style.top = newTop + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      win.classList.remove('dragging');
+      // 記錄位置
+      const rect = win.getBoundingClientRect();
+      ChatState.pos = { left: rect.left, top: rect.top, right: null };
+      savePrefs();
+    });
+  }
+
+  // ==================== 違規 chips 渲染 ====================
+  function addViolToChat(viol) {
+    if (ChatState.contextViols.some(v => v.fingerprint === viol.fingerprint)) return;
+    ChatState.contextViols.push(viol);
+    renderContext();
+    decorateViolItems();
+  }
+
+  function removeViolFromChat(fingerprint) {
+    ChatState.contextViols = ChatState.contextViols.filter(v => v.fingerprint !== fingerprint);
+    renderContext();
+    decorateViolItems();
+  }
+
+  function renderContext() {
+    const el = $$('ai-chat-context');
+    if (!el) return;
+    if (ChatState.contextViols.length === 0) {
+      el.innerHTML = '<div class="ai-chat-context-empty">尚未加入違規 — 點違規卡片的「🤖 問 AI」,或按 +</div>'
+        + '<button class="ai-chat-chip-add" id="ai-chip-add-btn">+ 加違規</button>';
+    } else {
+      el.innerHTML = ChatState.contextViols.map(v => `
+        <span class="ai-chat-chip ${v.solved ? 'solved' : ''}">
+          <span class="ai-chat-chip-text" title="${escapeHtml(v.title)}">${escapeHtml(v.title)}</span>
+          <button class="ai-chat-chip-close" data-fp="${escapeHtml(v.fingerprint)}">×</button>
+        </span>
+      `).join('') + '<button class="ai-chat-chip-add" id="ai-chip-add-btn">+ 加違規</button>';
+      el.querySelectorAll('.ai-chat-chip-close').forEach(btn => {
+        btn.onclick = () => removeViolFromChat(btn.dataset.fp);
+      });
+    }
+    const addBtn = $$('ai-chip-add-btn');
+    if (addBtn) addBtn.onclick = (e) => openViolPicker(e.target);
+    updateStatus();
+  }
+
+  function updateStatus() {
+    const status = $$('ai-chat-status');
+    if (!status) return;
+    if (ChatState.asking) {
+      status.textContent = '思考中...';
+    } else {
+      const n = ChatState.contextViols.filter(v => !v.solved).length;
+      status.textContent = n > 0 ? `${n} 條違規在討論中` : '全月討論';
+    }
+  }
+
+  // ==================== 違規選擇器 ====================
+  function openViolPicker(anchorEl) {
+    const picker = $$('ai-viol-picker');
+    if (!picker) return;
+    const candidates = ChatState.allViols.filter(v =>
+      v.level !== 'ok' &&
+      !ChatState.contextViols.some(cv => cv.fingerprint === v.fingerprint)
+    );
+    $$('ai-picker-count').textContent = candidates.length;
+    const list = $$('ai-picker-list');
+    if (candidates.length === 0) {
+      list.innerHTML = '<div style="padding:10px; color:#9ca3af; font-size:0.85rem; text-align:center">沒有可加入的違規</div>';
+    } else {
+      list.innerHTML = candidates.map((v, i) => `
+        <div class="picker-item ${v.level}" data-i="${i}">
+          ${escapeHtml(v.title)}
+        </div>
+      `).join('');
+      list.querySelectorAll('.picker-item').forEach(item => {
+        item.onclick = () => {
+          const idx = parseInt(item.dataset.i);
+          addViolToChat(candidates[idx]);
+          item.classList.add('added');
+          item.style.pointerEvents = 'none';
+          $$('ai-picker-count').textContent = parseInt($$('ai-picker-count').textContent) - 1;
+        };
+      });
+    }
+    // 定位:在 anchor 下方
+    const rect = anchorEl.getBoundingClientRect();
+    picker.style.left = Math.min(rect.left, window.innerWidth - 340) + 'px';
+    picker.style.top = (rect.bottom + 4) + 'px';
+    picker.classList.add('active');
+
+    // 點外面關閉
+    setTimeout(() => {
+      const handler = (e) => {
+        if (!picker.contains(e.target) && e.target !== anchorEl) {
+          picker.classList.remove('active');
+          document.removeEventListener('click', handler);
+        }
+      };
+      document.addEventListener('click', handler);
+    }, 50);
+  }
+
+  // ==================== 對話訊息 ====================
+  function addMessage(role, content, sugs) {
+    const msg = { role, content, sugs: sugs || null, id: uid() };
+    ChatState.messages.push(msg);
+    renderMessage(msg);
+    scrollToBottom();
+  }
+
+  function renderMessage(msg) {
+    const container = $$('ai-chat-messages');
+    if (!container) return;
+    const div = document.createElement('div');
+    div.className = 'ai-msg ' + msg.role;
+    div.id = 'msg-' + msg.id;
+    const avatar = msg.role === 'user' ? '👤' : msg.role === 'system' ? '💬' : '🤖';
+    div.innerHTML = `
+      <div class="ai-msg-avatar">${avatar}</div>
+      <div class="ai-msg-content"></div>
+    `;
+    const contentEl = div.querySelector('.ai-msg-content');
+    contentEl.textContent = msg.content;
+    if (msg.sugs && msg.sugs.length > 0) {
+      msg.sugs.forEach(sug => contentEl.appendChild(renderSuggestion(sug)));
+      // 多個建議時,加批次套用列
+      const validCount = msg.sugs.filter(s => !s.applied && !s.skipped).length;
+      if (validCount > 1) {
+        const batchBar = document.createElement('div');
+        batchBar.className = 'ai-batch-bar';
+        batchBar.innerHTML = `
+          <input type="checkbox" id="batch-all-${msg.id}" checked>
+          <label for="batch-all-${msg.id}" style="cursor:pointer">全選</label>
+          <button data-msg-id="${msg.id}">批次套用勾選</button>
+        `;
+        batchBar.querySelector(`#batch-all-${msg.id}`).onchange = (e) => {
+          const checked = e.target.checked;
+          msg.sugs.forEach(sug => {
+            if (sug.applied || sug.skipped) return;
+            const cb = document.getElementById('cb-' + sug.id);
+            if (cb) cb.checked = checked;
+          });
+        };
+        batchBar.querySelector('button').onclick = () => batchApply(msg);
+        contentEl.appendChild(batchBar);
+      }
+    }
+    container.appendChild(div);
+  }
+
+  function renderSuggestion(sug) {
+    const sim = simulateChange(sug);
+    sug._simLevel = sim.level;
+    const div = document.createElement('div');
+    div.className = 'ai-sug';
+    div.id = 'sug-' + sug.id;
+    const m = (state.month || '').split('-')[1] || '';
+    const fromTxt = sug.from || '?';
+    const toTxt = sug.to || '?';
+    div.innerHTML = `
+      <div class="ai-sug-head">
+        <label class="ai-sug-checkbox">
+          <input type="checkbox" id="cb-${sug.id}" checked>
+          <span class="ai-sug-change">${escapeHtml(sug.name)} ${m}/${sug.day}: ${escapeHtml(fromTxt)} → ${escapeHtml(toTxt)}</span>
+        </label>
+        <span class="ai-sug-badge ${sim.level}">${sim.label}</span>
+      </div>
+      <div class="ai-sug-reason">${escapeHtml(sug.reason || '')}</div>
+      <div class="ai-sug-actions">
+        <button class="apply" data-sug-id="${sug.id}">✓ 套用</button>
+        <button class="skip" data-sug-id="${sug.id}">× 略過</button>
+      </div>
+    `;
+    div.querySelector('.apply').onclick = () => applySingle(sug);
+    div.querySelector('.skip').onclick = () => {
+      sug.skipped = true;
+      div.querySelector('.apply').disabled = true;
+      div.querySelector('.skip').disabled = true;
+      div.querySelector('.skip').textContent = '已略過';
+      const cb = document.getElementById('cb-' + sug.id);
+      if (cb) cb.disabled = true;
+      updateFabBadge();
+    };
+    return div;
+  }
+
+  function scrollToBottom() {
+    const c = $$('ai-chat-messages');
+    if (c) c.scrollTop = c.scrollHeight;
+  }
+
+  // ==================== 模擬(套用前檢查) ====================
+  function simulateChange(sug) {
+    try {
+      if (sug.from === 'OFF') return { level: 'err', label: '🚫 OFF' };
+      if (sug.to === 'OFF') return { level: 'err', label: '🚫 OFF' };
+      const person = state.staff.find(p => p.name === sug.name);
+      if (!person) return { level: 'err', label: '⚠ 找不到此人' };
+      const cur = (state.schedule[person.id] || {})[sug.day];
+      if (cur !== sug.from) return { level: 'warn', label: `⚠ 現為 ${cur || '空'}` };
+
+      const before = checkViolations().length;
+      if (!state.schedule[person.id]) state.schedule[person.id] = {};
+      const backup = state.schedule[person.id][sug.day];
+      state.schedule[person.id][sug.day] = sug.to;
+      const after = checkViolations().length;
+      if (backup === undefined) delete state.schedule[person.id][sug.day];
+      else state.schedule[person.id][sug.day] = backup;
+
+      if (after < before) return { level: 'ok', label: `✓ -${before - after} 違規` };
+      if (after === before) return { level: 'ok', label: '✓ 不增違規' };
+      return { level: 'warn', label: `⚠ +${after - before} 違規` };
+    } catch (e) {
+      console.error('[ai-chat] sim error', e);
+      return { level: 'warn', label: '⚠ 模擬失敗' };
+    }
+  }
+
+  // ==================== 套用 ====================
+  function applySingle(sug) {
+    if (sug.applied) return;
+    const person = state.staff.find(p => p.name === sug.name);
+    if (!person) { alert('找不到此人員'); return; }
+    const cur = (state.schedule[person.id] || {})[sug.day];
+    if (cur === 'OFF') { alert('該格是 OFF(預假),不能修改'); return; }
+    if (sug.to === 'OFF') { alert('不能將班別改為 OFF'); return; }
+
+    if (typeof snapshotState === 'function') snapshotState(`AI: ${sug.name} ${sug.day}日`);
+
+    if (!state.schedule[person.id]) state.schedule[person.id] = {};
+    state.schedule[person.id][sug.day] = sug.to;
+    sug.applied = true;
+
+    const div = document.getElementById('sug-' + sug.id);
+    if (div) {
+      div.classList.add('applied');
+      div.querySelector('.apply').disabled = true;
+      div.querySelector('.apply').textContent = '✓ 已套用';
+      div.querySelector('.skip').disabled = true;
+      const cb = document.getElementById('cb-' + sug.id);
+      if (cb) cb.disabled = true;
+    }
+
+    renderTable();
+    if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
+    updateFabBadge();
+  }
+
+  function batchApply(msg) {
+    const toApply = msg.sugs.filter(sug => {
+      if (sug.applied || sug.skipped) return false;
+      const cb = document.getElementById('cb-' + sug.id);
+      return cb && cb.checked;
+    });
+    if (toApply.length === 0) { alert('沒有勾選任何項目'); return; }
+    if (!confirm(`套用 ${toApply.length} 條?套用後可按「↶ 復原」回到此狀態。`)) return;
+
+    if (typeof snapshotState === 'function') snapshotState(`AI 批次:${toApply.length} 條`);
+
+    let ok = 0, skip = 0;
+    const skipReasons = [];
+    toApply.forEach(sug => {
+      const person = state.staff.find(p => p.name === sug.name);
+      if (!person) { skip++; skipReasons.push(`${sug.name}: 找不到此人`); return; }
+      const cur = (state.schedule[person.id] || {})[sug.day];
+      if (cur === 'OFF') { skip++; skipReasons.push(`${sug.name} ${sug.day}日: 是 OFF`); return; }
+      if (sug.to === 'OFF') { skip++; skipReasons.push(`${sug.name} ${sug.day}日: 不可改 OFF`); return; }
+      if (!state.schedule[person.id]) state.schedule[person.id] = {};
+      state.schedule[person.id][sug.day] = sug.to;
+      sug.applied = true;
+      ok++;
+      // UI 更新
+      const div = document.getElementById('sug-' + sug.id);
+      if (div) {
+        div.classList.add('applied');
+        div.querySelector('.apply').disabled = true;
+        div.querySelector('.apply').textContent = '✓ 已套用';
+      }
+    });
+
+    renderTable();
+    if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
+    updateFabBadge();
+
+    let summary = `套用完成:${ok} 條成功`;
+    if (skip > 0) summary += `,${skip} 條跳過`;
+    addMessage('system', summary + (skipReasons.length > 0 ? '\n跳過原因:\n' + skipReasons.join('\n') : ''));
+  }
+
+  // ==================== AI 呼叫(複用現有 leader/personal 路徑) ====================
+  async function callGeminiAI(prompt) {
+    if (typeof IS_LEADER_EDITION !== 'undefined' && IS_LEADER_EDITION) {
       const token = (typeof getAuthToken === 'function') ? getAuthToken() : null;
-      if (!token) throw new Error('未登入或 token 已過期,請重新登入');
+      if (!token) throw new Error('未登入或 token 已過期');
       const modelChoice = (typeof getGeminiModelChoice === 'function') ? getGeminiModelChoice() : 'auto';
       const result = await apiCall('ai', { token, prompt, model: modelChoice });
       if (!result.ok) {
@@ -12861,56 +13576,93 @@ setTimeout(() => { if (typeof syncTargetDaysInput === 'function') syncTargetDays
       }
       return result.text;
     } else {
-      // Personal edition: direct call
       const key = localStorage.getItem('geminiApiKey') || localStorage.getItem('aiApiKey');
-      if (!key) throw new Error('請先在「AI 助理」設定 Gemini API Key');
+      if (!key) throw new Error('請先設定 Gemini API Key');
       const modelChoice = (typeof getGeminiModelChoice === 'function') ? getGeminiModelChoice() : 'auto';
-      const model = (modelChoice === 'auto' || !modelChoice) ? 'gemini-2.5-flash' : `gemini-2.5-${modelChoice}`;
+      const model = (modelChoice && modelChoice !== 'auto') ? `gemini-2.5-${modelChoice}` : 'gemini-2.5-flash';
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-      const response = await fetch(url, {
+      const r = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 2000, temperature: 0.5, thinkingConfig: { thinkingBudget: 0 } },
+          generationConfig: { maxOutputTokens: 3000, temperature: 0.5, thinkingConfig: { thinkingBudget: 0 } },
         }),
       });
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Gemini API 錯誤(${response.status}):${errText.slice(0, 200)}`);
-      }
-      const data = await response.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0,200)}`);
+      const d = await r.json();
+      return d.candidates?.[0]?.content?.parts?.[0]?.text || '';
     }
   }
 
-  // ---------- 5. Prompt 設計:針對單一違規 ----------
-  async function fetchAISuggestions(viol) {
+  // ==================== Prompt 組成 ====================
+  function buildPrompt(userMsg) {
     const summary = (typeof buildScheduleSummary === 'function') ? buildScheduleSummary() : '';
 
-    const violContext = buildViolationContext(viol);
+    // 違規 context
+    let violCtx = '';
+    const activeViols = ChatState.contextViols.filter(v => !v.solved);
+    if (activeViols.length > 0) {
+      violCtx = '\n\n# 🔴 護理長目前在處理的違規(優先針對這些)\n';
+      activeViols.forEach((v, i) => {
+        violCtx += `\n## 違規 ${i+1}:${v.title}\n- 等級:${v.level === 'err' ? '🚨 嚴重' : '⚠ 警告'}\n- 詳細:${v.detail}\n`;
+        if (v.staffName && v.day) {
+          const sched = state.schedule[v.staffId] || {};
+          const days = [];
+          for (let d = Math.max(1, v.day - 3); d <= v.day + 3; d++) {
+            days.push(`${d}=${sched[d] || '·'}${d === v.day ? '◄' : ''}`);
+          }
+          violCtx += `- ${v.staffName} 周邊:${days.join(' ')}\n`;
+        }
+      });
+    }
 
-    const prompt = `你是急診部護理排班專家。護理長請你針對「**單一具體違規**」提出修復建議。
+    // 對話歷史(供 AI 接續討論)
+    let history = '';
+    const recent = ChatState.messages.slice(-10).filter(m => m.role !== 'system');
+    if (recent.length > 1) {
+      history = '\n\n# 對話歷史(最近 10 輪,維持上下文一致性)\n';
+      recent.forEach(m => {
+        if (m.role === 'user') history += `\n護理長:${m.content}\n`;
+        else if (m.role === 'assistant') {
+          history += `\nAI:${m.content}`;
+          if (m.sugs && m.sugs.length > 0) {
+            history += '\n(上輪建議了:' + m.sugs.map(s =>
+              `${s.name} ${s.day}日 ${s.from}→${s.to}${s.applied ? '[已套用]' : s.skipped ? '[略過]' : ''}`
+            ).join('; ') + ')';
+          }
+          history += '\n';
+        }
+      });
+    }
+
+    return `你是急診部護理排班專家。護理長正在跟你討論班表修復。
 
 ${summary}
+${violCtx}
+${history}
 
-# 🔴 要修的違規(只處理這一條)
-${violContext}
+# 護理長這輪說
+${userMsg}
 
 # 你的任務
-針對上面**這一條違規**,給 1-3 個具體修法。每個修法是一次班別調整(改某人某天的班)。
+回應護理長,並**只要有具體建議改動,就一律用下面 JSON 格式**回。
+- 若護理長在問問題、討論思路,可以先用一段話回應 + 末尾附 JSON 建議
+- 若護理長只是要建議清單,直接 JSON
 
 # 必守鐵規
 1. ❌ 絕不能動 OFF(大寫,員工抽中的預假)
-2. ❌ from 或 to 都不能是 OFF
+2. ❌ from / to 都不能是 OFF
 3. 連續上班 ≤6 天
 4. 半日/實習/夜護/病假/離職/留停的人不要動
-5. M 班只能在週一到五
+5. M 班(行政)只能週一到五
 
-# 回應格式 — 只回 JSON,不要前言
+# 回應格式
+你的中文說明可以放最前面(1-3 句即可),接著用這個 JSON 區塊:
 
 \`\`\`json
 {
+  "reply": "簡短中文回應護理長(2-4 句)",
   "suggestions": [
     {
       "name": "張小芳",
@@ -12918,210 +13670,199 @@ ${violContext}
       "from": "D",
       "to": "o",
       "priority": "high",
-      "reason": "張小芳連上 7 天到 6/15,把 6/15 改休可解決連續上班違規;6/15 D 班當天有 15 人(過剩 △),少 1 人不影響"
+      "reason": "張小芳 6/15 是連上第 7 天,改 o 可解決連續上班違規"
     }
   ]
 }
 \`\`\`
 
-# 注意
-- 至少給 1 個、最多 3 個 suggestions
-- reason 要具體寫出「為什麼這個改動能解決違規」+「會不會造成新問題」
-- 如果這條違規真的無解,suggestions 可以是空陣列,但要在另一個欄位 "note": "..." 解釋為什麼`;
-
-    const responseText = await callGeminiAI(prompt);
-    return parseSuggestions(responseText);
+如果沒有具體建議(例如護理長只在問「為什麼這樣建議」),suggestions 可以是空陣列。
+請至少給 1-5 個具體 suggestions(除非真的無解)。`;
   }
 
-  function buildViolationContext(viol) {
-    let ctx = `- 違規類型:${viol.category}\n`;
-    ctx += `- 等級:${viol.level === 'err' ? '🚨 嚴重(必修)' : '⚠ 警告(建議修)'}\n`;
-    ctx += `- 標題:${viol.title}\n`;
-    ctx += `- 詳細:${viol.detail}\n`;
-    if (viol.staffName) ctx += `- 涉及人員:${viol.staffName} (id=${viol.staffId})\n`;
-    if (viol.day) ctx += `- 涉及日期:${state.month?.split('-')[1] || ''}/${viol.day}\n`;
-    if (viol.shift) ctx += `- 涉及班別:${viol.shift}\n`;
-
-    // 補上該人附近 7 天的班(讓 AI 看上下文)
-    if (viol.staffId && viol.day) {
-      const sched = state.schedule[viol.staffId] || {};
-      const days = [];
-      for (let d = Math.max(1, viol.day - 3); d <= viol.day + 3; d++) {
-        const sh = sched[d] || '·';
-        days.push(`${d}=${sh}${d === viol.day ? ' ◄' : ''}`);
-      }
-      ctx += `- ${viol.staffName} 周邊班別:${days.join(' ')}\n`;
-    }
-    return ctx;
-  }
-
-  function parseSuggestions(text) {
-    if (!text) throw new Error('AI 回應為空');
-    // 移除 markdown 圍欄
-    let cleaned = text.replace(/```json|```/g, '').trim();
-    // 找第一個 { 到最後一個 } 之間
-    const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
-    if (start < 0 || end < 0) throw new Error('AI 回應無法解析為 JSON');
-    cleaned = cleaned.slice(start, end + 1);
-    let parsed;
+  function parseAIResponse(text) {
+    // 提取 JSON 區塊
+    const jsonMatch = text.match(/```json\s*([\s\S]*?)```/) || text.match(/(\{[\s\S]*\})/);
+    if (!jsonMatch) return { reply: text.trim(), suggestions: [] };
     try {
-      parsed = JSON.parse(cleaned);
+      const obj = JSON.parse(jsonMatch[1]);
+      return {
+        reply: obj.reply || text.replace(jsonMatch[0], '').trim() || '請看下方建議:',
+        suggestions: (obj.suggestions || []).map(s => Object.assign({ id: uid() }, s))
+      };
     } catch (e) {
-      throw new Error('JSON 解析失敗:' + e.message);
+      console.warn('[ai-chat] JSON parse failed', e);
+      return { reply: text.trim(), suggestions: [] };
     }
-    return parsed.suggestions || [];
   }
 
-  // ---------- 6. 渲染建議卡片 + 模擬 ----------
-  function renderSuggestions(panel, itemEl, viol, suggestions) {
-    panel.querySelector('.ai-fix-loading')?.remove();
+  // ==================== 送訊息 ====================
+  async function sendMessage(userText, quickType) {
+    if (ChatState.asking) return;
+    const text = (userText || '').trim();
+    if (!text) return;
 
-    if (!suggestions || suggestions.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'ai-fix-empty';
-      empty.textContent = 'AI 認為這條違規目前難以單獨調整,建議搭配整體重排';
-      panel.appendChild(empty);
-      return;
+    addMessage('user', text);
+    $$('ai-chat-input').value = '';
+    ChatState.asking = true;
+    updateStatus();
+    $$('ai-chat-send').disabled = true;
+
+    // 加 thinking 提示
+    const thinkingId = 'thinking-' + Date.now();
+    const thinkDiv = document.createElement('div');
+    thinkDiv.className = 'ai-msg assistant';
+    thinkDiv.id = thinkingId;
+    thinkDiv.innerHTML = `<div class="ai-msg-avatar">🤖</div><div class="ai-msg-content ai-msg-thinking">⏳ 思考中...</div>`;
+    $$('ai-chat-messages').appendChild(thinkDiv);
+    scrollToBottom();
+
+    try {
+      const prompt = buildPrompt(text);
+      const responseText = await callGeminiAI(prompt);
+      const parsed = parseAIResponse(responseText);
+
+      document.getElementById(thinkingId)?.remove();
+      addMessage('assistant', parsed.reply, parsed.suggestions);
+
+      // 把建議加入 pendingSugs(供 fab badge 計算)
+      parsed.suggestions.forEach(s => ChatState.pendingSugs.push(s));
+      updateFabBadge();
+    } catch (err) {
+      console.error('[ai-chat]', err);
+      document.getElementById(thinkingId)?.remove();
+      addMessage('system', '❌ ' + (err.message || '取得回應失敗'));
+    } finally {
+      ChatState.asking = false;
+      updateStatus();
+      $$('ai-chat-send').disabled = false;
     }
+  }
 
-    suggestions.forEach((sug, i) => {
-      const sim = simulateChange(sug);
-      const sugDiv = document.createElement('div');
-      sugDiv.className = 'ai-fix-suggestion';
+  // ==================== 快捷觸發詞 ====================
+  function handleQuick(type) {
+    const activeViols = ChatState.contextViols.filter(v => !v.solved);
+    let msg = '';
+    if (type === 'analyze') {
+      if (activeViols.length === 0) {
+        addMessage('system', '請先用「+加違規」或點違規卡片的「🤖 問 AI」加入要討論的違規');
+        return;
+      }
+      msg = `請針對上方 ${activeViols.length} 條違規,給我具體的修復建議(每條給 1-2 個替代方案)`;
+    } else if (type === 'alternative') {
+      msg = '剛剛的建議我不滿意,請給其他方案(換不同人、不同日期試試)';
+    } else if (type === 'why') {
+      msg = '剛剛為什麼選這個人?有沒有更合適的人選?';
+    }
+    sendMessage(msg);
+  }
 
-      const m = state.month?.split('-')[1] || '';
-      const fromTxt = sug.from || '?';
-      const toTxt = sug.to || '?';
+  // ==================== 清空對話 ====================
+  function clearChat() {
+    if (!confirm('清空對話?(違規列表會保留,僅清訊息歷史)')) return;
+    ChatState.messages = [];
+    ChatState.pendingSugs = [];
+    $$('ai-chat-messages').innerHTML = '';
+    addMessage('assistant', '對話已清空。需要我幫你看哪條違規嗎?');
+    updateFabBadge();
+  }
 
-      sugDiv.innerHTML = `
-        <div class="ai-fix-suggestion-head">
-          <span class="ai-fix-change">${sug.name} ${m}/${sug.day}: ${fromTxt} → ${toTxt}</span>
-          <span class="ai-fix-badge ${sim.level}">${sim.label}</span>
-        </div>
-        <div class="ai-fix-reason">${escapeHtml(sug.reason || '')}</div>
-        <div class="ai-fix-actions">
-          <button class="apply" data-i="${i}">✓ 套用</button>
-          <button class="skip">× 略過</button>
-        </div>
-      `;
+  // ==================== 初始化 ====================
+  function init() {
+    loadPrefs();
 
-      sugDiv.querySelector('.apply').onclick = () => applySuggestion(sug, sugDiv, itemEl, viol);
-      sugDiv.querySelector('.skip').onclick = () => sugDiv.remove();
+    // 綁定 header 按鈕
+    $$('ai-chat-close').onclick = closeChat;
+    $$('ai-chat-minimize').onclick = minimizeChat;
+    $$('ai-chat-clear').onclick = clearChat;
+    $$('ai-chat-fab').onclick = openChat;
 
-      panel.appendChild(sugDiv);
+    // 拖動
+    initDrag();
+
+    // 輸入區
+    const input = $$('ai-chat-input');
+    const send = $$('ai-chat-send');
+    send.onclick = () => sendMessage(input.value);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage(input.value);
+      }
     });
+
+    // 快捷
+    document.querySelectorAll('.ai-chat-quick button').forEach(btn => {
+      btn.onclick = () => handleQuick(btn.dataset.quick);
+    });
+
+    // 初始 context render
+    renderContext();
+
+    console.log('[ai-chat] AI 修復助理已載入');
   }
 
-  function escapeHtml(s) {
-    return String(s || '').replace(/[&<>"']/g, c =>
-      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // DOM 就緒後初始化(原檔 init 段在前面已跑完,DOM 應該都有)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
   }
 
-  // ---------- 7. 模擬:套用前檢查會不會產生新違規 ----------
-  function simulateChange(sug) {
-    try {
-      // 基本檢查
-      const person = state.staff.find(p => p.name === sug.name);
-      if (!person) return { level: 'err', label: '⚠ 找不到此人' };
-      if (sug.from === 'OFF') return { level: 'err', label: '🚫 不可動 OFF' };
-      if (sug.to === 'OFF') return { level: 'err', label: '🚫 不可改為 OFF' };
-
-      const currentShift = (state.schedule[person.id] || {})[sug.day];
-      if (currentShift !== sug.from) {
-        return { level: 'warn', label: `⚠ 班別已改變(現為 ${currentShift || '空'})` };
-      }
-
-      // 真實模擬:暫時 apply,跑 checkViolations,看違規數變化
-      const before = checkViolations().length;
-      const backup = currentShift;
-      state.schedule[person.id][sug.day] = sug.to;
-      const after = checkViolations().length;
-      // 還原
-      if (backup === undefined) delete state.schedule[person.id][sug.day];
-      else state.schedule[person.id][sug.day] = backup;
-
-      if (after < before) return { level: 'ok', label: `✓ 減少 ${before - after} 條違規` };
-      if (after === before) return { level: 'ok', label: '✓ 不會產生新違規' };
-      return { level: 'warn', label: `⚠ 會新增 ${after - before} 條違規` };
-    } catch (e) {
-      console.error('[ai-fix] sim error', e);
-      return { level: 'warn', label: '⚠ 模擬失敗' };
-    }
-  }
-
-  // ---------- 8. 套用單一建議 ----------
-  function applySuggestion(sug, sugDiv, itemEl, viol) {
-    const person = state.staff.find(p => p.name === sug.name);
-    if (!person) { alert('找不到此人員'); return; }
-    const cur = (state.schedule[person.id] || {})[sug.day];
-    if (cur === 'OFF') { alert('該格是 OFF(預假),不能修改'); return; }
-    if (sug.to === 'OFF') { alert('不能將班別改為 OFF'); return; }
-
-    if (!confirm(`確定套用?\n\n${sug.name} ${state.month.split('-')[1]}/${sug.day}: ${cur || '空'} → ${sug.to}\n\n套用後可按「↶ 復原」回到此狀態`)) return;
-
-    // 用現有的 snapshotState 做撤銷備份
-    if (typeof snapshotState === 'function') {
-      snapshotState(`AI 修復:${sug.name} ${sug.day}日`);
-    }
-
-    if (!state.schedule[person.id]) state.schedule[person.id] = {};
-    state.schedule[person.id][sug.day] = sug.to;
-
-    // 套用後:鎖定按鈕、淡出建議卡
-    sugDiv.querySelector('.apply').disabled = true;
-    sugDiv.querySelector('.apply').textContent = '✓ 已套用';
-
-    // 觸發重繪(會重算違規清單)
-    renderTable();
-    if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
-
-    // 檢查該違規是否已解決
-    setTimeout(() => {
-      const stillThere = checkSameViolStillExists(viol);
-      if (!stillThere) {
-        // 找到對應卡片標記為 solved(因為 renderTable 後 DOM 已重建)
-        markSolvedByViolFingerprint(viol);
-      }
-    }, 50);
-  }
-
-  function checkSameViolStillExists(viol) {
-    const viols = checkViolations();
-    return viols.some(v =>
-      v.title === viol.title && v.detail === viol.detail
-    );
-  }
-
-  function markSolvedByViolFingerprint(viol) {
-    // renderTable 後 DOM 重建,找不到原 itemEl,顯示 toast 提示
-    showToast(`✓ 已解決:${viol.title}`);
-  }
-
-  function showToast(msg) {
-    let toast = document.getElementById('ai-fix-toast');
-    if (!toast) {
-      toast = document.createElement('div');
-      toast.id = 'ai-fix-toast';
-      toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#16a34a;color:white;padding:10px 16px;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.15);font-size:0.9rem;z-index:9999;transition:opacity 0.3s';
-      document.body.appendChild(toast);
-    }
-    toast.textContent = msg;
-    toast.style.opacity = '1';
-    clearTimeout(toast._timer);
-    toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
-  }
-
-  console.log('[ai-fix] AI 違規修復模組已載入');
+  // 暴露給原系統(若 renderTable 在我們 patch 之後被重綁,還能撿回來)
+  window._aiChatAssistant = {
+    open: openChat,
+    addViol: addViolToChat,
+    state: ChatState,
+  };
 })();
 // ============================================================
-// END AI VIOLATION FIX MODULE
+// END AI 修復助理
 // ============================================================
 </script>
 <!-- Cell context menu for note management -->
 <div id="cell-context-menu">
   <div class="menu-header" id="ctx-menu-header">📌 加備註</div>
   <div id="ctx-menu-buttons"></div>
+</div>
+
+<!-- ============================================================
+     AI 修復助理 — 浮動對話窗 HTML
+     ============================================================ -->
+<div id="ai-chat-window">
+  <div class="ai-chat-header" id="ai-chat-header">
+    <span style="font-size:1.1rem">🤖</span>
+    <div style="flex:1; line-height:1.2">
+      <div class="ai-chat-title">AI 修復助理</div>
+      <div class="ai-chat-subtitle" id="ai-chat-status">準備中</div>
+    </div>
+    <button id="ai-chat-clear" title="清空對話">🗑</button>
+    <button id="ai-chat-minimize" title="最小化">−</button>
+    <button id="ai-chat-close" title="關閉">×</button>
+  </div>
+  <div class="ai-chat-context" id="ai-chat-context"></div>
+  <div class="ai-chat-messages" id="ai-chat-messages"></div>
+  <div class="ai-chat-input-area">
+    <div class="ai-chat-input-row">
+      <textarea id="ai-chat-input" placeholder="描述你想要的調整,或按下方快捷..." rows="2"></textarea>
+      <button class="ai-chat-send" id="ai-chat-send">送出</button>
+    </div>
+    <div class="ai-chat-quick">
+      <button data-quick="analyze">針對上方違規提建議</button>
+      <button data-quick="alternative">給其他方案</button>
+      <button data-quick="why">為何選這人?</button>
+    </div>
+  </div>
+</div>
+
+<button id="ai-chat-fab" title="開啟 AI 修復助理">
+  🤖
+  <span class="fab-badge empty" id="ai-chat-fab-badge">0</span>
+</button>
+
+<div id="ai-viol-picker">
+  <div class="picker-head">勾選要加入對話的違規(共 <span id="ai-picker-count">0</span> 條)</div>
+  <div id="ai-picker-list"></div>
 </div>
 
 </body>
