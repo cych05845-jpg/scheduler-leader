@@ -1962,6 +1962,168 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   .help-content details[open] summary::before {
     content: '−';
   }
+
+  /* ============================================================
+     AI 違規修復 — 對話面板 (Inline 展開)
+     ============================================================ */
+  .viol-item {
+    position: relative;
+  }
+  .viol-item .ai-fix-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    line-height: 1.3;
+  }
+  .viol-item:hover .ai-fix-btn {
+    opacity: 1;
+  }
+  .viol-item .ai-fix-btn:hover {
+    transform: scale(1.05);
+  }
+  .viol-item .ai-fix-btn.thinking {
+    opacity: 1;
+    background: var(--ink-mute);
+    cursor: wait;
+  }
+  .viol-item .ai-fix-btn.solved {
+    opacity: 1;
+    background: #16a34a;
+    cursor: default;
+  }
+  /* AI 對話展開區 — inline 在違規卡片下方 */
+  .ai-fix-panel {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: linear-gradient(180deg, #faf5ff 0%, #fdf2f8 100%);
+    border: 1px solid #e9d5ff;
+    border-radius: 6px;
+    font-size: 0.88rem;
+    animation: ai-fix-slide 0.2s ease-out;
+  }
+  @keyframes ai-fix-slide {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .ai-fix-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    color: #7c3aed;
+    font-weight: 600;
+    font-size: 0.82rem;
+  }
+  .ai-fix-panel-close {
+    background: transparent;
+    border: none;
+    color: var(--ink-mute);
+    font-size: 1.1rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
+  }
+  .ai-fix-panel-close:hover { color: var(--ink); }
+  .ai-fix-suggestion {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+  }
+  .ai-fix-suggestion-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .ai-fix-change {
+    font-family: monospace;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .ai-fix-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+  .ai-fix-badge.ok { background: #dcfce7; color: #166534; }
+  .ai-fix-badge.warn { background: #fef3c7; color: #92400e; }
+  .ai-fix-badge.err { background: #fee2e2; color: #991b1b; }
+  .ai-fix-reason {
+    color: var(--ink-soft);
+    font-size: 0.82rem;
+    margin: 3px 0 6px 0;
+    line-height: 1.5;
+  }
+  .ai-fix-actions {
+    display: flex;
+    gap: 6px;
+  }
+  .ai-fix-actions button {
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    border: 1px solid var(--line);
+    background: white;
+  }
+  .ai-fix-actions button.apply {
+    background: #16a34a;
+    color: white;
+    border-color: #15803d;
+  }
+  .ai-fix-actions button.apply:hover { background: #15803d; }
+  .ai-fix-actions button.apply:disabled {
+    background: var(--ink-mute);
+    cursor: not-allowed;
+  }
+  .ai-fix-actions button.skip:hover { background: #f3f4f6; }
+  .ai-fix-loading {
+    text-align: center;
+    color: var(--ink-mute);
+    padding: 12px;
+    font-style: italic;
+  }
+  .ai-fix-error {
+    background: #fee2e2;
+    color: #991b1b;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 0.82rem;
+  }
+  .ai-fix-empty {
+    color: var(--ink-mute);
+    padding: 8px;
+    text-align: center;
+    font-size: 0.85rem;
+  }
+  .viol-item.ai-solved {
+    background: #dcfce7 !important;
+    border-color: #86efac !important;
+    transition: all 0.3s;
+  }
+  .viol-item.ai-solved::after {
+    content: '✓ 已解決';
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    color: #166534;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
 </style>
 
 <!-- Person Modal -->
@@ -12528,6 +12690,433 @@ restoreScheduleFromLocal();  // ★ 還原上次未存的班表
 updateEmptyStateForMaster();
 // Sync target days input after a short delay (so DOM is ready)
 setTimeout(() => { if (typeof syncTargetDaysInput === 'function') syncTargetDaysInput(); }, 100);
+
+// ============================================================
+// AI VIOLATION FIX MODULE (MVP) — 增量功能,不修改原有任何邏輯
+// 設計:
+//  1. 為每條違規附上結構化 metadata(staffId、day、shift、category)
+//  2. 在違規卡片右上角加「🤖 問 AI」按鈕(hover 顯示)
+//  3. 點按鈕 → 卡片下方 inline 展開 AI 對話面板
+//  4. AI 針對單一違規回傳 1-3 個建議(JSON schema 複用 apply mode)
+//  5. 每個建議顯示模擬結果(會不會違反硬規則)
+//  6. 套用後自動 renderTable → 違規重算 → 卡片若解決則標 ✓ 後消失
+// ============================================================
+(function aiViolationFixModule() {
+  'use strict';
+
+  // ---------- 1. 解析違規 → 結構化 metadata ----------
+  // 從現有 viol 的 title/detail 反推出 staff、day、shift
+  // 之所以這樣做是為了不動 checkViolations 內部 11 處 viols.push
+  function enrichViolation(viol, index) {
+    const enriched = Object.assign({ index }, viol);
+
+    // 嘗試抓出日期(\d+日 或 \d+ 日 或 \d+/\d+)
+    const dayMatch = viol.title.match(/(\d+)\s*日/) ||
+                     viol.detail.match(/(\d+)\s*日/);
+    if (dayMatch) enriched.day = parseInt(dayMatch[1], 10);
+
+    // 抓 staff:title 是「人名: ...」格式
+    const nameMatch = viol.title.match(/^([^:]+?):\s/) || viol.title.match(/^([^:]+?):/);
+    if (nameMatch) {
+      const name = nameMatch[1].trim();
+      const p = (state.staff || []).find(s => s.name === name);
+      if (p) {
+        enriched.staffId = p.id;
+        enriched.staffName = p.name;
+      }
+    }
+
+    // 抓 shift:可能是 D / E / N / M / o / O / OFF
+    const shiftMatch = viol.title.match(/\b([DENM]|OFF|o|O)\s*班/) ||
+                       viol.title.match(/接(?:大夜|小夜|白班|行政)/) ||
+                       viol.title.match(/\b([DENM])\b/);
+    if (shiftMatch) {
+      const t = shiftMatch[1];
+      enriched.shift = t === '大夜' ? 'N' : t === '小夜' ? 'E' : t === '白班' ? 'D' : t === '行政' ? 'M' : t;
+    }
+
+    // 分類
+    if (/缺.*人/.test(viol.title)) enriched.category = 'coverage';
+    else if (/連續上班|連上/.test(viol.title)) enriched.category = 'consecutive';
+    else if (/接(大夜|N)|後直接接|孤立大夜/.test(viol.title)) enriched.category = 'transition';
+    else if (/週六|週日/.test(viol.title)) enriched.category = 'weekend';
+    else if (/不應排班/.test(viol.title)) enriched.category = 'status';
+    else if (/大夜\s*\d+\s*次/.test(viol.title)) enriched.category = 'night_count';
+    else enriched.category = 'other';
+
+    // 唯一 id(prefix + index + 各欄位)
+    enriched.id = `aivx_${index}_${enriched.staffId || 'x'}_${enriched.day || 'x'}_${enriched.category}`;
+
+    return enriched;
+  }
+
+  // 暫存當前所有 enriched 違規(由 patched renderTable 流程寫入)
+  window._aiViols = [];
+
+  // ---------- 2. Patch 違規清單渲染:加按鈕 ----------
+  // 不改 checkViolations(),改在 renderTable 完成後 hook 進 DOM
+  // 用 MutationObserver 也行,但更簡單的方法是 patch renderTable 本身
+  const _origRenderTable = window.renderTable;
+  if (typeof _origRenderTable !== 'function') {
+    console.warn('[ai-fix] renderTable not found, AI fix module disabled');
+    return;
+  }
+  window.renderTable = function patchedRenderTable() {
+    _origRenderTable.apply(this, arguments);
+    decorateViolations();
+  };
+
+  function decorateViolations() {
+    const listEl = document.getElementById('viol-list');
+    if (!listEl) return;
+    const items = listEl.querySelectorAll('.viol-item:not(.ok)');
+    if (items.length === 0) return;
+
+    // 重新跑 checkViolations 拿到陣列,並 enrich
+    if (typeof checkViolations !== 'function') return;
+    const rawViols = checkViolations();
+    const enrichedList = rawViols.map((v, i) => enrichViolation(v, i));
+    window._aiViols = enrichedList;
+
+    // 用 index 對應 DOM(因為 renderTable 渲染順序跟 checkViolations 一致)
+    let domIndex = 0;
+    items.forEach(itemEl => {
+      // 略過 .ok 已經被 filter 掉了
+      const viol = enrichedList[domIndex];
+      domIndex++;
+      if (!viol) return;
+
+      // 已有按鈕就不重複加
+      if (itemEl.querySelector('.ai-fix-btn')) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'ai-fix-btn';
+      btn.textContent = '🤖 問 AI';
+      btn.title = '請 AI 針對這條違規提出修復建議';
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        openFixPanel(itemEl, viol);
+      };
+      itemEl.appendChild(btn);
+      itemEl.dataset.aiViolId = viol.id;
+    });
+  }
+
+  // ---------- 3. 開啟 inline 對話面板 ----------
+  async function openFixPanel(itemEl, viol) {
+    // 若已展開,則收起(toggle)
+    const existing = itemEl.querySelector('.ai-fix-panel');
+    if (existing) {
+      existing.remove();
+      return;
+    }
+
+    // 收掉其他展開中的面板(一次只允許一個)
+    document.querySelectorAll('.ai-fix-panel').forEach(p => p.remove());
+
+    // 建立面板骨架
+    const panel = document.createElement('div');
+    panel.className = 'ai-fix-panel';
+    panel.innerHTML = `
+      <div class="ai-fix-panel-header">
+        <span>🤖 AI 修復建議</span>
+        <button class="ai-fix-panel-close" title="收起">×</button>
+      </div>
+      <div class="ai-fix-loading">⏳ AI 思考中...</div>
+    `;
+    panel.querySelector('.ai-fix-panel-close').onclick = () => panel.remove();
+    itemEl.appendChild(panel);
+
+    const btn = itemEl.querySelector('.ai-fix-btn');
+    if (btn) { btn.classList.add('thinking'); btn.textContent = '⏳'; }
+
+    try {
+      const suggestions = await fetchAISuggestions(viol);
+      renderSuggestions(panel, itemEl, viol, suggestions);
+    } catch (err) {
+      console.error('[ai-fix] error', err);
+      panel.querySelector('.ai-fix-loading')?.remove();
+      const errDiv = document.createElement('div');
+      errDiv.className = 'ai-fix-error';
+      errDiv.textContent = '❌ ' + (err.message || '取得建議失敗');
+      panel.appendChild(errDiv);
+    } finally {
+      if (btn) { btn.classList.remove('thinking'); btn.textContent = '🤖 問 AI'; }
+    }
+  }
+
+  // ---------- 4. 呼叫 AI(複用現有 askAI 的 leader/personal 兩路徑) ----------
+  async function callGeminiAI(prompt) {
+    const provider = (typeof getCurrentProvider === 'function') ? getCurrentProvider() : 'gemini';
+
+    if (window.IS_LEADER_EDITION === true || (typeof IS_LEADER_EDITION !== 'undefined' && IS_LEADER_EDITION)) {
+      // Leader edition: backend route
+      const token = (typeof getAuthToken === 'function') ? getAuthToken() : null;
+      if (!token) throw new Error('未登入或 token 已過期,請重新登入');
+      const modelChoice = (typeof getGeminiModelChoice === 'function') ? getGeminiModelChoice() : 'auto';
+      const result = await apiCall('ai', { token, prompt, model: modelChoice });
+      if (!result.ok) {
+        if (result.retryAfter) throw new Error(`⏱ Gemini 限制中,請等 ${result.retryAfter} 秒`);
+        throw new Error(result.error || 'AI 呼叫失敗');
+      }
+      return result.text;
+    } else {
+      // Personal edition: direct call
+      const key = localStorage.getItem('geminiApiKey') || localStorage.getItem('aiApiKey');
+      if (!key) throw new Error('請先在「AI 助理」設定 Gemini API Key');
+      const modelChoice = (typeof getGeminiModelChoice === 'function') ? getGeminiModelChoice() : 'auto';
+      const model = (modelChoice === 'auto' || !modelChoice) ? 'gemini-2.5-flash' : `gemini-2.5-${modelChoice}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 2000, temperature: 0.5, thinkingConfig: { thinkingBudget: 0 } },
+        }),
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Gemini API 錯誤(${response.status}):${errText.slice(0, 200)}`);
+      }
+      const data = await response.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
+  }
+
+  // ---------- 5. Prompt 設計:針對單一違規 ----------
+  async function fetchAISuggestions(viol) {
+    const summary = (typeof buildScheduleSummary === 'function') ? buildScheduleSummary() : '';
+
+    const violContext = buildViolationContext(viol);
+
+    const prompt = `你是急診部護理排班專家。護理長請你針對「**單一具體違規**」提出修復建議。
+
+${summary}
+
+# 🔴 要修的違規(只處理這一條)
+${violContext}
+
+# 你的任務
+針對上面**這一條違規**,給 1-3 個具體修法。每個修法是一次班別調整(改某人某天的班)。
+
+# 必守鐵規
+1. ❌ 絕不能動 OFF(大寫,員工抽中的預假)
+2. ❌ from 或 to 都不能是 OFF
+3. 連續上班 ≤6 天
+4. 半日/實習/夜護/病假/離職/留停的人不要動
+5. M 班只能在週一到五
+
+# 回應格式 — 只回 JSON,不要前言
+
+\`\`\`json
+{
+  "suggestions": [
+    {
+      "name": "張小芳",
+      "day": 15,
+      "from": "D",
+      "to": "o",
+      "priority": "high",
+      "reason": "張小芳連上 7 天到 6/15,把 6/15 改休可解決連續上班違規;6/15 D 班當天有 15 人(過剩 △),少 1 人不影響"
+    }
+  ]
+}
+\`\`\`
+
+# 注意
+- 至少給 1 個、最多 3 個 suggestions
+- reason 要具體寫出「為什麼這個改動能解決違規」+「會不會造成新問題」
+- 如果這條違規真的無解,suggestions 可以是空陣列,但要在另一個欄位 "note": "..." 解釋為什麼`;
+
+    const responseText = await callGeminiAI(prompt);
+    return parseSuggestions(responseText);
+  }
+
+  function buildViolationContext(viol) {
+    let ctx = `- 違規類型:${viol.category}\n`;
+    ctx += `- 等級:${viol.level === 'err' ? '🚨 嚴重(必修)' : '⚠ 警告(建議修)'}\n`;
+    ctx += `- 標題:${viol.title}\n`;
+    ctx += `- 詳細:${viol.detail}\n`;
+    if (viol.staffName) ctx += `- 涉及人員:${viol.staffName} (id=${viol.staffId})\n`;
+    if (viol.day) ctx += `- 涉及日期:${state.month?.split('-')[1] || ''}/${viol.day}\n`;
+    if (viol.shift) ctx += `- 涉及班別:${viol.shift}\n`;
+
+    // 補上該人附近 7 天的班(讓 AI 看上下文)
+    if (viol.staffId && viol.day) {
+      const sched = state.schedule[viol.staffId] || {};
+      const days = [];
+      for (let d = Math.max(1, viol.day - 3); d <= viol.day + 3; d++) {
+        const sh = sched[d] || '·';
+        days.push(`${d}=${sh}${d === viol.day ? ' ◄' : ''}`);
+      }
+      ctx += `- ${viol.staffName} 周邊班別:${days.join(' ')}\n`;
+    }
+    return ctx;
+  }
+
+  function parseSuggestions(text) {
+    if (!text) throw new Error('AI 回應為空');
+    // 移除 markdown 圍欄
+    let cleaned = text.replace(/```json|```/g, '').trim();
+    // 找第一個 { 到最後一個 } 之間
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start < 0 || end < 0) throw new Error('AI 回應無法解析為 JSON');
+    cleaned = cleaned.slice(start, end + 1);
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (e) {
+      throw new Error('JSON 解析失敗:' + e.message);
+    }
+    return parsed.suggestions || [];
+  }
+
+  // ---------- 6. 渲染建議卡片 + 模擬 ----------
+  function renderSuggestions(panel, itemEl, viol, suggestions) {
+    panel.querySelector('.ai-fix-loading')?.remove();
+
+    if (!suggestions || suggestions.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'ai-fix-empty';
+      empty.textContent = 'AI 認為這條違規目前難以單獨調整,建議搭配整體重排';
+      panel.appendChild(empty);
+      return;
+    }
+
+    suggestions.forEach((sug, i) => {
+      const sim = simulateChange(sug);
+      const sugDiv = document.createElement('div');
+      sugDiv.className = 'ai-fix-suggestion';
+
+      const m = state.month?.split('-')[1] || '';
+      const fromTxt = sug.from || '?';
+      const toTxt = sug.to || '?';
+
+      sugDiv.innerHTML = `
+        <div class="ai-fix-suggestion-head">
+          <span class="ai-fix-change">${sug.name} ${m}/${sug.day}: ${fromTxt} → ${toTxt}</span>
+          <span class="ai-fix-badge ${sim.level}">${sim.label}</span>
+        </div>
+        <div class="ai-fix-reason">${escapeHtml(sug.reason || '')}</div>
+        <div class="ai-fix-actions">
+          <button class="apply" data-i="${i}">✓ 套用</button>
+          <button class="skip">× 略過</button>
+        </div>
+      `;
+
+      sugDiv.querySelector('.apply').onclick = () => applySuggestion(sug, sugDiv, itemEl, viol);
+      sugDiv.querySelector('.skip').onclick = () => sugDiv.remove();
+
+      panel.appendChild(sugDiv);
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // ---------- 7. 模擬:套用前檢查會不會產生新違規 ----------
+  function simulateChange(sug) {
+    try {
+      // 基本檢查
+      const person = state.staff.find(p => p.name === sug.name);
+      if (!person) return { level: 'err', label: '⚠ 找不到此人' };
+      if (sug.from === 'OFF') return { level: 'err', label: '🚫 不可動 OFF' };
+      if (sug.to === 'OFF') return { level: 'err', label: '🚫 不可改為 OFF' };
+
+      const currentShift = (state.schedule[person.id] || {})[sug.day];
+      if (currentShift !== sug.from) {
+        return { level: 'warn', label: `⚠ 班別已改變(現為 ${currentShift || '空'})` };
+      }
+
+      // 真實模擬:暫時 apply,跑 checkViolations,看違規數變化
+      const before = checkViolations().length;
+      const backup = currentShift;
+      state.schedule[person.id][sug.day] = sug.to;
+      const after = checkViolations().length;
+      // 還原
+      if (backup === undefined) delete state.schedule[person.id][sug.day];
+      else state.schedule[person.id][sug.day] = backup;
+
+      if (after < before) return { level: 'ok', label: `✓ 減少 ${before - after} 條違規` };
+      if (after === before) return { level: 'ok', label: '✓ 不會產生新違規' };
+      return { level: 'warn', label: `⚠ 會新增 ${after - before} 條違規` };
+    } catch (e) {
+      console.error('[ai-fix] sim error', e);
+      return { level: 'warn', label: '⚠ 模擬失敗' };
+    }
+  }
+
+  // ---------- 8. 套用單一建議 ----------
+  function applySuggestion(sug, sugDiv, itemEl, viol) {
+    const person = state.staff.find(p => p.name === sug.name);
+    if (!person) { alert('找不到此人員'); return; }
+    const cur = (state.schedule[person.id] || {})[sug.day];
+    if (cur === 'OFF') { alert('該格是 OFF(預假),不能修改'); return; }
+    if (sug.to === 'OFF') { alert('不能將班別改為 OFF'); return; }
+
+    if (!confirm(`確定套用?\n\n${sug.name} ${state.month.split('-')[1]}/${sug.day}: ${cur || '空'} → ${sug.to}\n\n套用後可按「↶ 復原」回到此狀態`)) return;
+
+    // 用現有的 snapshotState 做撤銷備份
+    if (typeof snapshotState === 'function') {
+      snapshotState(`AI 修復:${sug.name} ${sug.day}日`);
+    }
+
+    if (!state.schedule[person.id]) state.schedule[person.id] = {};
+    state.schedule[person.id][sug.day] = sug.to;
+
+    // 套用後:鎖定按鈕、淡出建議卡
+    sugDiv.querySelector('.apply').disabled = true;
+    sugDiv.querySelector('.apply').textContent = '✓ 已套用';
+
+    // 觸發重繪(會重算違規清單)
+    renderTable();
+    if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
+
+    // 檢查該違規是否已解決
+    setTimeout(() => {
+      const stillThere = checkSameViolStillExists(viol);
+      if (!stillThere) {
+        // 找到對應卡片標記為 solved(因為 renderTable 後 DOM 已重建)
+        markSolvedByViolFingerprint(viol);
+      }
+    }, 50);
+  }
+
+  function checkSameViolStillExists(viol) {
+    const viols = checkViolations();
+    return viols.some(v =>
+      v.title === viol.title && v.detail === viol.detail
+    );
+  }
+
+  function markSolvedByViolFingerprint(viol) {
+    // renderTable 後 DOM 重建,找不到原 itemEl,顯示 toast 提示
+    showToast(`✓ 已解決:${viol.title}`);
+  }
+
+  function showToast(msg) {
+    let toast = document.getElementById('ai-fix-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'ai-fix-toast';
+      toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#16a34a;color:white;padding:10px 16px;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.15);font-size:0.9rem;z-index:9999;transition:opacity 0.3s';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.style.opacity = '1';
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+  }
+
+  console.log('[ai-fix] AI 違規修復模組已載入');
+})();
+// ============================================================
+// END AI VIOLATION FIX MODULE
+// ============================================================
 </script>
 <!-- Cell context menu for note management -->
 <div id="cell-context-menu">
