@@ -6907,7 +6907,7 @@ async function exportXlsxTraditional() {
     'N':   { fgColor: 'FF1F2937', fontColor: 'FFFFFFFF', bold: true },
     'M':   { fgColor: 'FFE9D5FF', fontColor: 'FF5B21B6' },
     'OFF': { fgColor: 'FFFCE8E8', fontColor: 'FFB91C1C', bold: true },
-    'off': { fgColor: 'FFF5F5F0', fontColor: 'FF6B6B6B', italic: true },
+    'off': { fgColor: 'FFF5F5F0', fontColor: 'FF6B6B6B', italic: true, underline: true },
     'o':   { fgColor: 'FFFAFAF5', fontColor: 'FF999999', italic: true, displayAs: 'off' },
     'V':   { fgColor: 'FFD1FAE5', fontColor: 'FF065F46' },
   };
@@ -6922,7 +6922,7 @@ async function exportXlsxTraditional() {
     right: { style: 'thin', color: { argb: 'FFD1D5DB' } },
   };
 
-  function styleCell(cell, raw) {
+  function styleCell(cell, raw, forceUnderline) {
     const s = SHIFT_STYLES[raw];
     if (s) {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: s.fgColor } };
@@ -6930,6 +6930,7 @@ async function exportXlsxTraditional() {
         color: { argb: s.fontColor },
         bold: !!s.bold,
         italic: !!s.italic,
+        underline: !!s.underline || !!forceUnderline,  // off 自帶底線 + 預約延續記憶
         name: 'Microsoft JhengHei',
         size: 10,
       };
@@ -7090,7 +7091,10 @@ async function exportXlsxTraditional() {
         const v = sched[d] || '';
         const display = v === 'o' ? 'off' : v;
         cell.value = display;
-        styleCell(cell, v);
+        // 讀 scheduleFlags 判斷是否為「預約延續記憶」
+        const flags = (state.scheduleFlags && state.scheduleFlags[p.id]) || {};
+        const isUnderlined = !!(flags[d] && flags[d].underline);
+        styleCell(cell, v, isUnderlined);
       }
     }
 
