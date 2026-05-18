@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>急診排班 · 公告</title>
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif; background: #f9fafb; color: #1f2937; }
+body { padding-bottom: env(safe-area-inset-bottom); }
+
+/* === 頂部 header === */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  color: white;
+  padding: 0.6rem 1rem;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+.app-header h1 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.app-header .subtitle {
+  font-size: 0.78rem;
+  opacity: 0.85;
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+/* === Tabs === */
+.tabs {
+  display: flex;
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  position: sticky;
+  top: 50px;
+  z-index: 40;
+}
+.tabs button {
+  flex: 1;
+  padding: 0.7rem 0.5rem;
+  background: transparent;
+  border: none;
+  color: #6b7280;
+  font-size: 0.92rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  transition: all 0.15s;
+}
+.tabs button.active {
+  color: #059669;
+  border-bottom-color: #059669;
+  font-weight: 700;
+}
+.tabs button:hover { background: #f9fafb; }
+
+/* === 共用 panel === */
+.panel {
+  display: none;
+  padding: 0.8rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.panel.active { display: block; }
+
+/* === 狀態提示(載入中/未公告/撤回) === */
+.status-banner {
+  padding: 2rem 1rem;
+  text-align: center;
+}
+.status-banner .icon { font-size: 3rem; margin-bottom: 0.6rem; }
+.status-banner h2 { margin: 0.4rem 0; font-size: 1.2rem; }
+.status-banner p { color: #6b7280; font-size: 0.9rem; margin: 0.4rem 0; }
+.status-banner.error h2 { color: #dc2626; }
+.status-banner.empty h2 { color: #6b7280; }
+.status-banner.withdrawn h2 { color: #d97706; }
+
+/* === 今日視圖 === */
+.today-card {
+  background: white;
+  border-radius: 8px;
+  padding: 0.8rem;
+  margin-bottom: 0.8rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.today-date {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.today-dow { color: #6b7280; font-size: 0.95rem; font-weight: 400; }
+.today-holiday-tag { background: #fee2e2; color: #b91c1c; padding: 2px 8px; border-radius: 3px; font-size: 0.78rem; font-weight: 600; }
+
+.shift-section {
+  margin-bottom: 0.7rem;
+}
+.shift-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-bottom: 0.3rem;
+  font-weight: 700;
+}
+.shift-section-head .shift-name { font-size: 1rem; }
+.shift-section-head .shift-count { font-size: 0.85rem; opacity: 0.85; }
+.shift-section.D .shift-section-head { background: #dbeafe; color: #1e40af; }
+.shift-section.E .shift-section-head { background: #fef3c7; color: #92400e; }
+.shift-section.N .shift-section-head { background: #374151; color: white; }
+.shift-section.M .shift-section-head { background: #e9d5ff; color: #6b21a8; }
+
+.shift-people {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 4px;
+}
+.shift-person {
+  background: white;
+  padding: 6px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 5px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+.shift-person:hover { border-color: #059669; background: #f0fdf4; }
+.shift-person .marker-tag {
+  font-size: 0.65rem;
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-weight: 700;
+  margin-left: auto;
+}
+.shift-person .marker-tag.preceptor { background: #c2410c; color: white; }
+.shift-person .marker-tag.trainee { color: #1e40af; font-size: 0.85rem; padding: 0; background: transparent; }
+
+.date-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0.8rem;
+}
+.date-nav button {
+  background: white;
+  border: 1px solid #d1d5db;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.date-nav button:hover:not(:disabled) { background: #f3f4f6; }
+.date-nav button:disabled { opacity: 0.4; cursor: not-allowed; }
+.date-nav .today-btn {
+  background: #059669;
+  color: white;
+  border-color: #059669;
+}
+.date-nav .date-label {
+  flex: 1;
+  text-align: center;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+/* === 個人視圖 === */
+.search-box {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 1rem;
+  margin-bottom: 0.6rem;
+}
+.search-box:focus { outline: 2px solid #059669; outline-offset: -1px; }
+
+.person-list {
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.person-row {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f3f4f6;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+}
+.person-row:hover { background: #f9fafb; }
+.person-row:last-child { border-bottom: none; }
+.person-row .name { font-weight: 600; flex: 1; }
+.person-row .level {
+  background: #e0e7ff;
+  color: #3730a3;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.person-row .note {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.75rem;
+}
+
+.person-detail {
+  display: none;
+  background: white;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 0.8rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.person-detail.active { display: block; }
+.person-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.person-detail-head .name { font-size: 1.2rem; font-weight: 700; }
+.person-detail-head .badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.person-detail-head button {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.person-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 0.8rem;
+}
+.person-stat {
+  background: #f9fafb;
+  border-radius: 5px;
+  padding: 6px;
+  text-align: center;
+}
+.person-stat .label { font-size: 0.72rem; color: #6b7280; }
+.person-stat .value { font-size: 1.2rem; font-weight: 700; color: #1f2937; }
+
+.person-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  font-size: 0.82rem;
+}
+.cal-dow-head {
+  text-align: center;
+  font-weight: 600;
+  color: #6b7280;
+  padding: 4px 0;
+  font-size: 0.75rem;
+}
+.cal-cell {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 3px;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #f3f4f6;
+}
+.cal-cell.empty { background: #fafafa; border: none; }
+.cal-cell .day-num { font-size: 0.7rem; color: #9ca3af; position: absolute; top: 2px; left: 4px; }
+.cal-cell .shift-mark { font-weight: 700; font-size: 0.95rem; margin-top: 6px; }
+.cal-cell.shift-D { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+.cal-cell.shift-E { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+.cal-cell.shift-N { background: #374151; color: white; border-color: #1f2937; }
+.cal-cell.shift-N .day-num { color: #9ca3af; }
+.cal-cell.shift-M { background: #e9d5ff; color: #6b21a8; border-color: #c4b5fd; }
+.cal-cell.shift-OFF { background: #fce8e8; color: #b91c1c; border-color: #fca5a5; }
+.cal-cell.shift-off,
+.cal-cell.shift-o { background: #f5f5f0; color: #6b6b6b; font-style: italic; }
+.cal-cell.shift-V { background: #dcfce7; color: #166534; border-color: #86efac; }
+.cal-cell.today { box-shadow: 0 0 0 2px #059669; }
+.cal-cell.holiday .day-num { color: #b91c1c; font-weight: 700; }
+.cal-cell.marker-preceptor::after {
+  content: '帶';
+  position: absolute;
+  top: 0; right: 0;
+  background: #c2410c;
+  color: white;
+  font-size: 0.55rem;
+  padding: 0 2px;
+  font-weight: 700;
+  border-radius: 0 0 0 2px;
+}
+.cal-cell.marker-trainee::after {
+  content: "'";
+  position: absolute;
+  top: -2px; right: 2px;
+  color: #1e40af;
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+.cal-cell.cell-underline {
+  box-shadow: inset 0 -3px 0 0 #c2410c;
+}
+.cal-cell.cell-underline.today {
+  box-shadow: 0 0 0 2px #059669, inset 0 -3px 0 0 #c2410c;
+}
+
+/* === 月曆視圖 — 全月班表 === */
+.month-table-wrap {
+  background: white;
+  border-radius: 8px;
+  overflow: auto;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  max-height: calc(100vh - 200px);
+}
+.month-table {
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  width: max-content;
+}
+.month-table th, .month-table td {
+  padding: 4px 6px;
+  border: 1px solid #e5e7eb;
+  text-align: center;
+  white-space: nowrap;
+}
+.month-table th {
+  background: #f9fafb;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.month-table th.dow-sun, .month-table th.dow-sat { background: #fef3c7; }
+.month-table th.holiday { background: #fee2e2; color: #b91c1c; }
+.month-table td.col-name {
+  position: sticky;
+  left: 0;
+  background: white;
+  font-weight: 600;
+  text-align: left;
+  z-index: 4;
+  border-right: 2px solid #1f2937;
+}
+.month-table th.col-name {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+}
+.month-table tbody tr:hover td { background: #f9fafb; }
+.month-table tbody tr:hover td.col-name { background: #f0fdf4; }
+.month-table td.cell-D { background: #dbeafe; color: #1e40af; font-weight: 600; }
+.month-table td.cell-E { background: #fef3c7; color: #92400e; font-weight: 600; }
+.month-table td.cell-N { background: #374151; color: white; font-weight: 600; }
+.month-table td.cell-M { background: #e9d5ff; color: #6b21a8; font-weight: 600; }
+.month-table td.cell-OFF { background: #fce8e8; color: #b91c1c; font-weight: 700; }
+.month-table td.cell-off, .month-table td.cell-o { background: #f5f5f0; color: #6b6b6b; font-style: italic; }
+.month-table td.cell-V { background: #dcfce7; color: #166534; }
+.month-table td.today-col { box-shadow: inset 0 0 0 2px #059669; }
+.month-table td.cell-underline { box-shadow: inset 0 -3px 0 0 #c2410c; }
+.month-table td.marker-preceptor::after,
+.month-table td.marker-trainee::after {
+  font-size: 0.6rem;
+  vertical-align: super;
+}
+.month-table td.marker-preceptor::after { content: '帶'; color: #c2410c; font-weight: 700; }
+.month-table td.marker-trainee::after { content: "'"; color: #1e40af; font-weight: 700; }
+
+/* === 浮水印 === */
+.watermark {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  font-size: 0.7rem;
+  color: rgba(107, 114, 128, 0.5);
+  pointer-events: none;
+  user-select: none;
+  z-index: 100;
+}
+
+/* === 首頁卡片(2 個 app 入口) === */
+.home-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.home-overlay.hidden { display: none; }
+.home-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 380px;
+  width: 100%;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+}
+.home-card h2 {
+  margin: 0 0 0.6rem 0;
+  font-size: 1.2rem;
+  text-align: center;
+  color: #059669;
+}
+.home-card .home-sub {
+  text-align: center;
+  color: #6b7280;
+  font-size: 0.88rem;
+  margin-bottom: 1.2rem;
+}
+.home-card .app-btn {
+  display: block;
+  width: 100%;
+  padding: 1rem;
+  margin-bottom: 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  text-align: left;
+}
+.home-card .app-btn:hover { background: #f9fafb; border-color: #059669; }
+.home-card .app-btn .title { font-size: 1.02rem; font-weight: 700; display: flex; align-items: center; gap: 6px; color: #1f2937; }
+.home-card .app-btn .desc { font-size: 0.82rem; color: #6b7280; margin-top: 4px; }
+.home-card .app-btn.disabled { opacity: 0.6; cursor: not-allowed; }
+.home-card .app-btn.disabled:hover { background: white; border-color: #d1d5db; }
+.home-card .app-btn .badge {
+  font-size: 0.68rem;
+  background: #fef3c7;
+  color: #92400e;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 700;
+  margin-left: auto;
+}
+
+/* === 手機 RWD === */
+@media (max-width: 480px) {
+  .panel { padding: 0.6rem; }
+  .shift-people { grid-template-columns: repeat(auto-fill, minmax(95px, 1fr)); }
+  .person-stats { grid-template-columns: repeat(2, 1fr); }
+  .person-stat .value { font-size: 1rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- === 首頁:選擇要進的 App(班表公告 / 站位排班) === -->
+<div class="home-overlay" id="home-overlay">
+  <div class="home-card">
+    <h2>🏥 急診排班</h2>
+    <div class="home-sub">公告系統(僅限院內查詢)</div>
+    <button class="app-btn" onclick="enterScheduleApp()">
+      <div class="title">📅 班表公告</div>
+      <div class="desc">查詢本月班表、個人班、今天誰上什麼班</div>
+    </button>
+    <button class="app-btn disabled" onclick="alert('「站位排班」功能正在開發中,敬請期待。\\n\\n預計功能:每天 D/E/N 班人員分配到 14 個站位(檢傷/CPR/治療區/Leader 等)')">
+      <div class="title">🏥 站位排班<span class="badge">開發中</span></div>
+      <div class="desc">每天班別人員分配到 10+ 個站位</div>
+    </button>
+  </div>
+</div>
+
+<!-- === Header === -->
+<div class="app-header" id="app-header" style="display: none">
+  <h1>
+    <span>📅 班表公告</span>
+    <span id="hdr-month" style="font-size: 0.9rem; opacity: 0.85; font-weight: 400"></span>
+  </h1>
+  <div class="subtitle" id="hdr-subtitle">載入中...</div>
+</div>
+
+<!-- === Tabs === -->
+<div class="tabs" id="tabs" style="display: none">
+  <button class="active" data-tab="today" onclick="switchTab('today')">📅 今天</button>
+  <button data-tab="person" onclick="switchTab('person')">👤 個人</button>
+  <button data-tab="month" onclick="switchTab('month')">📆 月曆</button>
+</div>
+
+<!-- === Panel: 今天 === -->
+<div class="panel active" id="panel-today">
+  <div class="date-nav">
+    <button onclick="changeViewDate(-1)" id="btn-prev-day">‹</button>
+    <button class="today-btn" onclick="changeViewDate(0)">今天</button>
+    <button onclick="changeViewDate(1)" id="btn-next-day">›</button>
+    <div class="date-label" id="today-date-label"></div>
+  </div>
+  <div id="today-content"></div>
+</div>
+
+<!-- === Panel: 個人 === -->
+<div class="panel" id="panel-person">
+  <input type="text" class="search-box" id="person-search" placeholder="🔍 搜尋姓名..." oninput="onPersonSearchInput()">
+  <div class="person-detail" id="person-detail">
+    <div class="person-detail-head">
+      <div>
+        <div class="name" id="pd-name"></div>
+        <div class="badges" id="pd-badges"></div>
+      </div>
+      <button onclick="closePersonDetail()">← 回列表</button>
+    </div>
+    <div class="person-stats" id="pd-stats"></div>
+    <div id="pd-dow-head" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 4px"></div>
+    <div class="person-calendar" id="pd-calendar"></div>
+  </div>
+  <div class="person-list" id="person-list"></div>
+</div>
+
+<!-- === Panel: 月曆 === -->
+<div class="panel" id="panel-month">
+  <div style="margin-bottom: 0.6rem; font-size: 0.85rem; color: #6b7280">
+    左右滑動可看整月;姓名欄會固定在左側。今日格子有綠色框。
+  </div>
+  <div class="month-table-wrap" id="month-table-wrap"></div>
+</div>
+
+<!-- === 載入中 / 錯誤 / 未公告 提示 === -->
+<div id="status-panel" class="status-banner" style="display: none">
+  <div class="icon" id="status-icon"></div>
+  <h2 id="status-title"></h2>
+  <p id="status-msg"></p>
+  <p id="status-detail" style="font-size: 0.8rem"></p>
+</div>
+
+<div class="watermark">院內公告 · 請勿外傳</div>
+
+<script>
+// ============================================================
+// 急診排班 · 公告網頁
+// 從 Apps Script fetch 已公告的班表 JSON,渲染唯讀視圖
+// 配合 index.html 中的 'publishView' / 'unpublishView' / 'getPublishStatus' Apps Script case
+// ============================================================
+
+// 修改為實際的 Apps Script URL(與 index.html BACKEND_URL 一致)
+const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbwvr5TCo7p85eE8S7_5hV_KBb_x_frJFMA8yq8mS4i1a6Z39YESfmFKHbqI2JVk4lvp/exec';
+
+const state = {
+  month: null,        // 'YYYY-MM'
+  days: 30,
+  holidays: [],       // [day]
+  staff: [],          // [{id, name, level, note, ...}]
+  schedule: {},       // {pid: {day: shift}}
+  flags: {},          // {pid: {day: {underline, marker}}}
+  publishedAt: '',
+  publishedBy: '',
+  viewDate: null,     // Date 物件,今天視圖正在看的日期
+};
+
+// === 進入 App ===
+function enterScheduleApp() {
+  document.getElementById('home-overlay').classList.add('hidden');
+  document.getElementById('app-header').style.display = '';
+  document.getElementById('tabs').style.display = '';
+  loadData();
+}
+
+// === 載入資料 ===
+async function loadData() {
+  showStatus('loading');
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const month = params.get('m') || guessCurrentMonth();
+    state.month = month;
+    state.viewDate = new Date();  // 預設看「今天」
+    document.getElementById('hdr-month').textContent = formatMonthLabel(month);
+
+    const response = await fetch(BACKEND_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'fetchPublished', month }),
+    });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const result = await response.json();
+
+    if (!result.ok) {
+      showStatus('error', result.error || '無法取得班表資料');
+      return;
+    }
+
+    if (result.status === 'not_published') {
+      showStatus('empty', '此月份尚未公告');
+      return;
+    }
+
+    if (result.status === 'withdrawn') {
+      showStatus('withdrawn', `${formatMonthLabel(month)} 班表調整中`, result.publishedAt ? `上次公告:${formatDate(result.publishedAt)}` : '');
+      return;
+    }
+
+    // 已公告 → 載入資料
+    const data = JSON.parse(result.data);
+    state.days = data.days || 30;
+    state.holidays = data.holidays || [];
+    state.staff = data.staff || [];
+    state.schedule = data.schedule || {};
+    state.flags = data.flags || {};
+    state.publishedAt = result.publishedAt || '';
+    state.publishedBy = result.publishedBy || '';
+
+    hideStatus();
+    document.getElementById('hdr-subtitle').textContent = `公告於 ${formatDate(state.publishedAt)}${state.publishedBy ? ' · by ' + state.publishedBy : ''}`;
+
+    renderToday();
+    renderPersonList();
+    renderMonthTable();
+  } catch (e) {
+    console.error(e);
+    showStatus('error', '連線失敗', e.message);
+  }
+}
+
+function showStatus(kind, title, detail) {
+  document.getElementById('status-panel').style.display = '';
+  document.getElementById('status-panel').className = 'status-banner ' + kind;
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  const icon = { loading: '⏳', error: '⚠', empty: '📭', withdrawn: '🟡' }[kind] || '?';
+  const t = { loading: '載入中', error: title || '錯誤', empty: title || '尚未公告', withdrawn: title || '調整中' }[kind];
+  document.getElementById('status-icon').textContent = icon;
+  document.getElementById('status-title').textContent = t;
+  document.getElementById('status-msg').textContent = (kind === 'error' || kind === 'withdrawn') ? (title || '') : '';
+  document.getElementById('status-detail').textContent = detail || '';
+}
+function hideStatus() {
+  document.getElementById('status-panel').style.display = 'none';
+  document.querySelector('.panel.active') || document.getElementById('panel-today').classList.add('active');
+}
+
+// === Tabs ===
+function switchTab(tabId) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + tabId).classList.add('active');
+}
+
+// === 今天視圖 ===
+function changeViewDate(delta) {
+  if (delta === 0) {
+    state.viewDate = new Date();
+  } else {
+    const d = new Date(state.viewDate);
+    d.setDate(d.getDate() + delta);
+    state.viewDate = d;
+  }
+  renderToday();
+}
+
+function renderToday() {
+  const date = state.viewDate;
+  const today = new Date();
+  const isToday = sameDate(date, today);
+  const ym = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
+  const day = date.getDate();
+  const dow = date.getDay();
+  const dowName = ['日','一','二','三','四','五','六'][dow];
+  const holiday = (ym === state.month) && state.holidays.includes(day);
+
+  const label = `${date.getMonth()+1}/${day} (週${dowName})`;
+  document.getElementById('today-date-label').innerHTML = isToday ? `<span style="color:#059669">${label} · 今天</span>` : label;
+
+  // 不在本月 → 提示
+  if (ym !== state.month) {
+    document.getElementById('today-content').innerHTML = `<div style="text-align:center; padding:2rem; color:#6b7280">
+      <div style="font-size:2rem; margin-bottom:0.4rem">📭</div>
+      <div>此日期(${label})不在已公告的 ${state.month} 月份內。</div>
+      <div style="font-size:0.85rem; margin-top:0.6rem">點「今天」回到本月。</div>
+    </div>`;
+    return;
+  }
+
+  // 蒐集當天 D/E/N/M 各班的人
+  const buckets = { D: [], E: [], N: [], M: [] };
+  state.staff.forEach(p => {
+    const sh = (state.schedule[p.id] || {})[day];
+    if (buckets[sh] !== undefined) {
+      const marker = (state.flags[p.id] && state.flags[p.id][day] && state.flags[p.id][day].marker) || '';
+      buckets[sh].push({ p, marker });
+    }
+  });
+
+  let html = `<div class="today-card">
+    <div class="today-date">
+      📅 ${date.getMonth()+1} 月 ${day} 日
+      <span class="today-dow">週${dowName}</span>
+      ${holiday ? '<span class="today-holiday-tag">國定假日</span>' : ''}
+      ${isToday ? '<span class="today-holiday-tag" style="background:#dcfce7;color:#166534">今天</span>' : ''}
+    </div>
+  </div>`;
+
+  ['D','E','N','M'].forEach(sh => {
+    const arr = buckets[sh];
+    if (arr.length === 0 && sh === 'M') return;  // M 班沒人時不顯示
+    const labelName = { D: 'D 白班', E: 'E 小夜', N: 'N 大夜', M: 'M 行政' }[sh];
+    html += `<div class="shift-section ${sh}">
+      <div class="shift-section-head">
+        <span class="shift-name">${labelName}</span>
+        <span class="shift-count">(${arr.length} 人)</span>
+      </div>
+      <div class="shift-people">`;
+    arr.forEach(({p, marker}) => {
+      const markerTag = marker === 'preceptor' ? '<span class="marker-tag preceptor">帶</span>'
+                      : marker === 'trainee' ? "<span class='marker-tag trainee'>'</span>"
+                      : '';
+      html += `<div class="shift-person" onclick="openPersonByName('${escAttr(p.name)}')">${esc(p.name)}${markerTag}</div>`;
+    });
+    if (arr.length === 0) html += `<div style="color:#9ca3af; font-size:0.85rem; padding:6px">無人</div>`;
+    html += '</div></div>';
+  });
+
+  document.getElementById('today-content').innerHTML = html;
+}
+
+// === 個人視圖 ===
+let personSearchTimer = null;
+function onPersonSearchInput() {
+  if (personSearchTimer) clearTimeout(personSearchTimer);
+  personSearchTimer = setTimeout(renderPersonList, 100);
+}
+
+function renderPersonList() {
+  const query = (document.getElementById('person-search').value || '').trim().toLowerCase();
+  const filtered = state.staff.filter(p =>
+    !query || p.name.toLowerCase().includes(query) || (p.level || '').toLowerCase().includes(query)
+  );
+  let html = '';
+  if (filtered.length === 0) {
+    html = '<div style="padding:1.5rem; text-align:center; color:#9ca3af">沒有符合的人員</div>';
+  } else {
+    filtered.forEach(p => {
+      const lv = p.level ? `<span class="level">${esc(p.level)}</span>` : '';
+      const nt = p.note ? `<span class="note">${esc(p.note)}</span>` : '';
+      html += `<div class="person-row" onclick="openPersonDetail('${escAttr(p.id)}')">
+        <span class="name">${esc(p.name)}</span>
+        ${lv}${nt}
+      </div>`;
+    });
+  }
+  document.getElementById('person-list').innerHTML = html;
+}
+
+function openPersonByName(name) {
+  const p = state.staff.find(x => x.name === name);
+  if (!p) return;
+  switchTab('person');
+  openPersonDetail(p.id);
+}
+
+function openPersonDetail(pid) {
+  const p = state.staff.find(x => x.id === pid);
+  if (!p) return;
+  document.getElementById('person-list').style.display = 'none';
+  document.getElementById('person-detail').classList.add('active');
+  document.getElementById('pd-name').textContent = p.name;
+
+  let badges = '';
+  if (p.level) badges += `<span class="level">${esc(p.level)}</span>`;
+  if (p.note) badges += `<span class="note">${esc(p.note)}</span>`;
+  if (p.preferredShift) badges += `<span class="note" style="background:#dbeafe;color:#1e40af">主 ${esc(p.preferredShift)}</span>`;
+  document.getElementById('pd-badges').innerHTML = badges;
+
+  // 統計
+  const sched = state.schedule[pid] || {};
+  const pFlags = state.flags[pid] || {};
+  let D=0, E=0, N=0, M=0, off=0, otherWork=0;
+  for (let d = 1; d <= state.days; d++) {
+    const sh = sched[d] || '';
+    const marker = (pFlags[d] && pFlags[d].marker) || '';
+    const isMarked = marker === 'preceptor' || marker === 'trainee';
+    if (sh === 'D') { D++; if (isMarked) otherWork++; }
+    else if (sh === 'E') { E++; if (isMarked) otherWork++; }
+    else if (sh === 'N') N++;
+    else if (sh === 'M') M++;
+    else if (['OFF','off','o','V'].includes(sh)) off++;
+  }
+  document.getElementById('pd-stats').innerHTML = `
+    <div class="person-stat"><div class="label">D 白班</div><div class="value">${D}</div></div>
+    <div class="person-stat"><div class="label">E 小夜</div><div class="value">${E}</div></div>
+    <div class="person-stat"><div class="label">N 大夜</div><div class="value">${N}</div></div>
+    <div class="person-stat"><div class="label">休假</div><div class="value">${off}</div></div>
+  `;
+
+  // 月曆網格
+  const ym = state.month.split('-');
+  const year = parseInt(ym[0]);
+  const monthIdx = parseInt(ym[1]) - 1;
+  const firstDow = new Date(year, monthIdx, 1).getDay();
+  const today = new Date();
+  const isCurrentMonth = (today.getFullYear() === year && today.getMonth() === monthIdx);
+
+  // DOW header
+  document.getElementById('pd-dow-head').innerHTML = ['日','一','二','三','四','五','六'].map(d => `<div class="cal-dow-head">${d}</div>`).join('');
+
+  let html = '';
+  for (let i = 0; i < firstDow; i++) html += '<div class="cal-cell empty"></div>';
+  for (let d = 1; d <= state.days; d++) {
+    const sh = sched[d] || '';
+    const flag = pFlags[d] || {};
+    let cls = 'cal-cell';
+    if (sh) cls += ` shift-${sh}`;
+    if (state.holidays.includes(d)) cls += ' holiday';
+    if (isCurrentMonth && today.getDate() === d) cls += ' today';
+    if (flag.underline) cls += ' cell-underline';
+    if (flag.marker === 'preceptor') cls += ' marker-preceptor';
+    if (flag.marker === 'trainee') cls += ' marker-trainee';
+    const display = sh === 'o' ? 'off' : (sh || '');
+    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div></div>`;
+  }
+  document.getElementById('pd-calendar').innerHTML = html;
+}
+
+function closePersonDetail() {
+  document.getElementById('person-detail').classList.remove('active');
+  document.getElementById('person-list').style.display = '';
+}
+
+// === 月曆視圖(全月表) ===
+function renderMonthTable() {
+  const today = new Date();
+  const ym = state.month.split('-');
+  const year = parseInt(ym[0]);
+  const monthIdx = parseInt(ym[1]) - 1;
+  const isCurrentMonth = (today.getFullYear() === year && today.getMonth() === monthIdx);
+  const todayDay = isCurrentMonth ? today.getDate() : -1;
+
+  let html = '<table class="month-table"><thead><tr>';
+  html += '<th class="col-name">姓名</th>';
+  for (let d = 1; d <= state.days; d++) {
+    const date = new Date(year, monthIdx, d);
+    const dow = date.getDay();
+    const isHoliday = state.holidays.includes(d);
+    let cls = '';
+    if (isHoliday) cls = 'holiday';
+    else if (dow === 0) cls = 'dow-sun';
+    else if (dow === 6) cls = 'dow-sat';
+    if (d === todayDay) cls += ' today-col';
+    html += `<th class="${cls}">${d}</th>`;
+  }
+  html += '</tr><tr><th class="col-name"></th>';
+  for (let d = 1; d <= state.days; d++) {
+    const date = new Date(year, monthIdx, d);
+    const dow = date.getDay();
+    const dowName = ['日','一','二','三','四','五','六'][dow];
+    html += `<th style="font-size:0.7rem; font-weight:400">${dowName}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  state.staff.forEach(p => {
+    html += `<tr><td class="col-name" onclick="openPersonByName('${escAttr(p.name)}')" style="cursor:pointer">${esc(p.name)}</td>`;
+    const sched = state.schedule[p.id] || {};
+    const pFlags = state.flags[p.id] || {};
+    for (let d = 1; d <= state.days; d++) {
+      const sh = sched[d] || '';
+      const flag = pFlags[d] || {};
+      let cls = sh ? `cell-${sh}` : '';
+      if (d === todayDay) cls += ' today-col';
+      if (flag.underline) cls += ' cell-underline';
+      if (flag.marker === 'preceptor') cls += ' marker-preceptor';
+      if (flag.marker === 'trainee') cls += ' marker-trainee';
+      const display = sh === 'o' ? 'off' : (sh || '·');
+      html += `<td class="${cls}">${esc(display)}</td>`;
+    }
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('month-table-wrap').innerHTML = html;
+}
+
+// === Utils ===
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escAttr(s) {
+  return esc(s).replace(/'/g, "\\'");
+}
+function sameDate(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+function guessCurrentMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function formatMonthLabel(ym) {
+  if (!ym) return '';
+  const parts = ym.split('-');
+  return `${parts[0]} 年 ${parseInt(parts[1])} 月`;
+}
+function formatDate(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  } catch (e) { return iso; }
+}
+</script>
+</body>
+</html>

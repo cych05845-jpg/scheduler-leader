@@ -114,6 +114,51 @@ body {
   padding: 1rem;
 }
 
+/* 右欄收起狀態:整個欄收成 32px 窄條,只顯示「展開」按鈕 */
+.workspace.side-collapsed {
+  grid-template-columns: 1fr 32px;
+}
+.workspace.side-collapsed .side-panel {
+  padding: 0;
+  overflow: hidden;
+}
+.workspace.side-collapsed .side-panel > *:not(.side-collapse-toggle) {
+  display: none !important;
+}
+
+/* 收起/展開按鈕 */
+.side-collapse-toggle {
+  position: absolute;
+  top: 8px;
+  left: -1px;
+  width: 32px;
+  height: 32px;
+  background: var(--ink);
+  color: white;
+  border: none;
+  border-radius: 0 0 4px 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+.side-collapse-toggle:hover { background: #555; }
+.workspace.side-collapsed .side-collapse-toggle {
+  position: static;
+  width: 32px;
+  height: 100%;
+  border-radius: 0;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  padding: 8px 0;
+}
+.side-panel {
+  position: relative;
+}
+
 /* Controls */
 .controls-bar {
   background: var(--paper);
@@ -393,6 +438,48 @@ td.cell-underline:hover::after {
 }
 td.shift-off.cell-underline {
   /* 軟假本身就有 text-decoration: underline,但 box-shadow 跟 ::before 角標仍然顯示 */
+}
+
+/* === 帶教 / 未獨立 記號(右上角小三角 + 文字後綴) === */
+/* 帶教(D/帶):橘色三角 — 跟預假底線角標同色,代表「責任」 */
+td.cell-marker-preceptor {
+  position: relative;
+}
+td.cell-marker-preceptor::after {
+  content: '帶';
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: #c2410c;
+  color: white;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 0 2px;
+  line-height: 1.2;
+  border-radius: 0 0 0 3px;
+  pointer-events: none;
+  z-index: 1;
+}
+/* 未獨立('):藍色三角 — 跟「需被照看」的語意一致 */
+td.cell-marker-trainee {
+  position: relative;
+}
+td.cell-marker-trainee::after {
+  content: "'";
+  position: absolute;
+  top: -1px;
+  right: 1px;
+  color: #1e40af;
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1;
+  pointer-events: none;
+  z-index: 1;
+}
+/* 已有 underline 時,marker 角標往左挪一點不打架 */
+td.cell-underline.cell-marker-preceptor::after,
+td.cell-underline.cell-marker-trainee::after {
+  /* 角標相同位置 — underline 是底部、marker 是右上,所以本來就不打架 */
 }
 td.shift-o { background: #fafaf5; color: #999; font-style: italic; }
 td.shift-V { background: var(--V); color: var(--V-text); }
@@ -1069,6 +1156,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     <button onclick="openImportModal()">📥 匯入 Excel</button>
     <button onclick="exportXlsx()" class="primary">⬇ 匯出班表</button>
     <button onclick="exportXlsxTraditional()" style="background: #d97706; color: white; border-color: #d97706" title="2 列/人:上列備註 + 下列班別,跟院內 PDF 格式對齊">⬇ 匯出傳統格式</button>
+    <button id="btn-publish-view" onclick="openPublishViewModal()" style="background: #059669; color: white; border-color: #059669; display: none" title="把班表公告給全護理師看(LINE 群分享連結)">📢 公告給同仁</button>
     <button onclick="leaderLogout()" id="logout-btn" style="display: none; background: #ef4444; color: white; border-color: #ef4444">🚪 登出</button>
   </div>
 </div>
@@ -1293,6 +1381,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 
   <!-- Side panel -->
   <div class="side-panel" id="side-panel" style="display: none">
+    <button class="side-collapse-toggle" id="side-collapse-toggle" title="收起右欄(可從窄條展開)" onclick="toggleSidePanelCollapse()">«</button>
 
     <!-- ============== 頂部:核心摘要(永遠展開) ============== -->
     <div id="month-target-banner" style="background: linear-gradient(135deg, #fee2e2 0%, #fef3c7 100%); padding: 0.8rem; border-radius: 6px; margin-bottom: 0.8rem; border: 2px solid #b91c1c">
@@ -2558,6 +2647,135 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     font-weight: 500;
   }
   .displaced-restore-all:hover { transform: scale(1.01); }
+
+  /* ============================================================
+     浮動畫筆工具列 — 滾動到底也能換班別
+     ============================================================ */
+  #floating-brush-bar {
+    position: fixed;
+    z-index: 8500;
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+    padding: 6px;
+    display: none;
+    align-items: center;
+    gap: 4px;
+    transition: opacity 0.2s;
+  }
+  #floating-brush-bar.active { display: flex; }
+  #floating-brush-bar.dragging { user-select: none; }
+  #floating-brush-bar .fb-handle {
+    cursor: move;
+    color: var(--ink-mute);
+    padding: 0 6px;
+    font-size: 1.1rem;
+    line-height: 1;
+    user-select: none;
+    border-right: 1px solid var(--line);
+    margin-right: 2px;
+  }
+  #floating-brush-bar .fb-handle:hover { color: var(--ink); }
+  #floating-brush-bar .fb-btn {
+    /* 完整複製 .brush-btn 的視覺,但縮小一點 */
+    width: 38px;
+    height: 32px;
+    border: 2px solid var(--line);
+    border-radius: 5px;
+    background: white;
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 0.88rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s;
+    padding: 0;
+  }
+  #floating-brush-bar .fb-btn:hover { transform: scale(1.05); }
+  #floating-brush-bar .fb-btn.active {
+    border-color: var(--ink);
+    transform: scale(1.08);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.08);
+  }
+  /* 各班別顏色(對齊主畫筆配色) */
+  #floating-brush-bar .fb-btn[data-brush="D"] { background: var(--D); color: var(--D-text); border-color: var(--D); }
+  #floating-brush-bar .fb-btn[data-brush="E"] { background: var(--E); color: var(--E-text); border-color: var(--E); }
+  #floating-brush-bar .fb-btn[data-brush="N"] { background: var(--N); color: var(--N-text); border-color: var(--N); }
+  #floating-brush-bar .fb-btn[data-brush="M"] { background: var(--M); color: var(--M-text); border-color: var(--M); }
+  #floating-brush-bar .fb-btn[data-brush="OFF"] { background: #fce8e8; color: #b91c1c; border-color: #fca5a5; }
+  #floating-brush-bar .fb-btn[data-brush="off"] { background: #f5f5f0; color: #6b6b6b; font-style: italic; text-decoration: underline; }
+  #floating-brush-bar .fb-btn[data-brush="o"] { background: #fafaf5; color: #999; font-style: italic; }
+  #floating-brush-bar .fb-btn[data-brush="V"] { background: var(--V); color: var(--V-text); border-color: var(--V); }
+  #floating-brush-bar .fb-btn[data-brush=""] { background: white; color: var(--ink-mute); }
+
+  /* 記號畫筆(/帶, ', 清號) — 比班別小、用淺色,視覺上跟班別有分別 */
+  #floating-brush-bar .fb-divider {
+    display: inline-block;
+    width: 1px;
+    height: 24px;
+    background: var(--line);
+    margin: 0 2px;
+  }
+  #floating-brush-bar .fb-btn.fb-marker {
+    background: #fff7ed;
+    color: #c2410c;
+    border-color: #fed7aa;
+    font-size: 0.78rem;
+    width: 42px;
+    font-weight: 600;
+  }
+  #floating-brush-bar .fb-btn.fb-marker[data-brush="__marker_trainee__"] {
+    background: #eff6ff;
+    color: #1e40af;
+    border-color: #bfdbfe;
+  }
+  #floating-brush-bar .fb-btn.fb-marker[data-brush="__marker_clear__"] {
+    background: #f3f4f6;
+    color: #6b7280;
+    border-color: #d1d5db;
+  }
+  #floating-brush-bar .fb-btn.fb-marker.active {
+    border-color: var(--ink);
+    transform: scale(1.08);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.08);
+  }
+  #floating-brush-bar .fb-close {
+    background: transparent;
+    border: none;
+    color: var(--ink-mute);
+    width: 22px;
+    height: 22px;
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    border-left: 1px solid var(--line);
+    margin-left: 2px;
+  }
+  #floating-brush-bar .fb-close:hover { color: var(--ink); }
+
+  /* 顯示開關浮動圖示(當浮動列被關閉時顯示) */
+  #floating-brush-toggle {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--ink);
+    color: white;
+    border: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    cursor: pointer;
+    font-size: 1.2rem;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 8499;
+  }
+  #floating-brush-toggle.active { display: flex; }
+  #floating-brush-toggle:hover { transform: scale(1.08); }
 </style>
 
 <!-- Person Modal -->
@@ -4555,6 +4773,11 @@ function renderTable() {
       const hasUnderlineFlag = !!(state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d] && state.scheduleFlags[p.id][d].underline);
       if (hasUnderlineFlag) cls += ' cell-underline';
 
+      // 帶教 / 未獨立 記號(這一格的標記,不是整月狀態)
+      const markerFlag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d] && state.scheduleFlags[p.id][d].marker) || '';
+      if (markerFlag === 'preceptor') cls += ' cell-marker-preceptor';
+      else if (markerFlag === 'trainee') cls += ' cell-marker-trainee';
+
       if (showWeekends) {
         if (isHoliday(state.month, d)) cls += ' holiday';
         else if (dow === 0) cls += ' dow-sun';
@@ -4570,6 +4793,9 @@ function renderTable() {
                        : shift === 'off' ? ' (申請預假未中籤)'
                        : shift === 'o' ? ' (一般休假)'
                        : '';
+      const markerSuffix = markerFlag === 'preceptor' ? ' [帶教,不計入人力]'
+                         : markerFlag === 'trainee' ? ' [未獨立,不計入人力]'
+                         : '';
       // Note (per-person per-day annotation: ACLS / 中油 / 友善 ...)
       const noteText = (state.notes[p.id] && state.notes[p.id][d]) || '';
       const noteIndicator = noteText ? '<span class="note-dot" title="' + escapeHTML(noteText) + '">●</span>' : '';
@@ -4580,7 +4806,7 @@ function renderTable() {
         const dispatchTitle = `${p.name} ${d}日 外派支援 ${p.dispatch || '(未填單位)'}`;
         html += `<td class="cell" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" style="background: #fee2e2; color: #b91c1c; font-weight: 600" title="${dispatchTitle}">外</td>`;
       } else {
-        html += `<td class="${cls}" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" title="${p.name} ${d}日 ${shift}${titleSuffix}${noteTitle}">${noteIndicator}${display}</td>`;
+        html += `<td class="${cls}" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" title="${p.name} ${d}日 ${shift}${titleSuffix}${markerSuffix}${noteTitle}">${noteIndicator}${display}</td>`;
       }
     }
 
@@ -4668,7 +4894,11 @@ function renderBottomTable() {
       let count = 0;
       state.staff.forEach(p => {
         if (!isCountingForCapacity(p)) return;
-        if ((state.schedule[p.id] || {})[d] === st) count++;
+        if ((state.schedule[p.id] || {})[d] !== st) return;
+        // 排除 marker 格子(帶教 / 未獨立)— 這格雖然班別是 D/E/N,但不算正式戰力
+        const marker = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d] && state.scheduleFlags[p.id][d].marker) || '';
+        if (marker === 'preceptor' || marker === 'trainee') return;
+        count++;
       });
       let need;
       if (isHoliday(state.month, d) && D.holidaySameAsSunday) need = D.sunday[st];
@@ -5014,6 +5244,36 @@ function onCellClick(e) {
   }
   lastEditTimestamp = now;
 
+  // === 記號畫筆模式(帶教 / 未獨立 / 清號) ===
+  // 不寫入 schedule,只改 scheduleFlags[pid][day].marker
+  const brush = state.currentBrush;
+  if (brush === '__marker_preceptor__' || brush === '__marker_trainee__' || brush === '__marker_clear__') {
+    // 必須這格已經有班別才能加記號(否則加在空格沒意義)
+    const currentShift = state.schedule[pid][day];
+    if (brush !== '__marker_clear__' && !['D','E','N','M'].includes(currentShift)) {
+      // 給個視覺提示但不彈窗(避免打斷工作流)
+      td.style.outline = '2px solid #ef4444';
+      setTimeout(() => { td.style.outline = ''; }, 600);
+      return;
+    }
+    if (!state.scheduleFlags) state.scheduleFlags = {};
+    if (!state.scheduleFlags[pid]) state.scheduleFlags[pid] = {};
+    if (brush === '__marker_preceptor__') {
+      state.scheduleFlags[pid][day] = Object.assign(state.scheduleFlags[pid][day] || {}, { marker: 'preceptor' });
+    } else if (brush === '__marker_trainee__') {
+      state.scheduleFlags[pid][day] = Object.assign(state.scheduleFlags[pid][day] || {}, { marker: 'trainee' });
+    } else if (brush === '__marker_clear__') {
+      if (state.scheduleFlags[pid][day]) {
+        delete state.scheduleFlags[pid][day].marker;
+        // 若 flag 物件被清空就整個刪掉
+        if (Object.keys(state.scheduleFlags[pid][day]).length === 0) delete state.scheduleFlags[pid][day];
+      }
+    }
+    renderTable();
+    autoSaveScheduleLocal();
+    return;
+  }
+
   if (state.currentBrush === '') {
     delete state.schedule[pid][day];
     // 清空時也清掉底線旗標
@@ -5118,10 +5378,14 @@ function renderSidePanel() {
   state.staff.forEach(p => {
     if (!isCountingForCapacity(p)) return;  // ★ 跟 AI/規則檢查一致,排除無戰力人員
     const s = state.schedule[p.id] || {};
+    const pFlags = (state.scheduleFlags || {})[p.id] || {};
     for (let d = 1; d <= days; d++) {
-      if (s[d] === 'D') totalD++;
-      else if (s[d] === 'E') totalE++;
-      else if (s[d] === 'N') totalN++;
+      // 帶教/未獨立的格子不算正式人力(雖然他人在 D/E/N 班別)
+      const marker = (pFlags[d] && pFlags[d].marker) || '';
+      const isMarked = marker === 'preceptor' || marker === 'trainee';
+      if (s[d] === 'D' && !isMarked) totalD++;
+      else if (s[d] === 'E' && !isMarked) totalE++;
+      else if (s[d] === 'N' && !isMarked) totalN++;
       else if (s[d] === 'O' || s[d] === 'OFF' || s[d] === 'off' || s[d] === 'o' || s[d] === 'V') totalO++;
       else if (!s[d]) totalEmpty++;
     }
@@ -5296,14 +5560,18 @@ function checkViolations() {
       let count = 0;
       state.staff.forEach(p => {
         if (!isCountingForCapacity(p)) return;  // ★ 排除無戰力人員,跟班表底部統計一致
-        if ((state.schedule[p.id] || {})[d] === st) count++;
+        if ((state.schedule[p.id] || {})[d] !== st) return;
+        // 排除 marker 格子(帶教/未獨立 — 此格不算正式戰力)
+        const marker = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d] && state.scheduleFlags[p.id][d].marker) || '';
+        if (marker === 'preceptor' || marker === 'trainee') return;
+        count++;
       });
 
       if (count < need) {
         viols.push({
           level: 'err',
           title: `${d}日 ${st} 班缺 ${need - count} 人`,
-          detail: `需要 ${need} 人,目前 ${count} 人(已排除新進/實習/半日/留停)`,
+          detail: `需要 ${need} 人,目前 ${count} 人(已排除新進/實習/半日/留停/帶教/未獨立)`,
         });
       }
     }
@@ -5513,6 +5781,47 @@ function checkViolations() {
           detail: `建議至少 ${minLongRest} 次連假(2 天以上連續休假)`,
         });
       }
+    }
+  });
+
+  // === 能力集合檢查:某人被排到 preferredShift 與 canSwapTo 都沒勾的班 ===
+  // 邏輯:能力 = preferredShift ∪ canSwapTo,任一勾選就算能上
+  // 違規等級:警告(黃色,非錯誤) — 因為臨時跨能力上班是可被允許的
+  // 排除:沒有 preferredShift 且 canSwapTo 為空的人(代表這個欄位本來就沒設,不檢查)
+  state.staff.forEach(p => {
+    if (p.note && /夜護|實習|病假|離職|留停/.test(p.note)) return;
+    const pref = p.preferredShift || '';
+    const swap = Array.isArray(p.canSwapTo) ? p.canSwapTo : [];
+    // 如果整個能力欄位都沒設,跳過(避免老資料全部跳警告)
+    if (!pref && swap.length === 0) return;
+    const capable = new Set([pref, ...swap].filter(s => ['D','E','N','M'].includes(s)));
+    if (capable.size === 0) return;
+
+    const sched = state.schedule[p.id] || {};
+    const offDays = [];
+    Object.keys(sched).forEach(dKey => {
+      const d = parseInt(dKey, 10);
+      const sh = sched[d];
+      if (!['D','E','N','M'].includes(sh)) return;  // 只檢查工作班
+      if (!capable.has(sh)) offDays.push({ day: d, shift: sh });
+    });
+
+    if (offDays.length > 0) {
+      // 依班別歸類,避免一個人冒 10 條
+      const byShift = {};
+      offDays.forEach(o => {
+        if (!byShift[o.shift]) byShift[o.shift] = [];
+        byShift[o.shift].push(o.day);
+      });
+      Object.keys(byShift).forEach(sh => {
+        const days = byShift[sh].sort((a,b) => a-b);
+        const capLabel = Array.from(capable).join('/') || '(未設定)';
+        viols.push({
+          level: 'warn',
+          title: `${p.name}: 排到非能力班 ${sh}`,
+          detail: `${sh} 班 ${days.length} 天(${days.join(',')}日);能力勾選:${capLabel}`,
+        });
+      });
     }
   });
 
@@ -13308,6 +13617,433 @@ function restoreAllDisplaced() {
 setTimeout(() => { if (typeof syncTargetDaysInput === 'function') syncTargetDaysInput(); }, 100);
 
 // ============================================================
+// 公告給同仁:把班表推上雲端,給 schedule-view.html 讀取
+// 依賴後端 Apps Script 新 case:'publishView' / 'unpublishView' / 'getPublishStatus'
+// ============================================================
+
+// 公告網頁的 URL(讓另一位 leader 開,或同仁透過 LINE 點)
+// 修改此處為你實際的 GitHub Pages 網址
+const PUBLISH_VIEW_BASE_URL = 'https://cych05845-jpg.github.io/schedule-view/';
+
+// 載入時:若已登入,顯示「📢 公告給同仁」按鈕
+(function initPublishViewButton() {
+  setTimeout(() => {
+    if (typeof IS_LEADER_EDITION !== 'undefined' && IS_LEADER_EDITION) {
+      const token = (typeof getAuthToken === 'function') ? getAuthToken() : null;
+      if (token) {
+        const btn = document.getElementById('btn-publish-view');
+        if (btn) btn.style.display = '';
+      }
+    }
+  }, 600);
+})();
+
+async function openPublishViewModal() {
+  if (!state.month) { alert('請先選定月份'); return; }
+  if (!state.staff || state.staff.length === 0) { alert('沒有班表可公告'); return; }
+
+  const modal = document.getElementById('publish-view-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  // 顯示分享連結
+  const link = `${PUBLISH_VIEW_BASE_URL}?m=${encodeURIComponent(state.month)}`;
+  document.getElementById('pv-share-link').value = link;
+
+  // 撈當前公告狀態
+  document.getElementById('pv-status-text').textContent = '載入中...';
+  document.getElementById('pv-status-detail').textContent = '';
+  document.getElementById('pv-unpublish-btn').style.display = 'none';
+
+  try {
+    const token = getAuthToken();
+    if (!token) { document.getElementById('pv-status-text').textContent = '未登入'; return; }
+    const result = await apiCall('getPublishStatus', { token, month: state.month });
+    if (!result.ok) {
+      document.getElementById('pv-status-text').textContent = '⚠ 無法查詢狀態';
+      document.getElementById('pv-status-detail').textContent = result.error || '';
+      return;
+    }
+    renderPvStatus(result.status, result.publishedAt, result.publishedBy);
+  } catch (e) {
+    document.getElementById('pv-status-text').textContent = '⚠ 連線失敗';
+    document.getElementById('pv-status-detail').textContent = e.message || '';
+  }
+}
+
+function renderPvStatus(status, at, by) {
+  const txt = document.getElementById('pv-status-text');
+  const detail = document.getElementById('pv-status-detail');
+  const unpubBtn = document.getElementById('pv-unpublish-btn');
+  if (status === 'published') {
+    txt.innerHTML = '🟢 已公告中';
+    txt.style.color = '#059669';
+    detail.textContent = `公告時間:${at || '─'}${by ? '  ·  by ' + by : ''}`;
+    unpubBtn.style.display = '';
+  } else if (status === 'withdrawn') {
+    txt.innerHTML = '🟡 已撤回(同仁看到「調整中」)';
+    txt.style.color = '#d97706';
+    detail.textContent = `上次公告:${at || '─'}${by ? '  ·  by ' + by : ''}`;
+    unpubBtn.style.display = 'none';
+  } else {
+    txt.innerHTML = '⚪ 尚未公告';
+    txt.style.color = '#6b7280';
+    detail.textContent = '';
+    unpubBtn.style.display = 'none';
+  }
+}
+
+function copyPublishLink() {
+  const input = document.getElementById('pv-share-link');
+  input.select();
+  try {
+    document.execCommand('copy');
+    alert('✓ 連結已複製到剪貼簿\n\n可以貼到 LINE 群組或任何地方。');
+  } catch (e) {
+    alert('複製失敗,請手動選取連結後 Ctrl+C 複製');
+  }
+}
+
+async function doPublishView() {
+  if (!confirm(`確定公告 ${state.month} 班表?\n\n同仁打開連結會看到當前班表內容。\n如有違規警告,也會一併公告。`)) return;
+
+  try {
+    const token = getAuthToken();
+    if (!token) { alert('未登入'); return; }
+
+    // 組裝 view 端需要的資料(精簡版:只含必要欄位、不含規則設定)
+    const viewData = buildPublishViewPayload();
+    const payloadStr = JSON.stringify(viewData);
+
+    // 太大的話可能要警告
+    if (payloadStr.length > 800000) {
+      if (!confirm(`資料量較大(${Math.round(payloadStr.length/1024)} KB),公告可能稍慢。繼續?`)) return;
+    }
+
+    const btn = event.target;
+    const origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ 公告中...';
+
+    const result = await apiCall('publishView', {
+      token,
+      month: state.month,
+      data: payloadStr,
+    });
+
+    btn.disabled = false;
+    btn.textContent = origText;
+
+    if (!result.ok) {
+      alert('❌ 公告失敗:' + (result.error || '未知錯誤'));
+      return;
+    }
+    alert(`✅ 公告成功!\n\n${result.publishedAt ? '時間:' + result.publishedAt + '\n\n' : ''}你可以複製連結到 LINE 群組,同仁打開即可看到。`);
+    // 更新狀態顯示
+    renderPvStatus('published', result.publishedAt, result.publishedBy);
+  } catch (e) {
+    alert('❌ 公告失敗:' + (e.message || e));
+  }
+}
+
+async function doUnpublishView() {
+  if (!confirm(`確定撤回 ${state.month} 公告?\n\n撤回後,同仁打開連結會看到「班表調整中」提示。\n再次公告會覆蓋這次撤回。`)) return;
+
+  try {
+    const token = getAuthToken();
+    if (!token) { alert('未登入'); return; }
+
+    const result = await apiCall('unpublishView', { token, month: state.month });
+    if (!result.ok) {
+      alert('❌ 撤回失敗:' + (result.error || ''));
+      return;
+    }
+    alert('✓ 已撤回\n\n同仁打開連結會看到「調整中」提示。');
+    renderPvStatus('withdrawn', result.publishedAt, result.publishedBy);
+  } catch (e) {
+    alert('❌ 撤回失敗:' + (e.message || e));
+  }
+}
+
+// 組裝給 view 端的精簡 payload
+// 只帶:月份、人員清單(姓名/職級/能力/備註)、班表、scheduleFlags
+// 不帶:規則設定、AI 對話歷史、操作日誌等
+function buildPublishViewPayload() {
+  const days = (typeof getDaysInMonth === 'function') ? getDaysInMonth(state.month) : 31;
+  const holidays = [];
+  if (state.holidays && state.holidays[state.month]) {
+    Object.keys(state.holidays[state.month]).forEach(d => {
+      if (state.holidays[state.month][d]) holidays.push(parseInt(d, 10));
+    });
+  }
+
+  // 過濾掉應該隱藏的人員(離職、留停等)
+  const staff = (state.staff || []).filter(p => !shouldHideStaff(p, state.month)).map(p => ({
+    id: p.id,
+    name: p.name,
+    level: p.level || '',
+    note: p.note || '',
+    preferredShift: p.preferredShift || '',
+    canSwapTo: p.canSwapTo || [],
+    dispatch: p.dispatch || '',
+  }));
+
+  // 班表(只取本月)
+  const schedule = {};
+  staff.forEach(p => {
+    schedule[p.id] = state.schedule[p.id] || {};
+  });
+
+  // 旗標(底線/marker)
+  const flags = {};
+  staff.forEach(p => {
+    if (state.scheduleFlags && state.scheduleFlags[p.id]) {
+      flags[p.id] = state.scheduleFlags[p.id];
+    }
+  });
+
+  return {
+    version: 1,
+    month: state.month,
+    days,
+    holidays,
+    staff,
+    schedule,
+    flags,
+    publishedBy: (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '',
+    publishedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================
+// 右欄收起/展開
+// ============================================================
+function toggleSidePanelCollapse() {
+  const ws = document.querySelector('.workspace');
+  const btn = document.getElementById('side-collapse-toggle');
+  if (!ws || !btn) return;
+  const collapsed = ws.classList.toggle('side-collapsed');
+  btn.textContent = collapsed ? '»' : '«';
+  btn.title = collapsed ? '展開右欄' : '收起右欄';
+  try { localStorage.setItem('sidePanelCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+}
+// 載入時還原狀態
+(function restoreSidePanelCollapse() {
+  try {
+    if (localStorage.getItem('sidePanelCollapsed') === '1') {
+      setTimeout(() => {
+        const ws = document.querySelector('.workspace');
+        const btn = document.getElementById('side-collapse-toggle');
+        if (ws && btn) {
+          ws.classList.add('side-collapsed');
+          btn.textContent = '»';
+          btn.title = '展開右欄';
+        }
+      }, 100);
+    }
+  } catch (e) {}
+})();
+
+// ============================================================
+// 浮動畫筆工具列 — 可拖動、可收起、位置記憶
+// 設計:
+//   - 鏡像主畫筆按鈕,雙向同步 active 狀態
+//   - 點任一畫筆都會更新 state.currentBrush
+//   - 位置存 localStorage,下次開記得
+//   - 預設右下角(避開 AI 對話的右上角和清單的右側)
+//   - 拖動 handle 移動位置,× 關閉(從左下角 🖌 重開)
+// ============================================================
+(function floatingBrushBar() {
+  'use strict';
+
+  const STORAGE_KEY = 'floatingBrushBar_v1';
+  const State = {
+    visible: true,           // 預設顯示
+    pos: { left: null, top: null },  // null = 用預設(右下)
+  };
+
+  function $(id) { return document.getElementById(id); }
+
+  function loadPrefs() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const p = JSON.parse(raw);
+      if (typeof p.visible === 'boolean') State.visible = p.visible;
+      if (p.pos) State.pos = p.pos;
+    } catch (e) {}
+  }
+  function savePrefs() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        visible: State.visible, pos: State.pos
+      }));
+    } catch (e) {}
+  }
+
+  function applyPosition() {
+    const bar = $('floating-brush-bar');
+    if (!bar) return;
+    if (State.pos.left != null && State.pos.top != null) {
+      // 套用前先確保在可視範圍內(視窗 resize 後可能跑掉)
+      const w = bar.offsetWidth || 500;
+      const h = bar.offsetHeight || 50;
+      let left = Math.max(0, Math.min(window.innerWidth - w, State.pos.left));
+      let top = Math.max(0, Math.min(window.innerHeight - h, State.pos.top));
+      bar.style.left = left + 'px';
+      bar.style.top = top + 'px';
+      bar.style.right = 'auto';
+      bar.style.bottom = 'auto';
+    } else {
+      // 預設位置:畫面下方置中偏左(在表格區下方,不擋 AI 對話)
+      bar.style.left = '50%';
+      bar.style.bottom = '20px';
+      bar.style.top = 'auto';
+      bar.style.right = 'auto';
+      bar.style.transform = 'translateX(-50%)';
+    }
+  }
+
+  function show() {
+    State.visible = true;
+    $('floating-brush-bar').classList.add('active');
+    $('floating-brush-toggle').classList.remove('active');
+    savePrefs();
+    syncFromMain();  // 顯示時先同步主畫筆的當前狀態
+  }
+  function hide() {
+    State.visible = false;
+    $('floating-brush-bar').classList.remove('active');
+    $('floating-brush-toggle').classList.add('active');
+    savePrefs();
+  }
+
+  // === 雙向同步邏輯 ===
+  // 主畫筆被點 → 同步浮動列
+  // 浮動畫筆被點 → 同步主畫筆 + 設 currentBrush
+  function syncFromMain() {
+    const brush = (typeof state !== 'undefined' && state.currentBrush !== undefined) ? state.currentBrush : 'D';
+    document.querySelectorAll('#floating-brush-bar .fb-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.brush === brush);
+    });
+  }
+  function syncFromFloat(brush) {
+    if (typeof state !== 'undefined') state.currentBrush = brush;
+    // 同步主畫筆按鈕視覺
+    document.querySelectorAll('.brush-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.brush === brush);
+    });
+    // 同步浮動列按鈕視覺
+    document.querySelectorAll('#floating-brush-bar .fb-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.brush === brush);
+    });
+  }
+
+  // === 拖動 ===
+  function initDrag() {
+    const handle = $('fb-handle');
+    const bar = $('floating-brush-bar');
+    if (!handle || !bar) return;
+    let startX, startY, startLeft, startTop, dragging = false;
+
+    handle.addEventListener('mousedown', (e) => {
+      dragging = true;
+      bar.classList.add('dragging');
+      // 拖動開始時,把 transform: translateX(-50%) 改成實際 left
+      const rect = bar.getBoundingClientRect();
+      bar.style.left = rect.left + 'px';
+      bar.style.top = rect.top + 'px';
+      bar.style.right = 'auto';
+      bar.style.bottom = 'auto';
+      bar.style.transform = 'none';
+      startX = e.clientX;
+      startY = e.clientY;
+      startLeft = rect.left;
+      startTop = rect.top;
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      let newLeft = startLeft + (e.clientX - startX);
+      let newTop = startTop + (e.clientY - startY);
+      const w = bar.offsetWidth;
+      const h = bar.offsetHeight;
+      newLeft = Math.max(0, Math.min(window.innerWidth - w, newLeft));
+      newTop = Math.max(0, Math.min(window.innerHeight - h, newTop));
+      bar.style.left = newLeft + 'px';
+      bar.style.top = newTop + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      bar.classList.remove('dragging');
+      const rect = bar.getBoundingClientRect();
+      State.pos = { left: rect.left, top: rect.top };
+      savePrefs();
+    });
+  }
+
+  function init() {
+    loadPrefs();
+
+    // 綁定浮動畫筆按鈕點擊
+    document.querySelectorAll('#floating-brush-bar .fb-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        syncFromFloat(btn.dataset.brush);
+      });
+    });
+
+    // 監聽主畫筆按鈕,讓主→浮的同步也成立
+    // 用事件委派,即使主畫筆被改也能抓到
+    document.addEventListener('click', (e) => {
+      const mainBtn = e.target.closest('.brush-btn');
+      if (mainBtn && mainBtn.classList.contains('brush-btn') && !mainBtn.classList.contains('fb-btn')) {
+        // 主畫筆被點了,等下一個 tick 主邏輯跑完,我們再同步
+        setTimeout(syncFromMain, 0);
+      }
+    });
+
+    // 關閉/顯示按鈕
+    $('fb-close').onclick = hide;
+    $('floating-brush-toggle').onclick = show;
+
+    // 拖動
+    initDrag();
+
+    // 套用位置與顯示狀態
+    applyPosition();
+    if (State.visible) {
+      $('floating-brush-bar').classList.add('active');
+      $('floating-brush-toggle').classList.remove('active');
+    } else {
+      $('floating-brush-bar').classList.remove('active');
+      $('floating-brush-toggle').classList.add('active');
+    }
+
+    // 初次同步
+    setTimeout(syncFromMain, 100);
+
+    // 視窗 resize 時重新檢查位置
+    window.addEventListener('resize', () => {
+      if (State.pos.left != null) applyPosition();
+    });
+
+    console.log('[floating-brush] 浮動畫筆工具列已載入');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+// ============================================================
+// END 浮動畫筆工具列
+// ============================================================
+
+// ============================================================
 // AI 修復助理 — 浮動對話窗
 // 設計:
 //   - 單一浮動視窗,4 種入口(問 AI 按鈕、總按鈕、+加違規、輸入框)
@@ -13907,6 +14643,18 @@ setTimeout(() => { if (typeof syncTargetDaysInput === 'function') syncTargetDays
       });
     }
 
+    // === 人員能力表(preferredShift + canSwapTo) ===
+    let capabilityTable = '\n\n# 👥 人員能力表(誰能上哪些班)\n';
+    capabilityTable += '格式:姓名(主班/可代):D=白 E=小夜 N=大夜 M=行政\n';
+    capabilityTable += '⚠ 重要規則:建議調班時,候選人的「主班」或「可代」必須包含目標班別,否則只能當「黃色警告」不能當解法\n\n';
+    (state.staff || []).forEach(p => {
+      if (p.note && /離職|留停/.test(p.note)) return;
+      const pref = p.preferredShift || '?';
+      const swap = (Array.isArray(p.canSwapTo) ? p.canSwapTo : []).join('') || '-';
+      const noteFlag = p.note ? ` [${p.note}]` : '';
+      capabilityTable += `- ${p.name}:主${pref} 可代${swap}${noteFlag}\n`;
+    });
+
     // 對話歷史(供 AI 接續討論)
     let history = '';
     const recent = ChatState.messages.slice(-10).filter(m => m.role !== 'system');
@@ -13929,6 +14677,7 @@ setTimeout(() => { if (typeof syncTargetDaysInput === 'function') syncTargetDays
     return `你是急診部護理排班專家。護理長正在跟你討論班表修復。
 
 ${summary}
+${capabilityTable}
 ${violCtx}
 ${history}
 
@@ -13946,6 +14695,12 @@ ${userMsg}
 3. 連續上班 ≤6 天
 4. 半日/實習/夜護/病假/離職/留停的人不要動
 5. M 班(行政)只能週一到五
+6. ⚠ **能力檢查**:把人改到他「主班」+「可代」都沒有的班別,只能算備案不是首選;若有「能力符合的人」優先選他們
+
+# 建議優先順序(評估候選人時)
+1. 優先選「主班 = 目標班別」的人
+2. 其次選「目標班別 ∈ 可代」的人
+3. 最後才考慮「跨能力」(主班/可代都沒包含目標),且要在 reason 註明「跨能力」
 
 # 回應格式
 你的中文說明可以放最前面(1-3 句即可),接著用這個 JSON 區塊:
@@ -13960,7 +14715,7 @@ ${userMsg}
       "from": "D",
       "to": "o",
       "priority": "high",
-      "reason": "張小芳 6/15 是連上第 7 天,改 o 可解決連續上班違規"
+      "reason": "張小芳 6/15 是連上第 7 天,改 o 可解決連續上班違規;她主班 D 改休不影響能力配置"
     }
   ]
 }
@@ -14119,6 +14874,26 @@ ${userMsg}
 <!-- ============================================================
      AI 修復助理 — 浮動對話窗 HTML
      ============================================================ -->
+<!-- 浮動畫筆工具列(可拖動、可收起) -->
+<div id="floating-brush-bar">
+  <span class="fb-handle" id="fb-handle" title="拖動以移動位置">⋮⋮</span>
+  <button class="fb-btn active" data-brush="D" title="白班">D</button>
+  <button class="fb-btn" data-brush="E" title="小夜">E</button>
+  <button class="fb-btn" data-brush="N" title="大夜">N</button>
+  <button class="fb-btn" data-brush="M" title="行政">M</button>
+  <button class="fb-btn" data-brush="OFF" title="抽中預假">OFF</button>
+  <button class="fb-btn" data-brush="off" title="申請預假未中籤(軟假)">off̲</button>
+  <button class="fb-btn" data-brush="o" title="一般休假">off</button>
+  <button class="fb-btn" data-brush="V" title="特休">V</button>
+  <button class="fb-btn" data-brush="" title="清除">✕</button>
+  <span class="fb-divider" title="記號畫筆"></span>
+  <button class="fb-btn fb-marker" data-brush="__marker_preceptor__" title="標記為帶教(D/帶):此格不計入正式人力">/帶</button>
+  <button class="fb-btn fb-marker" data-brush="__marker_trainee__" title="標記為未獨立(D'):此格不計入正式人力">'</button>
+  <button class="fb-btn fb-marker" data-brush="__marker_clear__" title="清除記號(保留班別)">⌫號</button>
+  <button class="fb-close" id="fb-close" title="收起(可從左下角圖示重新打開)">×</button>
+</div>
+<button id="floating-brush-toggle" title="顯示浮動畫筆">🖌</button>
+
 <div id="ai-chat-window">
   <div class="ai-chat-header" id="ai-chat-header">
     <span style="font-size:1.1rem">🤖</span>
@@ -14153,6 +14928,50 @@ ${userMsg}
 <div id="ai-viol-picker">
   <div class="picker-head">勾選要加入對話的違規(共 <span id="ai-picker-count">0</span> 條)</div>
   <div id="ai-picker-list"></div>
+</div>
+
+<!-- ============================================================
+     公告給同仁 — Modal
+     ============================================================ -->
+<div class="modal-backdrop" id="publish-view-modal" onclick="if(event.target===this) closeModal('publish-view-modal')">
+  <div class="modal" style="max-width: 560px">
+    <div class="modal-header">
+      <h3>📢 公告給同仁</h3>
+      <button onclick="closeModal('publish-view-modal')" style="background: transparent; border: none; font-size: 1.4rem; cursor: pointer; color: #6b6b6b">×</button>
+    </div>
+    <div class="modal-body" style="padding: 1rem 1.2rem">
+      <div id="pv-status-block" style="margin-bottom: 1rem; padding: 0.8rem; border-radius: 6px; background: #f9fafb; border: 1px solid #e5e7eb">
+        <div id="pv-status-label" style="font-size: 0.85rem; color: #6b7280; margin-bottom: 0.3rem">目前狀態</div>
+        <div id="pv-status-text" style="font-weight: 700; color: #1f2937">載入中...</div>
+        <div id="pv-status-detail" style="font-size: 0.85rem; color: #6b7280; margin-top: 0.4rem"></div>
+      </div>
+
+      <div style="margin-bottom: 1rem">
+        <div style="font-weight: 600; margin-bottom: 0.4rem; font-size: 0.95rem">公告連結(同仁可查)</div>
+        <div style="display: flex; gap: 4px">
+          <input type="text" id="pv-share-link" readonly style="flex: 1; padding: 6px 8px; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 0.85rem; font-family: monospace; background: #f9fafb">
+          <button onclick="copyPublishLink()" style="padding: 6px 12px; background: #1f2937; color: white; border: none; border-radius: 4px; cursor: pointer">📋 複製</button>
+        </div>
+        <div style="font-size: 0.8rem; color: #6b7280; margin-top: 0.3rem">複製後貼到 LINE 群組</div>
+      </div>
+
+      <div style="background: #fef3c7; padding: 0.7rem; border-radius: 6px; font-size: 0.85rem; color: #78350f; margin-bottom: 1rem">
+        💡 <strong>公告後</strong>:同仁打開連結會看到最新班表。<br>
+        🔄 <strong>再次公告</strong>:覆蓋上次的公告版本。<br>
+        ↩ <strong>撤回</strong>:同仁打開連結看到「調整中」提示。
+      </div>
+
+      <div style="display: flex; gap: 8px; flex-wrap: wrap">
+        <button onclick="doPublishView()" style="flex: 1; min-width: 120px; padding: 8px 14px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 700">
+          📢 公告(覆蓋)
+        </button>
+        <button onclick="doUnpublishView()" id="pv-unpublish-btn" style="padding: 8px 14px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; display: none">
+          ↩ 撤回公告
+        </button>
+        <button onclick="closeModal('publish-view-modal')" style="padding: 8px 14px; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; cursor: pointer">取消</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 </body>
