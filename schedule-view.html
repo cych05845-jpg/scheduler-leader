@@ -7,8 +7,10 @@
 <title>急診排班 · 公告</title>
 <style>
 * { box-sizing: border-box; }
+/* 整體字體放大 — base 16px → 17px,所有 rem 跟著放大約 6% */
+html { font-size: 17px; }
 html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif; background: #f9fafb; color: #1f2937; }
-body { padding-bottom: env(safe-area-inset-bottom); }
+body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height: 1.5; }
 
 /* === 頂部 header === */
 .app-header {
@@ -158,6 +160,16 @@ body { padding-bottom: env(safe-area-inset-bottom); }
   font-weight: 700;
   margin-left: auto;
   white-space: nowrap;
+}
+.shift-person .off-tag {
+  font-size: 0.7rem;
+  padding: 1px 5px;
+  background: #fef3c7;
+  color: #78350f;
+  border-radius: 3px;
+  font-weight: 700;
+  white-space: nowrap;
+  margin-left: 4px;
 }
 
 .date-nav {
@@ -453,56 +465,70 @@ body { padding-bottom: env(safe-area-inset-bottom); }
 .home-overlay.hidden { display: none; }
 .home-card {
   background: white;
-  border-radius: 12px;
-  padding: 1.5rem;
-  max-width: 380px;
+  border-radius: 16px;
+  padding: 2rem 2.2rem;
+  max-width: 640px;       /* desktop:寬一點看起來有份量 */
   width: 100%;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  box-shadow: 0 12px 36px rgba(0,0,0,0.18);
 }
 .home-card h2 {
   margin: 0 0 0.6rem 0;
-  font-size: 1.2rem;
+  font-size: 1.55rem;
   text-align: center;
   color: #059669;
 }
 .home-card .home-sub {
   text-align: center;
   color: #6b7280;
-  font-size: 0.88rem;
-  margin-bottom: 1.2rem;
+  font-size: 1rem;
+  margin-bottom: 1.6rem;
 }
 .home-card .app-btn {
   display: block;
   width: 100%;
-  padding: 1rem;
-  margin-bottom: 0.6rem;
+  padding: 1.3rem 1.4rem;
+  margin-bottom: 0.8rem;
   border: 1px solid #d1d5db;
-  border-radius: 8px;
+  border-radius: 10px;
   background: white;
   cursor: pointer;
   text-align: left;
+  transition: all 0.15s;
 }
-.home-card .app-btn:hover { background: #f9fafb; border-color: #059669; }
-.home-card .app-btn .title { font-size: 1.02rem; font-weight: 700; display: flex; align-items: center; gap: 6px; color: #1f2937; }
-.home-card .app-btn .desc { font-size: 0.82rem; color: #6b7280; margin-top: 4px; }
+.home-card .app-btn:hover {
+  background: #f9fafb;
+  border-color: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.14);
+}
+.home-card .app-btn .title { font-size: 1.18rem; font-weight: 700; display: flex; align-items: center; gap: 8px; color: #1f2937; }
+.home-card .app-btn .desc { font-size: 0.95rem; color: #6b7280; margin-top: 6px; }
 .home-card .app-btn.disabled { opacity: 0.6; cursor: not-allowed; }
-.home-card .app-btn.disabled:hover { background: white; border-color: #d1d5db; }
+.home-card .app-btn.disabled:hover {
+  background: white;
+  border-color: #d1d5db;
+  transform: none;
+  box-shadow: none;
+}
 .home-card .app-btn .badge {
-  font-size: 0.68rem;
+  font-size: 0.78rem;
   background: #fef3c7;
   color: #92400e;
-  padding: 1px 6px;
-  border-radius: 3px;
+  padding: 2px 8px;
+  border-radius: 4px;
   font-weight: 700;
   margin-left: auto;
 }
 
 /* === 手機 RWD === */
 @media (max-width: 480px) {
+  html { font-size: 16px; }  /* 手機調回 16px 避免過大 */
   .panel { padding: 0.6rem; }
   .shift-people { grid-template-columns: repeat(auto-fill, minmax(95px, 1fr)); }
   .person-stats { grid-template-columns: repeat(2, 1fr); }
   .person-stat .value { font-size: 1rem; }
+  .home-card { padding: 1.5rem 1.3rem; }
+  .home-card h2 { font-size: 1.3rem; }
 }
 </style>
 </head>
@@ -813,7 +839,9 @@ function renderToday() {
                       : marker === 'trainee' ? "<span class='marker-tag trainee'>'</span>"
                       : '';
       const deptTag = dept ? `<span class="dept-tag">${esc(dept)}</span>` : '';
-      html += `<div class="shift-person" onclick="openPersonByName('${escAttr(p.name)}')">${esc(p.name)}${deptTag}${markerTag}</div>`;
+      const offDays = countOffDays(p.id);
+      const offTag = `<span class="off-tag" title="本月 OFF 數">休 ${offDays}</span>`;
+      html += `<div class="shift-person" onclick="openPersonByName('${escAttr(p.name)}')">${esc(p.name)}${deptTag}${offTag}${markerTag}</div>`;
     });
     if (arr.length === 0) html += `<div style="color:#9ca3af; font-size:0.85rem; padding:6px">無人</div>`;
     html += '</div></div>';
@@ -841,9 +869,11 @@ function renderPersonList() {
     filtered.forEach(p => {
       const lv = p.level ? `<span class="level">${esc(p.level)}</span>` : '';
       const nt = p.note ? `<span class="note">${esc(p.note)}</span>` : '';
+      const offDays = countOffDays(p.id);
+      const offBadge = `<span class="off-tag" style="font-size:0.85rem">休 ${offDays}</span>`;
       html += `<div class="person-row" onclick="openPersonDetail('${escAttr(p.id)}')">
         <span class="name">${esc(p.name)}</span>
-        ${lv}${nt}
+        ${lv}${nt}${offBadge}
       </div>`;
     });
   }
@@ -873,7 +903,7 @@ function openPersonDetail(pid) {
   // 統計
   const sched = state.schedule[pid] || {};
   const pFlags = state.flags[pid] || {};
-  let D=0, E=0, N=0, M=0, off=0, otherWork=0;
+  let D=0, E=0, N=0, M=0, off=0, V=0, otherWork=0;
   for (let d = 1; d <= state.days; d++) {
     const sh = sched[d] || '';
     const marker = (pFlags[d] && pFlags[d].marker) || '';
@@ -882,13 +912,15 @@ function openPersonDetail(pid) {
     else if (sh === 'E') { E++; if (isMarked) otherWork++; }
     else if (sh === 'N') N++;
     else if (sh === 'M') M++;
-    else if (['OFF','off','o','V'].includes(sh)) off++;
+    else if (['OFF','off','o'].includes(sh)) off++;  // V 不算公休
+    else if (sh === 'V') V++;
   }
+  const offDisplay = V > 0 ? `${off} <span style="font-size:0.6em;color:#9ca3af">+V${V}</span>` : `${off}`;
   document.getElementById('pd-stats').innerHTML = `
     <div class="person-stat"><div class="label">D 白班</div><div class="value">${D}</div></div>
     <div class="person-stat"><div class="label">E 小夜</div><div class="value">${E}</div></div>
     <div class="person-stat"><div class="label">N 大夜</div><div class="value">${N}</div></div>
-    <div class="person-stat"><div class="label">休假</div><div class="value">${off}</div></div>
+    <div class="person-stat" title="本月公休(不含特休 V)"><div class="label">本月休假</div><div class="value">${offDisplay}</div></div>
   `;
 
   // 月曆網格
@@ -988,6 +1020,16 @@ function esc(s) {
 }
 function escAttr(s) {
   return esc(s).replace(/'/g, "\\'");
+}
+// 計算某人本月 OFF 數 — 跟 index.html 邏輯一致(V 不算公休)
+function countOffDays(pid) {
+  const sched = state.schedule[pid] || {};
+  let n = 0;
+  for (let d = 1; d <= state.days; d++) {
+    const v = sched[d];
+    if (v === 'O' || v === 'OFF' || v === 'off' || v === 'o') n++;
+  }
+  return n;
 }
 function sameDate(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
