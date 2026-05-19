@@ -676,6 +676,28 @@ td[data-pid] {
   background: #fde68a;
   font-weight: 600;
 }
+/* 個人備註 chip 樣式 — 塞 1-2 行,不佔空間 */
+#cell-context-menu button.note-chip {
+  display: inline-block !important;
+  width: auto !important;
+  padding: 3px 8px !important;
+  background: #f3f4f6 !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 12px !important;
+  font-size: 0.8rem !important;
+  cursor: pointer;
+  text-align: center !important;
+}
+#cell-context-menu button.note-chip:hover {
+  background: #fef3c7 !important;
+  border-color: #fbbf24 !important;
+}
+#cell-context-menu button.note-chip.note-chip-active {
+  background: #fde68a !important;
+  border-color: #f59e0b !important;
+  color: #78350f;
+  font-weight: 700;
+}
 #cell-context-menu hr {
   border: none;
   border-top: 1px solid #eee;
@@ -2815,22 +2837,32 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 
   /* 日期備註圖示(表頭日期數字旁) */
   .date-note-icon {
-    display: inline-block;
-    margin-left: 2px;
-    font-size: 0.65rem;
-    opacity: 0;
-    transition: opacity 0.15s;
-    color: #9ca3af;
-    vertical-align: middle;
+    display: none;  /* 改用 date-note-top 顯示在日期上方 */
   }
   th.day-cell:hover .date-note-icon { opacity: 1; }
   .date-note-icon.active {
-    opacity: 1;
-    color: #d97706;
-    font-size: 0.8rem;
+    display: none;
+  }
+  /* 日期備註(顯示在日期數字上方)*/
+  .date-note-top {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1;
+    color: #fef3c7;
+    background: #d97706;
+    padding: 1px 2px;
+    margin: -2px -3px 1px;
+    border-radius: 2px 2px 0 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   th.day-cell.has-date-note {
-    box-shadow: inset 0 3px 0 0 #d97706;
+    padding-top: 0 !important;
+    background: #92400e !important;
+    color: white !important;
   }
   /* 日期備註 modal */
   #date-note-modal .dn-input {
@@ -4931,13 +4963,13 @@ function renderTable() {
       else if (dow === 0) cls = 'dow-sun';
       else if (dow === 6) cls = 'dow-sat';
     }
-    // 讀取該日的日期備註
+    // 讀取該日的日期備註(顯示在日期數字上方,有備註時直接顯示備註文字)
     const dn = (state.dateNotes && state.dateNotes[state.month] && state.dateNotes[state.month][d]) || '';
-    const dnIcon = dn
-      ? `<span class="date-note-icon active" title="${escapeHTML(dn)}">📝</span>`
-      : `<span class="date-note-icon" title="點此加備註">+</span>`;
+    const dnTop = dn
+      ? `<div class="date-note-top" title="${escapeHTML(dn)}">${escapeHTML(dn.length > 5 ? dn.slice(0, 4) + '⋯' : dn)}</div>`
+      : '';
     const dnClass = dn ? ' has-date-note' : '';
-    html += `<th class="${cls} day-cell${dnClass}" onclick="openDateNoteModal(${d})" style="cursor:pointer" title="${dn ? escapeHTML(dn) : '點此加日期備註'}">${d}${dnIcon}</th>`;
+    html += `<th class="${cls} day-cell${dnClass}" onclick="openDateNoteModal(${d})" style="cursor:pointer" title="${dn ? escapeHTML(dn) : '點此加日期備註'}">${dnTop}${d}</th>`;
   }
   // Individual stats columns
   html += '<th class="col-meta" rowspan="2" style="background:#b91c1c;color:white" title="總休假天數(OFF + off + o + V)">休</th>';
@@ -5452,25 +5484,19 @@ function onCellRightClick(e) {
     html += '<hr style="margin:6px 0">';
   }
 
-  // === 備註區塊(收合)— 個人日備註預設收起,點展開才顯示完整選項 ===
-  const noteSectionId = `note-section-${pid}-${day}-${Date.now()}`;
-  // 若該格已有備註,自動展開讓 leader 看到目前是什麼
-  const noteOpenByDefault = !!currentNote;
-  html += `<div style="font-size:0.78rem; color:#6b7280; padding:4px 6px; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:space-between" onclick="toggleNoteSection('${noteSectionId}'); event.stopPropagation();">
-    <span>📌 個人日備註${currentNote ? ' (目前: ' + escapeHTML(currentNote) + ')' : ''}</span>
-    <span id="${noteSectionId}-arr">${noteOpenByDefault ? '▾' : '▸'}</span>
-  </div>`;
-  html += `<div id="${noteSectionId}" style="display:${noteOpenByDefault ? 'block' : 'none'}">`;
+  // === 個人日備註(chip 樣式,塞在 1-2 行不佔空間)===
+  html += `<div style="font-size:0.78rem; color:#6b7280; padding:4px 6px; font-weight:600">📌 個人日備註${currentNote ? ' (' + escapeHTML(currentNote) + ')' : ''}</div>`;
+  html += '<div class="note-chips" style="display:flex; flex-wrap:wrap; gap:3px; padding:0 6px 6px">';
   NOTE_PRESETS.forEach(preset => {
-    const active = preset === currentNote ? ' note-active' : '';
-    html += `<button class="${active}" onclick="event.stopPropagation(); setNoteForCell('${pid}', ${day}, '${preset}')">${preset}</button>`;
+    const active = preset === currentNote ? ' note-chip-active' : '';
+    html += `<button class="note-chip${active}" onclick="setNoteForCell('${pid}', ${day}, '${preset}')">${preset}</button>`;
   });
-  html += '<hr>';
-  html += `<button onclick="event.stopPropagation(); setNoteForCell('${pid}', ${day}, '__custom__')">✏ 自訂備註...</button>`;
-  if (currentNote) {
-    html += `<button onclick="event.stopPropagation(); setNoteForCell('${pid}', ${day}, '')" style="color: #c0392b">🗑 清除備註</button>`;
-  }
   html += '</div>';
+  html += '<hr style="margin:4px 0">';
+  html += `<button onclick="setNoteForCell('${pid}', ${day}, '__custom__')">✏ 自訂備註...</button>`;
+  if (currentNote) {
+    html += `<button onclick="setNoteForCell('${pid}', ${day}, '')" style="color: #c0392b">🗑 清除備註</button>`;
+  }
   btnArea.innerHTML = html;
 
   // Position menu near click
@@ -14772,6 +14798,14 @@ function buildPublishViewPayload() {
   // 日期備註(教學日/演習等)— 只取該月
   const dateNotes = (state.dateNotes && state.dateNotes[state.month]) || {};
 
+  // 個人日備註(ACLS/中油/教學 等) — 同步推給同仁看
+  const personNotes = {};
+  staff.forEach(p => {
+    if (state.notes && state.notes[p.id]) {
+      personNotes[p.id] = state.notes[p.id];
+    }
+  });
+
   return {
     version: 1,
     month: state.month,
@@ -14781,6 +14815,7 @@ function buildPublishViewPayload() {
     schedule,
     flags,
     dateNotes,
+    personNotes,
   };
 }
 
