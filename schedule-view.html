@@ -399,38 +399,7 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 .month-table th.dow-sun, .month-table th.dow-sat { background: #fef3c7; }
 .month-table th.holiday { background: #fee2e2; color: #b91c1c; }
 
-/* 六/日/國定假日:全部統一淺草綠色 */
-.month-table td.col-sat:not(.cell-D):not(.cell-E):not(.cell-N):not(.cell-M),
-.month-table td.col-sun:not(.cell-D):not(.cell-E):not(.cell-N):not(.cell-M),
-.month-table td.col-holiday:not(.cell-D):not(.cell-E):not(.cell-N):not(.cell-M) {
-  background-color: #ecfccb !important;
-}
-
-/* 班別格(D/E/N/M)保留班別色,用左上角小三角標記六/日/國定 */
-.month-table td.col-sat.cell-D::before,
-.month-table td.col-sat.cell-E::before,
-.month-table td.col-sat.cell-N::before,
-.month-table td.col-sat.cell-M::before,
-.month-table td.col-sun.cell-D::before,
-.month-table td.col-sun.cell-E::before,
-.month-table td.col-sun.cell-N::before,
-.month-table td.col-sun.cell-M::before,
-.month-table td.col-holiday.cell-D::before,
-.month-table td.col-holiday.cell-E::before,
-.month-table td.col-holiday.cell-N::before,
-.month-table td.col-holiday.cell-M::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  border-style: solid;
-  border-width: 7px 7px 0 0;
-  border-color: #65a30d transparent transparent transparent;
-  pointer-events: none;
-}
-.month-table td { position: relative; }
-
-/* 表頭跟 tfoot 統一淺草綠色 */
+/* 六/日/國定假日:只「表頭」+「底部人數統計」染淺綠色,其他保持原本顏色 */
 .month-table th.col-sat,
 .month-table th.col-sun,
 .month-table th.col-holiday {
@@ -444,6 +413,7 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   color: #365314;
   font-weight: 700;
 }
+.month-table td { position: relative; }
 .month-table td.col-name {
   position: sticky;
   left: 0;
@@ -626,6 +596,16 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   color: #fef3c7;
   background: #422006;
   border-bottom-color: #fef3c7;
+}
+
+/* 半日時段(8-12 / 10-14 等)— 青色背景 + 蓋掉班別文字 */
+.month-table td.cell-halftime {
+  background: #ecfeff !important;
+  color: #0e7490 !important;
+}
+.month-table td.cell-halftime .month-cell-shift {
+  font-size: 0.78rem !important;
+  font-weight: 700;
 }
 
 /* === 浮水印 === */
@@ -1230,14 +1210,20 @@ function renderMonthTable() {
       if (flag.marker === 'preceptor') cls += ' marker-preceptor';
       if (flag.marker === 'trainee') cls += ' marker-trainee';
       if (flag.dept && ['D','E','N','M'].includes(sh)) cls += ' has-dept';
+      // 半日時段(8-12 / 10-14 等)— 蓋掉原班別文字
+      const isHalftime = flag.halfdayTime && ['D','E','N','M'].includes(sh);
+      if (isHalftime) cls += ' cell-halftime';
       const personNote = pNotes[d] || '';
       if (personNote) cls += ' has-person-note';
-      const display = sh === 'o' ? 'off' : (sh || '·');
+      // 半日時段優先顯示時段文字(蓋掉 D/E/N 字母)
+      const display = isHalftime
+        ? esc(flag.halfdayTime)
+        : (sh === 'o' ? 'off' : (sh || '·'));
       const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
         ? `<div class="month-cell-dept">${esc(flag.dept)}</div>` : '';
       const noteDot = personNote ? `<div class="month-cell-pnote" title="${esc(personNote)}">${esc(personNote.length > 4 ? personNote.slice(0,3) + '⋯' : personNote)}</div>` : '';
       // 排序:科別(最上) → 個人備註 → 班別 D(下)
-      html += `<td class="${cls}" title="${personNote ? esc(personNote) : ''}">${deptSmall}${noteDot}<div class="month-cell-shift">${esc(display)}</div></td>`;
+      html += `<td class="${cls}" title="${personNote ? esc(personNote) : ''}">${deptSmall}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
     }
     // OFF 數欄
     // OFF 數欄(只顯示公休數,V 算特休不顯示在這)

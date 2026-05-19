@@ -325,9 +325,9 @@ body {
   background: #2a2a2a;
 }
 
-.sched-table th.dow-sat { background: #264a6a !important; }
-.sched-table th.dow-sun { background: #6a2626 !important; }
-.sched-table th.holiday { background: var(--accent) !important; }
+.sched-table th.dow-sat { background: #65a30d !important; }
+.sched-table th.dow-sun { background: #65a30d !important; }
+.sched-table th.holiday { background: #4d7c0f !important; }
 
 .sched-table .col-meta {
   background: #f5f0e5;
@@ -732,47 +732,10 @@ td[data-pid] {
 td.cell.fixed::after { content: '🔒'; font-size: 8px; position: absolute; top: 0; right: 1px; }
 td.cell.locked { background-color: #ffe0e0 !important; }
 
-/* Day columns: weekend/holiday — 整欄淺草綠底,一眼看出非工作日 */
-td.cell.dow-sat { background-color: #ecfccb !important; }   /* 週六 淺草綠 */
-td.cell.dow-sun { background-color: #ecfccb !important; }   /* 週日 同色 */
-td.cell.holiday { background-color: #d9f99d !important; }   /* 國定 深一點草綠 */
-
-/* 班別格(D/E/N/M)有自己的色彩 → 不蓋掉,用左上角小三角標記 */
-td.cell.dow-sat.shift-D::after,
-td.cell.dow-sat.shift-E::after,
-td.cell.dow-sat.shift-N::after,
-td.cell.dow-sat.shift-M::after,
-td.cell.dow-sun.shift-D::after,
-td.cell.dow-sun.shift-E::after,
-td.cell.dow-sun.shift-N::after,
-td.cell.dow-sun.shift-M::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  border-style: solid;
-  border-width: 7px 7px 0 0;
-  border-color: #65a30d transparent transparent transparent;
-  pointer-events: none;
-}
-td.cell.holiday.shift-D::after,
-td.cell.holiday.shift-E::after,
-td.cell.holiday.shift-N::after,
-td.cell.holiday.shift-M::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  border-style: solid;
-  border-width: 8px 8px 0 0;
-  border-color: #4d7c0f transparent transparent transparent;
-  pointer-events: none;
-}
-/* 班別格不要被淺草綠蓋掉(class 優先順序) */
-td.cell.shift-D.dow-sat, td.cell.shift-D.dow-sun, td.cell.shift-D.holiday { background-color: var(--shift-D-bg, #dbeafe) !important; }
-td.cell.shift-E.dow-sat, td.cell.shift-E.dow-sun, td.cell.shift-E.holiday { background-color: var(--shift-E-bg, #fef3c7) !important; }
-td.cell.shift-N.dow-sat, td.cell.shift-N.dow-sun, td.cell.shift-N.holiday { background-color: var(--shift-N-bg, #1f2937) !important; }
-td.cell.shift-M.dow-sat, td.cell.shift-M.dow-sun, td.cell.shift-M.holiday { background-color: var(--shift-M-bg, #e9d5ff) !important; }
+/* Day columns: weekend/holiday — 簡化:只用底線標示,不染整格 */
+td.cell.dow-sat { box-shadow: inset 0 -2px 0 #65a30d; }
+td.cell.dow-sun { box-shadow: inset 0 -2px 0 #65a30d; }
+td.cell.holiday { box-shadow: inset 0 -2px 0 #4d7c0f; }
 
 /* Violation indicator */
 td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
@@ -788,6 +751,21 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 .sched-table tfoot td.over { background: #fef3c7; color: #92400e; }
 .sched-table tfoot td.ok { background: #d1fae5; }
 .sched-table tfoot td.ok { color: var(--ok); }
+
+/* 下半 table(底部 D/E/N 需求/實際統計)六日染淺草綠 */
+#sched-table-bottom td.dow-sat,
+#sched-table-bottom td.dow-sun,
+#sched-table-bottom td.holiday {
+  background: #d9f99d !important;
+  color: #365314 !important;
+}
+/* 但缺人(short)優先顯示紅 — 不被六日蓋過 */
+#sched-table-bottom td.short.dow-sat,
+#sched-table-bottom td.short.dow-sun,
+#sched-table-bottom td.short.holiday {
+  background: #fca5a5 !important;
+  color: #7f1d1d !important;
+}
 
 /* Individual stats column */
 .stat-col {
@@ -5292,6 +5270,10 @@ function renderBottomTable() {
       if (count < need) cls = 'short';
       else if (count > need) cls = 'over';
       else cls = 'ok';
+      // 加上六日/國定 class — 跟表頭一致染色
+      if (isHoliday(state.month, d)) cls += ' holiday';
+      else if (dow === 0) cls += ' dow-sun';
+      else if (dow === 6) cls += ' dow-sat';
       // 沿用 tfoot 的色彩 class(.short/.over/.ok 已在 CSS 定義)
       html += `<td class="${cls}" title="需求:${need} / 實際:${count}" style="font-weight:700;font-size:13px">${count}</td>`;
     }
