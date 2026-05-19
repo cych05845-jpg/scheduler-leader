@@ -2899,6 +2899,21 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   #floating-brush-bar .fb-btn[data-brush="N"] { background: var(--N); color: var(--N-text); border-color: var(--N); }
   #floating-brush-bar .fb-btn[data-brush="M"] { background: var(--M); color: var(--M-text); border-color: var(--M); }
   #floating-brush-bar .fb-btn[data-brush="OFF"] { background: #fce8e8; color: #b91c1c; border-color: #fca5a5; }
+  #floating-brush-bar .fb-btn.fb-halftime {
+    background: #ecfeff;
+    color: #0e7490;
+    border-color: rgba(255,255,255,0.2);
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 38px;
+    padding: 0 4px;
+  }
+  #floating-brush-bar .fb-btn.fb-halftime.active {
+    background: #0e7490;
+    color: white;
+    border-color: white;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.35);
+  }
   #floating-brush-bar .fb-btn[data-brush="off"] { background: #f5f5f0; color: #6b6b6b; font-style: italic; text-decoration: underline; }
   #floating-brush-bar .fb-btn[data-brush="o"] { background: #fafaf5; color: #999; font-style: italic; }
   #floating-brush-bar .fb-btn[data-brush="V"] { background: var(--V); color: var(--V-text); border-color: var(--V); }
@@ -4895,7 +4910,7 @@ function renderTable() {
       ? `<span class="date-note-icon active" title="${escapeHTML(dn)}">📝</span>`
       : `<span class="date-note-icon" title="點此加備註">+</span>`;
     const dnClass = dn ? ' has-date-note' : '';
-    html += `<th class="${cls} day-cell${dnClass}" onclick="openDateNoteModal(${d})" style="cursor:pointer; position:relative" title="${dn ? escapeHTML(dn) : '點此加日期備註'}">${d}${dnIcon}</th>`;
+    html += `<th class="${cls} day-cell${dnClass}" onclick="openDateNoteModal(${d})" style="cursor:pointer" title="${dn ? escapeHTML(dn) : '點此加日期備註'}">${d}${dnIcon}</th>`;
   }
   // Individual stats columns
   html += '<th class="col-meta" rowspan="2" style="background:#b91c1c;color:white" title="總休假天數(OFF + off + o + V)">休</th>';
@@ -5402,26 +5417,28 @@ function onCellRightClick(e) {
     html += '<hr style="margin:6px 0">';
   }
 
-  // === 半日時段區塊(只對工作班顯示) ===
-  // 標記後該格自動不算 D/E/N 人力,適合半日職同仁的彈性時段
+  // === 半日時段:已升級為畫筆模式(8-12 / 10-14 / 12-16 / 8-4 按鈕在浮動畫筆上)===
+  // 若該格已有半日時段標記,顯示一個「✕ 清除半日時段」按鈕方便取消
   const currentHalftime = (state.scheduleFlags && state.scheduleFlags[pid] && state.scheduleFlags[pid][day] && state.scheduleFlags[pid][day].halfdayTime) || '';
-  if (['D','E','N','M'].includes(currentShift)) {
-    html += '<div style="font-size:0.78rem; color:#0e7490; padding:4px 6px; font-weight:600">⏰ 半日時段(此格不計入人力)</div>';
-    html += '<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:3px; margin-bottom:6px">';
-    HALFDAY_PRESETS.forEach(t => {
-      const active = t === currentHalftime ? ' style="background:#0e7490;color:white;border-color:#0e7490"' : '';
-      html += `<button${active} onclick="setHalfdayTimeForCell('${pid}', ${day}, '${t}')" style="padding:5px 2px;font-size:0.78rem;background:#ecfeff;border:1px solid #a5f3fc;color:#0e7490;border-radius:3px;font-weight:600">${t}</button>`;
-    });
-    html += '</div>';
-    html += `<div style="display:flex; gap:3px; margin-bottom:6px"><input type="text" id="halftime-custom-input-ctx" placeholder="自訂時段(例:9-13)..." style="flex:1;padding:4px 6px;font-size:0.82rem;border:1px solid #d1d5db;border-radius:3px" onkeydown="if(event.key==='Enter'){setHalfdayTimeForCell('${pid}', ${day}, this.value); event.preventDefault();}"><button onclick="setHalfdayTimeForCell('${pid}', ${day}, document.getElementById('halftime-custom-input-ctx').value)" style="background:#0e7490;color:white;border:none;padding:4px 8px;border-radius:3px;font-size:0.78rem">+</button></div>`;
-    if (currentHalftime) {
-      html += `<button onclick="setHalfdayTimeForCell('${pid}', ${day}, '')" style="color:#b91c1c;width:100%;margin-bottom:6px">🗑 清除時段</button>`;
-    }
+  if (currentHalftime && ['D','E','N','M'].includes(currentShift)) {
+    html += `<button onclick="setHalfdayTimeForCell('${pid}', ${day}, '')" style="width:100%; padding:6px; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:4px; font-size:0.85rem; font-weight:600; margin-bottom:6px">⌫ 清除半日時段「${escapeHTML(currentHalftime)}」</button>`;
     html += '<hr style="margin:6px 0">';
   }
 
-  // === 備註區塊(原有) ===
-  html += `<div style="font-size:0.78rem; color:#6b7280; padding:4px 6px; font-weight:600">📌 個人日備註${currentNote ? ' (目前: ' + currentNote + ')' : ''}</div>`;
+  // === 備註區塊(收合)— 個人日備註預設收起,點展開才顯示完整選項 ===
+  const noteSectionId = `note-section-${pid}-${day}-${Date.now()}`;
+  // 若該格已有備註,自動展開讓 leader 看到目前是什麼
+  const noteOpenByDefault = !!currentNote;
+  html += `<div style="font-size:0.78rem; color:#6b7280; padding:4px 6px; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:space-between" onclick="
+    var el = document.getElementById('${noteSectionId}');
+    var arr = document.getElementById('${noteSectionId}-arr');
+    if (el.style.display === 'none') { el.style.display = 'block'; arr.textContent = '▾'; }
+    else { el.style.display = 'none'; arr.textContent = '▸'; }
+  ">
+    <span>📌 個人日備註${currentNote ? ' (目前: ' + escapeHTML(currentNote) + ')' : ''}</span>
+    <span id="${noteSectionId}-arr">${noteOpenByDefault ? '▾' : '▸'}</span>
+  </div>`;
+  html += `<div id="${noteSectionId}" style="display:${noteOpenByDefault ? 'block' : 'none'}">`;
   NOTE_PRESETS.forEach(preset => {
     const active = preset === currentNote ? ' note-active' : '';
     html += `<button class="${active}" onclick="setNoteForCell('${pid}', ${day}, '${preset}')">${preset}</button>`;
@@ -5431,6 +5448,7 @@ function onCellRightClick(e) {
   if (currentNote) {
     html += `<button onclick="setNoteForCell('${pid}', ${day}, '')" style="color: #c0392b">🗑 清除備註</button>`;
   }
+  html += '</div>';
   btnArea.innerHTML = html;
 
   // Position menu near click
@@ -5737,6 +5755,25 @@ function onCellClick(e) {
       if (!state.scheduleFlags[pid]) state.scheduleFlags[pid] = {};
       state.scheduleFlags[pid][day] = Object.assign(state.scheduleFlags[pid][day] || {}, { dept: deptValue });
     }
+    renderTable();
+    autoSaveScheduleLocal();
+    return;
+  }
+
+  // === 半日時段畫筆(8-12 / 10-14 / 12-16 / 8-4)===
+  // 設定後該格自動不算人力(複用現有 halfdayTime 旗標邏輯)
+  // 預設以 D 班為基底(顯示淺底),時段文字蓋在班別字之上
+  if (brush && /^\d+-\d+$/.test(brush)) {
+    const oldShift = state.schedule[pid][day];
+    // 若該格還沒有班別,預設給 D 班作為基底(顯示色)
+    if (!['D','E','N','M'].includes(oldShift)) {
+      state.schedule[pid][day] = 'D';
+      preserveOffFlag(pid, day, oldShift, 'D');
+    }
+    // 寫入 halfdayTime 旗標 → 觸發「顯示時段 + 不算人力」邏輯
+    if (!state.scheduleFlags) state.scheduleFlags = {};
+    if (!state.scheduleFlags[pid]) state.scheduleFlags[pid] = {};
+    state.scheduleFlags[pid][day] = Object.assign(state.scheduleFlags[pid][day] || {}, { halfdayTime: brush });
     renderTable();
     autoSaveScheduleLocal();
     return;
@@ -14383,6 +14420,9 @@ function buildPublishViewPayload() {
     preferredShift: p.preferredShift || '',
     canSwapTo: p.canSwapTo || [],
     dispatch: p.dispatch || '',
+    // 此人是否計入「每日人力統計」— 跟主班表底部 D/E/N 統計邏輯一致
+    // false = 新進(無能力階段)/實習/半日/留停/外派/有特殊備註者
+    _countAsCapacity: isCountingForCapacity(p),
   }));
 
   const schedule = {};
@@ -15610,6 +15650,11 @@ ${userMsg}
   <button class="fb-btn" data-brush="o" title="一般休假">off</button>
   <button class="fb-btn" data-brush="V" title="特休">V</button>
   <button class="fb-btn" data-brush="" title="清除">✕</button>
+  <span class="fb-divider" title="半日時段(不計入人力)"></span>
+  <button class="fb-btn fb-halftime" data-brush="8-12" title="半日時段 8-12(此格不計入人力)">8-12</button>
+  <button class="fb-btn fb-halftime" data-brush="10-14" title="半日時段 10-14(此格不計入人力)">10-14</button>
+  <button class="fb-btn fb-halftime" data-brush="12-16" title="半日時段 12-16(此格不計入人力)">12-16</button>
+  <button class="fb-btn fb-halftime" data-brush="8-4" title="半日時段 8-4(此格不計入人力)">8-4</button>
   <span class="fb-divider" title="記號畫筆"></span>
   <button class="fb-btn fb-marker" data-brush="__marker_preceptor__" title="標記為帶教(D/帶):此格不計入正式人力">/帶</button>
   <button class="fb-btn fb-marker" data-brush="__marker_trainee__" title="標記為未獨立(D'):此格不計入正式人力">'</button>

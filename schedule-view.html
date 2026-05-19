@@ -460,11 +460,13 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   background: #f9fafb;
   border-top: 2px solid #1f2937;
   position: sticky;
-  bottom: 0;
   z-index: 3;
+  height: 28px;
 }
-.month-table tfoot tr:nth-child(2) td { border-top: 1px solid #d1d5db; }
-.month-table tfoot tr:nth-child(3) td { border-top: 1px solid #d1d5db; }
+/* 3 行 sticky 分層:D 最上、E 中、N 最下 */
+.month-table tfoot tr.month-total-row:nth-child(1) td { bottom: 56px; }   /* D 班 */
+.month-table tfoot tr.month-total-row:nth-child(2) td { bottom: 28px; border-top: 1px solid #d1d5db; }  /* E 班 */
+.month-table tfoot tr.month-total-row:nth-child(3) td { bottom: 0; border-top: 1px solid #d1d5db; }  /* N 班 */
 .month-table tfoot td.total-label {
   text-align: center;
   font-size: 0.9rem;
@@ -1159,6 +1161,9 @@ function renderMonthTable() {
     for (let d = 1; d <= state.days; d++) {
       let count = 0;
       state.staff.forEach(p => {
+        // 跟主班表底部 D/E/N 統計邏輯一致:只算「計入人力」的人
+        // _countAsCapacity 由 index.html buildPublishViewPayload 計算後寫入
+        if (p._countAsCapacity === false) return;
         const v = (state.schedule[p.id] || {})[d];
         if (v !== sh) return;
         const flag = (state.flags[p.id] && state.flags[p.id][d]) || {};
