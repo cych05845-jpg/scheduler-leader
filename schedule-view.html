@@ -380,11 +380,11 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 }
 .month-table {
   border-collapse: collapse;
-  font-size: 0.78rem;
+  font-size: 0.88rem;
   width: max-content;
 }
 .month-table th, .month-table td {
-  padding: 4px 6px;
+  padding: 5px 8px;
   border: 1px solid #e5e7eb;
   text-align: center;
   white-space: nowrap;
@@ -430,6 +430,37 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 }
 .month-table td.marker-preceptor::after { content: '帶'; color: #c2410c; font-weight: 700; }
 .month-table td.marker-trainee::after { content: "'"; color: #1e40af; font-weight: 700; }
+
+/* OFF 數欄(月曆右側) — sticky 在最右 */
+.month-table th.col-off,
+.month-table td.col-off {
+  position: sticky;
+  right: 0;
+  background: #fef3c7;
+  font-weight: 700;
+  border-left: 2px solid #1f2937;
+  color: #78350f;
+  z-index: 4;
+  min-width: 50px;
+}
+.month-table th.col-off {
+  z-index: 11;
+  background: #fde68a;
+}
+.month-table td.col-off .off-num { font-size: 1rem; }
+.month-table td.col-off .off-v-sub {
+  font-size: 0.65rem;
+  color: #9ca3af;
+  margin-left: 3px;
+  font-weight: 500;
+}
+.month-table tbody tr:hover td.col-off { background: #fcd34d; }
+
+/* 月曆面板 — 整個畫面寬,不要被 .panel 的 max-width 限制 */
+.panel#panel-month {
+  max-width: 100%;
+  padding: 0.6rem;
+}
 .month-cell-dept {
   font-size: 0.62rem;
   font-weight: 700;
@@ -969,7 +1000,7 @@ function renderMonthTable() {
   const todayDay = isCurrentMonth ? today.getDate() : -1;
 
   let html = '<table class="month-table"><thead><tr>';
-  html += '<th class="col-name">姓名</th>';
+  html += '<th class="col-name" rowspan="2">姓名</th>';
   for (let d = 1; d <= state.days; d++) {
     const date = new Date(year, monthIdx, d);
     const dow = date.getDay();
@@ -981,7 +1012,8 @@ function renderMonthTable() {
     if (d === todayDay) cls += ' today-col';
     html += `<th class="${cls}">${d}</th>`;
   }
-  html += '</tr><tr><th class="col-name"></th>';
+  html += '<th class="col-off" rowspan="2" title="本月公休數(不含特休 V)">休</th>';
+  html += '</tr><tr>';
   for (let d = 1; d <= state.days; d++) {
     const date = new Date(year, monthIdx, d);
     const dow = date.getDay();
@@ -991,9 +1023,18 @@ function renderMonthTable() {
   html += '</tr></thead><tbody>';
 
   state.staff.forEach(p => {
-    html += `<tr><td class="col-name" onclick="openPersonByName('${escAttr(p.name)}')" style="cursor:pointer">${esc(p.name)}</td>`;
     const sched = state.schedule[p.id] || {};
     const pFlags = state.flags[p.id] || {};
+    // 計算 OFF 數(跟 index.html 邏輯一致,V 不算)
+    let offDays = 0;
+    let vDays = 0;
+    for (let d = 1; d <= state.days; d++) {
+      const v = sched[d];
+      if (v === 'O' || v === 'OFF' || v === 'off' || v === 'o') offDays++;
+      else if (v === 'V') vDays++;
+    }
+
+    html += `<tr><td class="col-name" onclick="openPersonByName('${escAttr(p.name)}')" style="cursor:pointer">${esc(p.name)}</td>`;
     for (let d = 1; d <= state.days; d++) {
       const sh = sched[d] || '';
       const flag = pFlags[d] || {};
@@ -1007,6 +1048,10 @@ function renderMonthTable() {
         ? `<div class="month-cell-dept">${esc(flag.dept)}</div>` : '';
       html += `<td class="${cls}">${esc(display)}${deptSmall}</td>`;
     }
+    // OFF 數欄
+    const offCellTitle = vDays > 0 ? `本月公休 ${offDays} 天(另特休 V ${vDays} 天)` : `本月公休 ${offDays} 天`;
+    const vSuffix = vDays > 0 ? `<span class="off-v-sub">+V${vDays}</span>` : '';
+    html += `<td class="col-off" title="${offCellTitle}"><span class="off-num">${offDays}</span>${vSuffix}</td>`;
     html += '</tr>';
   });
   html += '</tbody></table>';
