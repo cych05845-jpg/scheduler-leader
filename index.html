@@ -732,10 +732,47 @@ td[data-pid] {
 td.cell.fixed::after { content: '🔒'; font-size: 8px; position: absolute; top: 0; right: 1px; }
 td.cell.locked { background-color: #ffe0e0 !important; }
 
-/* Day columns: weekend/holiday */
-td.cell.dow-sat { box-shadow: inset 0 -2px 0 #264a6a; }
-td.cell.dow-sun { box-shadow: inset 0 -2px 0 #6a2626; }
-td.cell.holiday { box-shadow: inset 0 -2px 0 var(--accent); }
+/* Day columns: weekend/holiday — 整欄淺草綠底,一眼看出非工作日 */
+td.cell.dow-sat { background-color: #ecfccb !important; }   /* 週六 淺草綠 */
+td.cell.dow-sun { background-color: #ecfccb !important; }   /* 週日 同色 */
+td.cell.holiday { background-color: #d9f99d !important; }   /* 國定 深一點草綠 */
+
+/* 班別格(D/E/N/M)有自己的色彩 → 不蓋掉,用左上角小三角標記 */
+td.cell.dow-sat.shift-D::after,
+td.cell.dow-sat.shift-E::after,
+td.cell.dow-sat.shift-N::after,
+td.cell.dow-sat.shift-M::after,
+td.cell.dow-sun.shift-D::after,
+td.cell.dow-sun.shift-E::after,
+td.cell.dow-sun.shift-N::after,
+td.cell.dow-sun.shift-M::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-style: solid;
+  border-width: 7px 7px 0 0;
+  border-color: #65a30d transparent transparent transparent;
+  pointer-events: none;
+}
+td.cell.holiday.shift-D::after,
+td.cell.holiday.shift-E::after,
+td.cell.holiday.shift-N::after,
+td.cell.holiday.shift-M::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-style: solid;
+  border-width: 8px 8px 0 0;
+  border-color: #4d7c0f transparent transparent transparent;
+  pointer-events: none;
+}
+/* 班別格不要被淺草綠蓋掉(class 優先順序) */
+td.cell.shift-D.dow-sat, td.cell.shift-D.dow-sun, td.cell.shift-D.holiday { background-color: var(--shift-D-bg, #dbeafe) !important; }
+td.cell.shift-E.dow-sat, td.cell.shift-E.dow-sun, td.cell.shift-E.holiday { background-color: var(--shift-E-bg, #fef3c7) !important; }
+td.cell.shift-N.dow-sat, td.cell.shift-N.dow-sun, td.cell.shift-N.holiday { background-color: var(--shift-N-bg, #1f2937) !important; }
+td.cell.shift-M.dow-sat, td.cell.shift-M.dow-sun, td.cell.shift-M.holiday { background-color: var(--shift-M-bg, #e9d5ff) !important; }
 
 /* Violation indicator */
 td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
