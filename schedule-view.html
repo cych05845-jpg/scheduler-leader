@@ -316,13 +316,13 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 .cal-cell .day-num { font-size: 0.7rem; color: #9ca3af; position: absolute; top: 2px; left: 4px; }
 .cal-cell .shift-mark { font-weight: 700; font-size: 0.95rem; margin-top: 6px; }
 .cal-cell-dept {
-  font-size: 0.62rem;
-  font-weight: 600;
+  font-size: 0.74rem;       /* 字體放大(0.62 → 0.74) */
+  font-weight: 700;
   margin-top: 2px;
-  background: rgba(255,255,255,0.85);
+  background: rgba(255,255,255,0.9);
   color: #047857;
-  padding: 0 3px;
-  border-radius: 2px;
+  padding: 1px 4px;
+  border-radius: 3px;
   line-height: 1;
   max-width: 100%;
   overflow: hidden;
@@ -454,7 +454,74 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   margin-left: 3px;
   font-weight: 500;
 }
+/* 月曆底部每日人數統計(D/E/N)*/
+.month-table tfoot tr.month-total-row td {
+  font-weight: 700;
+  background: #f9fafb;
+  border-top: 2px solid #1f2937;
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+}
+.month-table tfoot tr:nth-child(2) td { border-top: 1px solid #d1d5db; }
+.month-table tfoot tr:nth-child(3) td { border-top: 1px solid #d1d5db; }
+.month-table tfoot td.total-label {
+  text-align: center;
+  font-size: 0.9rem;
+  background: #1f2937 !important;
+  color: white;
+  z-index: 5;
+}
+.month-table tfoot td.total-label.cell-D { background: #1e40af !important; }
+.month-table tfoot td.total-label.cell-E { background: #92400e !important; }
+.month-table tfoot td.total-label.cell-N { background: #111827 !important; }
+.month-table tfoot td.total-num {
+  font-size: 0.95rem;
+  color: #1f2937;
+}
+.month-table tfoot td.total-num.today-col {
+  box-shadow: inset 0 0 0 2px #059669;
+}
+
+/* 月曆底部每日人數統計(D/E/N)*/
 .month-table tbody tr:hover td.col-off { background: #fcd34d; }
+
+/* 日期備註標記 — 月曆表頭 */
+.month-table th.has-date-note {
+  box-shadow: inset 0 4px 0 0 #d97706;
+  position: relative;
+}
+.month-cell-note-icon {
+  font-size: 0.55rem;
+  line-height: 1;
+  margin-top: 1px;
+}
+
+/* 日期備註 — 個人月曆 */
+.cal-cell.has-date-note {
+  box-shadow: inset 0 4px 0 0 #d97706;
+}
+.cal-cell-note-icon {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 0.6rem;
+  line-height: 1;
+}
+.cal-cell { position: relative; }
+
+/* 日期備註 — 今天頁頂部橫條 */
+.date-note-banner {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #78350f;
+  padding: 0.7rem 1rem;
+  border-radius: 8px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.8rem;
+  border-left: 4px solid #d97706;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
 
 /* 月曆面板 — 整個畫面寬,不要被 .panel 的 max-width 限制 */
 .panel#panel-month {
@@ -462,13 +529,24 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   padding: 0.6rem;
 }
 .month-cell-dept {
-  font-size: 0.62rem;
+  font-size: 0.78rem;       /* 字體放大 */
   font-weight: 700;
   color: #047857;
-  margin-top: 1px;
+  background: #d1fae5;
+  border-bottom: 1px solid #047857;
+  line-height: 1.1;
+  padding: 1px 0;
+  margin: -5px -8px 2px;   /* 拉到格子左右邊緣 + 上邊 */
+  text-align: center;
+}
+.month-cell-shift {
   line-height: 1;
 }
-.month-table td.cell-N .month-cell-dept { color: #fef3c7; }
+.month-table td.cell-N .month-cell-dept {
+  color: #fef3c7;
+  background: #422006;
+  border-bottom-color: #fef3c7;
+}
 
 /* === 浮水印 === */
 .watermark {
@@ -751,6 +829,7 @@ async function loadData() {
         state.staff = data.staff || [];
         state.schedule = data.schedule || {};
         state.flags = data.flags || {};
+        state.dateNotes = data.dateNotes || {};
         state.publishedAt = meta.publishedAt || '';
         state.publishedBy = meta.publishedBy || '';
 
@@ -855,6 +934,12 @@ function renderToday() {
     </div>
   </div>`;
 
+  // 當日日期備註(教學日/演習等)
+  const todayDateNote = (state.dateNotes || {})[day];
+  if (todayDateNote) {
+    html += `<div class="date-note-banner">📝 ${esc(todayDateNote)}</div>`;
+  }
+
   ['D','E','N','M'].forEach(sh => {
     const arr = buckets[sh];
     if (arr.length === 0 && sh === 'M') return;  // M 班沒人時不顯示
@@ -946,12 +1031,12 @@ function openPersonDetail(pid) {
     else if (['OFF','off','o'].includes(sh)) off++;  // V 不算公休
     else if (sh === 'V') V++;
   }
-  const offDisplay = V > 0 ? `${off} <span style="font-size:0.6em;color:#9ca3af">+V${V}</span>` : `${off}`;
+  // 本月休假只算公休,V(特休)不顯示在這
   document.getElementById('pd-stats').innerHTML = `
     <div class="person-stat"><div class="label">D 白班</div><div class="value">${D}</div></div>
     <div class="person-stat"><div class="label">E 小夜</div><div class="value">${E}</div></div>
     <div class="person-stat"><div class="label">N 大夜</div><div class="value">${N}</div></div>
-    <div class="person-stat" title="本月公休(不含特休 V)"><div class="label">本月休假</div><div class="value">${offDisplay}</div></div>
+    <div class="person-stat" title="本月公休(不含特休 V)"><div class="label">本月休假</div><div class="value">${off}</div></div>
   `;
 
   // 月曆網格
@@ -977,10 +1062,13 @@ function openPersonDetail(pid) {
     if (flag.underline) cls += ' cell-underline';
     if (flag.marker === 'preceptor') cls += ' marker-preceptor';
     if (flag.marker === 'trainee') cls += ' marker-trainee';
+    const dn = (state.dateNotes || {})[d];
+    if (dn) cls += ' has-date-note';
     const display = sh === 'o' ? 'off' : (sh || '');
     const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
       ? `<div class="cal-cell-dept">${esc(flag.dept)}</div>` : '';
-    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}</div>`;
+    const dnIcon = dn ? '<div class="cal-cell-note-icon" title="' + esc(dn) + '">📝</div>' : '';
+    html += `<div class="${cls}" title="${dn ? esc(dn) : ''}"><div class="day-num">${d}</div>${dnIcon}<div class="shift-mark">${esc(display)}</div>${deptSmall}</div>`;
   }
   document.getElementById('pd-calendar').innerHTML = html;
 }
@@ -1010,7 +1098,11 @@ function renderMonthTable() {
     else if (dow === 0) cls = 'dow-sun';
     else if (dow === 6) cls = 'dow-sat';
     if (d === todayDay) cls += ' today-col';
-    html += `<th class="${cls}">${d}</th>`;
+    const dn = (state.dateNotes || {})[d];
+    if (dn) cls += ' has-date-note';
+    const dnTitle = dn ? `${dn}` : `${d} 日`;
+    const dnIcon = dn ? '<div class="month-cell-note-icon">📝</div>' : '';
+    html += `<th class="${cls}" title="${esc(dnTitle)}">${d}${dnIcon}</th>`;
   }
   html += '<th class="col-off" rowspan="2" title="本月公休數(不含特休 V)">休</th>';
   html += '</tr><tr>';
@@ -1043,18 +1135,45 @@ function renderMonthTable() {
       if (flag.underline) cls += ' cell-underline';
       if (flag.marker === 'preceptor') cls += ' marker-preceptor';
       if (flag.marker === 'trainee') cls += ' marker-trainee';
+      if (flag.dept && ['D','E','N','M'].includes(sh)) cls += ' has-dept';
       const display = sh === 'o' ? 'off' : (sh || '·');
       const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
         ? `<div class="month-cell-dept">${esc(flag.dept)}</div>` : '';
-      html += `<td class="${cls}">${esc(display)}${deptSmall}</td>`;
+      // 科別在上,班別在下
+      html += `<td class="${cls}">${deptSmall}<div class="month-cell-shift">${esc(display)}</div></td>`;
     }
     // OFF 數欄
+    // OFF 數欄(只顯示公休數,V 算特休不顯示在這)
     const offCellTitle = vDays > 0 ? `本月公休 ${offDays} 天(另特休 V ${vDays} 天)` : `本月公休 ${offDays} 天`;
-    const vSuffix = vDays > 0 ? `<span class="off-v-sub">+V${vDays}</span>` : '';
-    html += `<td class="col-off" title="${offCellTitle}"><span class="off-num">${offDays}</span>${vSuffix}</td>`;
+    html += `<td class="col-off" title="${offCellTitle}"><span class="off-num">${offDays}</span></td>`;
     html += '</tr>';
   });
-  html += '</tbody></table>';
+  html += '</tbody>';
+
+  // ===== 底部每日人數統計列(D / E / N)=====
+  // 排除帶教/未獨立/半日時段 — 跟主班表邏輯一致
+  html += '<tfoot>';
+  ['D', 'E', 'N'].forEach(sh => {
+    const labelClass = `cell-${sh}`;
+    html += `<tr class="month-total-row"><td class="col-name total-label ${labelClass}">${sh} 班</td>`;
+    for (let d = 1; d <= state.days; d++) {
+      let count = 0;
+      state.staff.forEach(p => {
+        const v = (state.schedule[p.id] || {})[d];
+        if (v !== sh) return;
+        const flag = (state.flags[p.id] && state.flags[p.id][d]) || {};
+        if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
+        if (flag.halfdayTime) return;
+        count++;
+      });
+      const cls = d === todayDay ? 'today-col' : '';
+      html += `<td class="${cls} total-num">${count}</td>`;
+    }
+    html += '<td class="col-off"></td></tr>';
+  });
+  html += '</tfoot>';
+
+  html += '</table>';
   document.getElementById('month-table-wrap').innerHTML = html;
 }
 

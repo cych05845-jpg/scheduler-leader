@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>急診排班輔助工具 v2 | ED Scheduling Assistant</title>
+<title>急診排班輔助工具 | ED Scheduling Assistant</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <style>
@@ -482,29 +482,51 @@ td.cell-underline.cell-marker-trainee::after {
   /* 角標相同位置 — underline 是底部、marker 是右上,所以本來就不打架 */
 }
 
-/* === 科別標記(右下角小字) === */
+/* === 科別標記(上方,大字)=== */
+/* 移到上方 + 字體放大,讓 leader 排班時清楚看到 */
+td.cell-with-dept {
+  position: relative;
+  padding-top: 14px !important;  /* 留空間給上方科別 */
+  vertical-align: middle;
+}
 td.cell-with-dept .cell-dept-label {
   position: absolute;
-  bottom: 0;
+  top: 0;
+  left: 0;
   right: 0;
-  font-size: 0.6rem;
+  font-size: 0.82rem;
   font-weight: 700;
   color: #047857;
-  background: rgba(255,255,255,0.85);
-  padding: 0 2px;
-  border-radius: 2px 0 0 0;
-  line-height: 1.2;
+  background: #d1fae5;
+  padding: 1px 2px;
+  line-height: 1.1;
   pointer-events: none;
-  max-width: 90%;
+  text-align: center;
+  border-bottom: 1px solid #047857;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   z-index: 1;
 }
-/* 深色班別(N 黑底)用白色科別字 */
+/* 深色班別(N 黑底)用對比配色 */
 td.shift-N.cell-with-dept .cell-dept-label {
   color: #fef3c7;
-  background: rgba(0,0,0,0.5);
+  background: #422006;
+  border-bottom-color: #fef3c7;
+}
+
+/* 半日時段(8-12 / 10-14 等)— 藍綠底,蓋掉原班別,提示不計入人力 */
+td.cell-halftime {
+  background: #ecfeff !important;
+  color: #0e7490 !important;
+  font-weight: 600;
+  font-size: 0.78rem;
+  border-bottom: 2px dashed #0891b2 !important;
+}
+td.cell-halftime .cell-dept-label {
+  /* 半日時段下的科別 label 配色調整 */
+  color: #0e7490;
+  background: rgba(255,255,255,0.9);
 }
 
 /* === 科別右鍵選單 === */
@@ -1264,7 +1286,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 <!-- Top bar -->
 <div class="topbar">
   <h1>
-    急診排班輔助工具 <span class="subtitle">v2.1 · Customizable Rules Edition</span>
+    急診排班輔助工具
   </h1>
   <div class="topbar-actions">
     <button onclick="openHelpModal()">❓ 使用說明</button>
@@ -4462,6 +4484,10 @@ const NOTE_PRESETS = ['ACLS', '中油', '友善', '標準', 'LM', 'ER M', '教�
 // 也可在右鍵選單自由輸入新科別,不限於這 12 個
 const DEPT_PRESETS = ['T', 'PT', 'CPR', 'O+ST', 'P', 'R1', 'R2', 'R3', 'L+OB', '8-5\'', 'P+OB', 'R'];
 
+// 半日時段預設 — 半日職同仁依課表安排的時段
+// 標記後該格自動不算 D/E/N 人力(畫筆顯示時段文字蓋掉原班別)
+const HALFDAY_PRESETS = ['8-12', '10-14', '12-16', '8-4'];
+
 // Shift codes
 const SHIFTS = ['D', 'E', 'N', 'M', 'O', 'V'];
 const SHIFT_INFO = {
@@ -4991,8 +5017,16 @@ function renderTable() {
         ? `<span class="cell-dept-label" title="科別:${escapeHTML(deptFlag)}">${escapeHTML(deptFlag)}</span>`
         : '';
 
+      // 半日時段(8-12 等)— 蓋掉原班別文字 + 藍綠底
+      const halftimeFlag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d] && state.scheduleFlags[p.id][d].halfdayTime) || '';
+      const isHalftime = halftimeFlag && ['D','E','N','M'].includes(shift);
+      if (isHalftime) cls += ' cell-halftime';
+
       // Display: 'o' shown as 'off', otherwise as-is
-      const display = shift === 'o' ? 'off' : (shift || '');
+      // 半日時段優先顯示時段文字(蓋掉原 D/E/N 字母)
+      const display = isHalftime
+        ? escapeHTML(halftimeFlag)
+        : (shift === 'o' ? 'off' : (shift || ''));
       const titleSuffix = shift === 'OFF' ? ' (中籤預假)'
                        : shift === 'off' ? ' (申請預假未中籤)'
                        : shift === 'o' ? ' (一般休假)'
@@ -5001,6 +5035,7 @@ function renderTable() {
                          : markerFlag === 'trainee' ? ' [未獨立,不計入人力]'
                          : '';
       const deptSuffix = deptFlag ? ` · 科別:${deptFlag}` : '';
+      const halftimeSuffix = isHalftime ? ` · 半日時段 ${halftimeFlag}(不計入人力)` : '';
       // Note (per-person per-day annotation: ACLS / 中油 / 友善 ...)
       const noteText = (state.notes[p.id] && state.notes[p.id][d]) || '';
       const noteIndicator = noteText ? '<span class="note-dot" title="' + escapeHTML(noteText) + '">●</span>' : '';
@@ -5011,7 +5046,7 @@ function renderTable() {
         const dispatchTitle = `${p.name} ${d}日 外派支援 ${p.dispatch || '(未填單位)'}`;
         html += `<td class="cell" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" style="background: #fee2e2; color: #b91c1c; font-weight: 600" title="${dispatchTitle}">外</td>`;
       } else {
-        html += `<td class="${cls}" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" title="${p.name} ${d}日 ${shift}${titleSuffix}${markerSuffix}${deptSuffix}${noteTitle}">${noteIndicator}${display}${deptLabel}</td>`;
+        html += `<td class="${cls}" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" title="${p.name} ${d}日 ${shift}${titleSuffix}${markerSuffix}${deptSuffix}${halftimeSuffix}${noteTitle}">${noteIndicator}${display}${deptLabel}</td>`;
       }
     }
 
@@ -5101,8 +5136,10 @@ function renderBottomTable() {
         if (!isCountingForCapacity(p)) return;
         if ((state.schedule[p.id] || {})[d] !== st) return;
         // 排除 marker 格子(帶教 / 未獨立)— 這格雖然班別是 D/E/N,但不算正式戰力
-        const marker = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d] && state.scheduleFlags[p.id][d].marker) || '';
-        if (marker === 'preceptor' || marker === 'trainee') return;
+        const flag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d]) || {};
+        if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
+        // 排除半日時段格子(該人該日只上 8-12 等部分時段,不算 D/E/N 人力)
+        if (flag.halfdayTime) return;
         count++;
       });
       let need;
@@ -5365,6 +5402,24 @@ function onCellRightClick(e) {
     html += '<hr style="margin:6px 0">';
   }
 
+  // === 半日時段區塊(只對工作班顯示) ===
+  // 標記後該格自動不算 D/E/N 人力,適合半日職同仁的彈性時段
+  const currentHalftime = (state.scheduleFlags && state.scheduleFlags[pid] && state.scheduleFlags[pid][day] && state.scheduleFlags[pid][day].halfdayTime) || '';
+  if (['D','E','N','M'].includes(currentShift)) {
+    html += '<div style="font-size:0.78rem; color:#0e7490; padding:4px 6px; font-weight:600">⏰ 半日時段(此格不計入人力)</div>';
+    html += '<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:3px; margin-bottom:6px">';
+    HALFDAY_PRESETS.forEach(t => {
+      const active = t === currentHalftime ? ' style="background:#0e7490;color:white;border-color:#0e7490"' : '';
+      html += `<button${active} onclick="setHalfdayTimeForCell('${pid}', ${day}, '${t}')" style="padding:5px 2px;font-size:0.78rem;background:#ecfeff;border:1px solid #a5f3fc;color:#0e7490;border-radius:3px;font-weight:600">${t}</button>`;
+    });
+    html += '</div>';
+    html += `<div style="display:flex; gap:3px; margin-bottom:6px"><input type="text" id="halftime-custom-input-ctx" placeholder="自訂時段(例:9-13)..." style="flex:1;padding:4px 6px;font-size:0.82rem;border:1px solid #d1d5db;border-radius:3px" onkeydown="if(event.key==='Enter'){setHalfdayTimeForCell('${pid}', ${day}, this.value); event.preventDefault();}"><button onclick="setHalfdayTimeForCell('${pid}', ${day}, document.getElementById('halftime-custom-input-ctx').value)" style="background:#0e7490;color:white;border:none;padding:4px 8px;border-radius:3px;font-size:0.78rem">+</button></div>`;
+    if (currentHalftime) {
+      html += `<button onclick="setHalfdayTimeForCell('${pid}', ${day}, '')" style="color:#b91c1c;width:100%;margin-bottom:6px">🗑 清除時段</button>`;
+    }
+    html += '<hr style="margin:6px 0">';
+  }
+
   // === 備註區塊(原有) ===
   html += `<div style="font-size:0.78rem; color:#6b7280; padding:4px 6px; font-weight:600">📌 個人日備註${currentNote ? ' (目前: ' + currentNote + ')' : ''}</div>`;
   NOTE_PRESETS.forEach(preset => {
@@ -5436,6 +5491,28 @@ function setDeptForCell(pid, day, value) {
   } else {
     if (state.scheduleFlags[pid][day]) {
       delete state.scheduleFlags[pid][day].dept;
+      if (Object.keys(state.scheduleFlags[pid][day]).length === 0) delete state.scheduleFlags[pid][day];
+    }
+  }
+  if (typeof saveSnapshot === 'function') saveSnapshot();
+  if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
+  renderTable();
+}
+
+// ============================================================
+// 半日時段(8-12 / 10-14 等)— 寫入 scheduleFlags[pid][day].halfdayTime
+// 標記後該格自動不算 D/E/N 人力(在 isCountingForCapacity 加保險)
+// ============================================================
+function setHalfdayTimeForCell(pid, day, value) {
+  closeContextMenu();
+  const v = (value || '').trim();
+  if (!state.scheduleFlags) state.scheduleFlags = {};
+  if (!state.scheduleFlags[pid]) state.scheduleFlags[pid] = {};
+  if (v) {
+    state.scheduleFlags[pid][day] = Object.assign(state.scheduleFlags[pid][day] || {}, { halfdayTime: v });
+  } else {
+    if (state.scheduleFlags[pid][day]) {
+      delete state.scheduleFlags[pid][day].halfdayTime;
       if (Object.keys(state.scheduleFlags[pid][day]).length === 0) delete state.scheduleFlags[pid][day];
     }
   }
@@ -5774,11 +5851,12 @@ function renderSidePanel() {
     const pFlags = (state.scheduleFlags || {})[p.id] || {};
     for (let d = 1; d <= days; d++) {
       // 帶教/未獨立的格子不算正式人力(雖然他人在 D/E/N 班別)
-      const marker = (pFlags[d] && pFlags[d].marker) || '';
-      const isMarked = marker === 'preceptor' || marker === 'trainee';
-      if (s[d] === 'D' && !isMarked) totalD++;
-      else if (s[d] === 'E' && !isMarked) totalE++;
-      else if (s[d] === 'N' && !isMarked) totalN++;
+      const flag = pFlags[d] || {};
+      const isMarked = flag.marker === 'preceptor' || flag.marker === 'trainee';
+      const isHalftime = !!flag.halfdayTime;  // 半日時段也不算正式人力
+      if (s[d] === 'D' && !isMarked && !isHalftime) totalD++;
+      else if (s[d] === 'E' && !isMarked && !isHalftime) totalE++;
+      else if (s[d] === 'N' && !isMarked && !isHalftime) totalN++;
       else if (s[d] === 'O' || s[d] === 'OFF' || s[d] === 'off' || s[d] === 'o' || s[d] === 'V') totalO++;
       else if (!s[d]) totalEmpty++;
     }
@@ -5956,8 +6034,10 @@ function checkViolations() {
         if (!isCountingForCapacity(p)) return;  // ★ 排除無戰力人員,跟班表底部統計一致
         if ((state.schedule[p.id] || {})[d] !== st) return;
         // 排除 marker 格子(帶教/未獨立 — 此格不算正式戰力)
-        const marker = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d] && state.scheduleFlags[p.id][d].marker) || '';
-        if (marker === 'preceptor' || marker === 'trainee') return;
+        const flag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d]) || {};
+        if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
+        // 排除半日時段格子(該人只上 8-12 等部分時段,不算 D/E/N 人力)
+        if (flag.halfdayTime) return;
         count++;
       });
 
@@ -5965,7 +6045,7 @@ function checkViolations() {
         viols.push({
           level: 'err',
           title: `${d}日 ${st} 班缺 ${need - count} 人`,
-          detail: `需要 ${need} 人,目前 ${count} 人(已排除新進/實習/半日/留停/帶教/未獨立)`,
+          detail: `需要 ${need} 人,目前 ${count} 人(已排除新進/實習/半日/留停/帶教/未獨立/半日時段)`,
         });
       }
     }
@@ -7946,8 +8026,16 @@ async function exportXlsx() {
     cell.value = s.displayAs || raw;
   }
 
-  // Filter resigned + 留停(共用過濾規則,跟畫面一致)
-  const exportStaff = state.staff.filter(p => !shouldHideStaff(p, state.month));
+  // Filter:離職前的人隱藏,**留停保留**(顯示為留停狀態給人資/上級看)
+  const exportStaff = state.staff.filter(p => {
+    // 月初前已離職 → 隱藏
+    if (p.status === 'resigned' && p.statusDate) {
+      const rd = new Date(p.statusDate);
+      const monthStart = new Date(state.month + '-01');
+      if (rd < monthStart) return false;
+    }
+    return true;  // 包含留停(p.status === 'leave')+ 一般在職
+  });
 
   // ============================================================
   // COLUMN PLAN — matches PDF layout
@@ -8269,8 +8357,15 @@ async function exportXlsxTraditional() {
     cell.border = thinBorder;
   }
 
-  // ---------- Visible staff: 隱藏留停 + 月初前已離職(共用過濾規則,跟畫面一致) ----------
-  const visible = state.staff.filter(p => !shouldHideStaff(p, state.month));
+  // ---------- Visible staff:離職前隱藏,**留停保留**(顯示「留停」狀態) ----------
+  const visible = state.staff.filter(p => {
+    if (p.status === 'resigned' && p.statusDate) {
+      const rd = new Date(p.statusDate);
+      const monthStart = new Date(state.month + '-01');
+      if (rd < monthStart) return false;
+    }
+    return true;  // 含留停
+  });
 
   // ---------- Column layout ----------
   const COL_NUM = 1;
@@ -8353,11 +8448,13 @@ async function exportXlsxTraditional() {
     const sched = state.schedule[p.id] || {};
     const personNotes = state.notes[p.id] || {};
     const isDispatched = !!p.dispatch;  // 整月外派
+    const isOnLeave = (p.status === 'leave');  // 留停人員 — 整月不上班,班別欄全空
 
     // ---- Note row (top) — 前 5 欄先留空,merge 後再 setValue(避免 anchor 行為差異)----
     const noteRowData = [null, null, null, null, null];
     for (let d = 1; d <= days; d++) {
-      noteRowData.push(personNotes[d] || '');
+      // 留停的人不顯示備註(因為整月都不上班)
+      noteRowData.push(isOnLeave ? '' : (personNotes[d] || ''));
     }
     noteRowData.push(null);  // OFF column (will merge & setValue after)
     const noteRow = ws.addRow(noteRowData);
@@ -8373,10 +8470,13 @@ async function exportXlsxTraditional() {
     const shiftRowData = [null, null, null, null, null];
     let offCount = 0;
     for (let d = 1; d <= days; d++) {
-      // 外派整月顯示「外」,否則用 sched 內容
-      const v = isDispatched ? '外' : (sched[d] || '');
+      // 留停:整月空白;外派:整月「外」;其他:用 sched 內容
+      let v;
+      if (isOnLeave) v = '';
+      else if (isDispatched) v = '外';
+      else v = sched[d] || '';
       shiftRowData.push(v);
-      if (!isDispatched && ['OFF','off','o'].includes(v)) offCount++;  // V 不算公休配額
+      if (!isDispatched && !isOnLeave && ['OFF','off','o'].includes(v)) offCount++;  // V 不算公休配額
     }
     shiftRowData.push(null);  // OFF 欄一樣 null,merge 後再 setValue
     const shiftRow = ws.addRow(shiftRowData);
@@ -8384,8 +8484,10 @@ async function exportXlsxTraditional() {
 
     // Style first 5 columns (id/level/mentor/name/hire) — 先 merge,再 setValue 到 anchor
     // 跟 OFF 欄一樣的順序,確保 anchor 行為正確
-    // 外派人員姓名加標籤
-    const nameDisplay = isDispatched ? `${p.name} [外派 ${p.dispatch}]` : p.name;
+    // 外派 → 姓名加 [外派 xxx];留停 → 姓名加 (留停)
+    let nameDisplay = p.name;
+    if (isDispatched) nameDisplay = `${p.name} [外派 ${p.dispatch}]`;
+    else if (isOnLeave) nameDisplay = `${p.name} (留停)`;
     const personInfo = [idx + 1, p.level || '', p.mentor || p.note || '', nameDisplay, p.hireDate || ''];
     for (let c = 1; c <= 5; c++) {
       ws.mergeCells(rowIdx, c, rowIdx + 1, c);
@@ -8395,12 +8497,17 @@ async function exportXlsxTraditional() {
         name: 'Microsoft JhengHei',
         size: c === 4 ? 11 : 10,
         bold: c === 4 || c === 2,
-        color: { argb: isDispatched && c === 4 ? 'FFB91C1C' : 'FF000000' },
+        color: {
+          argb: isDispatched && c === 4 ? 'FFB91C1C'
+              : isOnLeave && c === 4 ? 'FF6B7280'  // 留停姓名灰色
+              : 'FF000000'
+        },
+        italic: isOnLeave && c === 4,
       };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
       cell.border = thinBorder;
-      // 外派整列左側 5 欄灰底
-      if (isDispatched) {
+      // 外派 / 留停 → 左側 5 欄灰底
+      if (isDispatched || isOnLeave) {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
       }
     }
@@ -8408,7 +8515,12 @@ async function exportXlsxTraditional() {
     // Style each day cell of shift row
     for (let d = 1; d <= days; d++) {
       const cell = shiftRow.getCell(FIRST_DAY_COL + d - 1);
-      if (isDispatched) {
+      if (isOnLeave) {
+        // 留停:整月空白,淺灰底
+        cell.value = '';
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
+        cell.border = thinBorder;
+      } else if (isDispatched) {
         // 外派整月:紅底白字「外」
         cell.value = '外';
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
@@ -8429,8 +8541,8 @@ async function exportXlsxTraditional() {
     // OFF total cell — merge across 2 rows;值寫在 anchor(noteRow)以與前 5 欄一致
     ws.mergeCells(rowIdx, COL_OFF_TOTAL, rowIdx + 1, COL_OFF_TOTAL);
     const offCell = noteRow.getCell(COL_OFF_TOTAL);
-    if (isDispatched) {
-      offCell.value = '';  // 外派沒有 OFF 統計
+    if (isDispatched || isOnLeave) {
+      offCell.value = '';  // 外派 / 留停沒有 OFF 統計
       offCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
     } else {
       offCell.value = offCount;
@@ -14285,6 +14397,9 @@ function buildPublishViewPayload() {
     }
   });
 
+  // 日期備註(教學日/演習等)— 只取該月
+  const dateNotes = (state.dateNotes && state.dateNotes[state.month]) || {};
+
   return {
     version: 1,
     month: state.month,
@@ -14293,6 +14408,7 @@ function buildPublishViewPayload() {
     staff,
     schedule,
     flags,
+    dateNotes,
   };
 }
 
