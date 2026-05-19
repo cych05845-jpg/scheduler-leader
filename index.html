@@ -2764,17 +2764,73 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   }
   .displaced-restore-all:hover { transform: scale(1.01); }
 
+  /* 日期備註圖示(表頭日期數字旁) */
+  .date-note-icon {
+    display: inline-block;
+    margin-left: 2px;
+    font-size: 0.65rem;
+    opacity: 0;
+    transition: opacity 0.15s;
+    color: #9ca3af;
+    vertical-align: middle;
+  }
+  th.day-cell:hover .date-note-icon { opacity: 1; }
+  .date-note-icon.active {
+    opacity: 1;
+    color: #d97706;
+    font-size: 0.8rem;
+  }
+  th.day-cell.has-date-note {
+    box-shadow: inset 0 3px 0 0 #d97706;
+  }
+  /* 日期備註 modal */
+  #date-note-modal .dn-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.95rem;
+    margin-bottom: 8px;
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+  #date-note-modal .dn-preset-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+  #date-note-modal .dn-preset-row button {
+    padding: 4px 10px;
+    background: #f3f4f6;
+    border: 1px solid #d1d5db;
+    border-radius: 14px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    color: #374151;
+  }
+  #date-note-modal .dn-preset-row button:hover {
+    background: #d97706;
+    color: white;
+    border-color: #d97706;
+  }
+
   /* ============================================================
      浮動畫筆工具列 — 滾動到底也能換班別
      ============================================================ */
   #floating-brush-bar {
     position: fixed;
     z-index: 8500;
-    background: white;
-    border: 1px solid var(--line);
+    /* 暗色底 + 漸層讓畫筆列跟班表清楚區分 */
+    background: linear-gradient(180deg, #374151 0%, #1f2937 100%);
+    border: 1px solid #111827;
     border-radius: 8px;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.12);
-    padding: 6px;
+    /* 強化立體陰影:更深的下方陰影 + 上緣淡光 */
+    box-shadow:
+      0 10px 28px rgba(0, 0, 0, 0.35),
+      0 2px 6px rgba(0, 0, 0, 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    padding: 7px 8px;
     display: none;
     align-items: center;
     gap: 4px;
@@ -2784,20 +2840,20 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   #floating-brush-bar.dragging { user-select: none; }
   #floating-brush-bar .fb-handle {
     cursor: move;
-    color: var(--ink-mute);
+    color: rgba(255, 255, 255, 0.7);
     padding: 0 6px;
     font-size: 1.1rem;
     line-height: 1;
     user-select: none;
-    border-right: 1px solid var(--line);
+    border-right: 1px solid rgba(255, 255, 255, 0.15);
     margin-right: 2px;
   }
-  #floating-brush-bar .fb-handle:hover { color: var(--ink); }
+  #floating-brush-bar .fb-handle:hover { color: white; }
   #floating-brush-bar .fb-btn {
     /* 完整複製 .brush-btn 的視覺,但縮小一點 */
     width: 38px;
     height: 32px;
-    border: 2px solid var(--line);
+    border: 2px solid rgba(255, 255, 255, 0.2);
     border-radius: 5px;
     background: white;
     font-weight: 700;
@@ -2806,14 +2862,14 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: transform 0.1s;
+    transition: transform 0.1s, box-shadow 0.1s;
     padding: 0;
   }
   #floating-brush-bar .fb-btn:hover { transform: scale(1.05); }
   #floating-brush-bar .fb-btn.active {
-    border-color: var(--ink);
+    border-color: white;
     transform: scale(1.08);
-    box-shadow: 0 0 0 2px rgba(0,0,0,0.08);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
   }
   /* 各班別顏色(對齊主畫筆配色) */
   #floating-brush-bar .fb-btn[data-brush="D"] { background: var(--D); color: var(--D-text); border-color: var(--D); }
@@ -2831,7 +2887,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     display: inline-block;
     width: 1px;
     height: 24px;
-    background: var(--line);
+    background: rgba(255, 255, 255, 0.18);
     margin: 0 2px;
   }
   #floating-brush-bar .fb-btn.fb-marker {
@@ -2853,23 +2909,23 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     border-color: #d1d5db;
   }
   #floating-brush-bar .fb-btn.fb-marker.active {
-    border-color: var(--ink);
+    border-color: white;
     transform: scale(1.08);
-    box-shadow: 0 0 0 2px rgba(0,0,0,0.08);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
   }
   #floating-brush-bar .fb-close {
     background: transparent;
     border: none;
-    color: var(--ink-mute);
+    color: rgba(255, 255, 255, 0.6);
     width: 22px;
     height: 22px;
     cursor: pointer;
     font-size: 1.1rem;
     line-height: 1;
-    border-left: 1px solid var(--line);
+    border-left: 1px solid rgba(255, 255, 255, 0.15);
     margin-left: 2px;
   }
-  #floating-brush-bar .fb-close:hover { color: var(--ink); }
+  #floating-brush-bar .fb-close:hover { color: white; }
 
   /* 顯示開關浮動圖示(當浮動列被關閉時顯示) */
   #floating-brush-toggle {
@@ -4392,6 +4448,7 @@ const state = {
   schedule: {},        // {staffId: {day: shift}}
   scheduleFlags: {},   // {staffId: {day: {underline: true}}} - 底線旗標(預約延續記憶)
   notes: {},           // {staffId: {day: noteString}} - 個人日備註 (ACLS/中油/友善 等)
+  dateNotes: {},       // {month: {day: noteString}} - 日期備註(例:教學日、演習)— 整月每日獨立
   fixed: {},           // {staffId: {day: true}} - cells locked as fixed (preset)
   holidays: ['2026-05-01'], // list of holiday dates
   currentBrush: 'D',
@@ -4806,7 +4863,13 @@ function renderTable() {
       else if (dow === 0) cls = 'dow-sun';
       else if (dow === 6) cls = 'dow-sat';
     }
-    html += `<th class="${cls}">${d}</th>`;
+    // 讀取該日的日期備註
+    const dn = (state.dateNotes && state.dateNotes[state.month] && state.dateNotes[state.month][d]) || '';
+    const dnIcon = dn
+      ? `<span class="date-note-icon active" title="${escapeHTML(dn)}">📝</span>`
+      : `<span class="date-note-icon" title="點此加備註">+</span>`;
+    const dnClass = dn ? ' has-date-note' : '';
+    html += `<th class="${cls} day-cell${dnClass}" onclick="openDateNoteModal(${d})" style="cursor:pointer; position:relative" title="${dn ? escapeHTML(dn) : '點此加日期備註'}">${d}${dnIcon}</th>`;
   }
   // Individual stats columns
   html += '<th class="col-meta" rowspan="2" style="background:#b91c1c;color:white" title="總休假天數(OFF + off + o + V)">休</th>';
@@ -4847,8 +4910,22 @@ function renderTable() {
       ? ` <span style="display: inline-block; padding: 1px 6px; background: #fee2e2; color: #b91c1c; border-radius: 3px; font-size: 0.78rem; font-weight: 600; margin-left: 4px" title="本月外派支援 ${p.dispatch || '未填單位'}">📤 外派 ${p.dispatch || ''}</span>`
       : '';
 
+    // 到職日標籤:若有 hireDate,在姓名旁顯示「(到 M/D)」小字
+    // 只顯示月/日(年份藏 tooltip),節省空間
+    let hireTag = '';
+    if (p.hireDate) {
+      try {
+        const hd = new Date(p.hireDate);
+        if (!isNaN(hd.getTime())) {
+          const mmdd = `${hd.getMonth() + 1}/${hd.getDate()}`;
+          const fullDate = p.hireDate;
+          hireTag = ` <span style="display: inline-block; padding: 0 4px; background: #e0e7ff; color: #3730a3; border-radius: 2px; font-size: 0.7rem; font-weight: 500; vertical-align: middle" title="到職日:${fullDate}">到 ${mmdd}</span>`;
+        }
+      } catch (e) {}
+    }
+
     html += `<tr data-pid="${p.id}"${rowStyle}>`;
-    html += `<td class="col-meta col-name" onclick="openPersonModal('${p.id}')" style="cursor:pointer" title="點擊查看設定">${p.name}${dispatchTag}</td>`;
+    html += `<td class="col-meta col-name" onclick="openPersonModal('${p.id}')" style="cursor:pointer" title="點擊查看設定">${p.name}${hireTag}${dispatchTag}</td>`;
     html += `<td class="col-meta col-level"><span class="level-tag level-${p.level}">${p.level}</span></td>`;
     html += `<td class="col-meta col-pref">${pref ? `<span class="tag">${pref}</span>` : ''}</td>`;
 
@@ -4948,8 +5025,8 @@ function renderTable() {
       else if (s === 'E') E++;
       else if (s === 'N') N++;
       else if (s === 'M') M++;
-      // Off count = only real off types (not empty cells)
-      else if (s === 'O' || s === 'OFF' || s === 'off' || s === 'o' || s === 'V') O++;
+      // Off count = OFF/off/o/O 才算本月公休配額;V(特休)不算進去
+      else if (s === 'O' || s === 'OFF' || s === 'off' || s === 'o') O++;
       if ((s === 'D' || s === 'E' || s === 'N' || s === 'M') && dow === 6) sat++;
       if ((s === 'D' || s === 'E' || s === 'N' || s === 'M') && dow === 0) sun++;
     }
@@ -5367,6 +5444,84 @@ function setDeptForCell(pid, day, value) {
   renderTable();
 }
 
+// ============================================================
+// 日期備註(每日獨立) — 例:教學日、演習、節慶
+// 資料結構:state.dateNotes[month][day] = noteString
+// 顯示位置:班表頂部日期欄旁,有備註時整欄頂部冒橘色線
+// ============================================================
+let _currentEditingDay = null;
+
+function openDateNoteModal(day) {
+  _currentEditingDay = day;
+  const m = state.month;
+  const current = (state.dateNotes && state.dateNotes[m] && state.dateNotes[m][day]) || '';
+  const modal = document.getElementById('date-note-modal');
+  if (!modal) return;
+  modal.classList.add('active');
+
+  // 設定標題
+  const parts = m.split('-');
+  document.getElementById('dn-modal-title').textContent = `📅 ${parts[1]}/${day} 日期備註`;
+
+  // 填入現有值
+  const input = document.getElementById('dn-input');
+  input.value = current;
+  setTimeout(() => input.focus(), 50);
+
+  // 顯示/隱藏清除按鈕
+  document.getElementById('dn-clear-btn').style.display = current ? '' : 'none';
+
+  // Enter 直接儲存
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      dnSave();
+    } else if (e.key === 'Escape') {
+      closeModal('date-note-modal');
+    }
+  };
+}
+
+function dnPreset(text) {
+  const input = document.getElementById('dn-input');
+  if (!input) return;
+  input.value = text;
+  input.focus();
+}
+
+function dnSave() {
+  if (_currentEditingDay == null) return;
+  const input = document.getElementById('dn-input');
+  const value = (input.value || '').trim();
+  const m = state.month;
+  if (!state.dateNotes) state.dateNotes = {};
+  if (!state.dateNotes[m]) state.dateNotes[m] = {};
+  if (value) {
+    state.dateNotes[m][_currentEditingDay] = value;
+  } else {
+    delete state.dateNotes[m][_currentEditingDay];
+    // 清空 month 物件
+    if (Object.keys(state.dateNotes[m]).length === 0) delete state.dateNotes[m];
+  }
+  if (typeof saveSnapshot === 'function') saveSnapshot();
+  if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
+  closeModal('date-note-modal');
+  renderTable();
+}
+
+function dnClear() {
+  if (_currentEditingDay == null) return;
+  const m = state.month;
+  if (state.dateNotes && state.dateNotes[m]) {
+    delete state.dateNotes[m][_currentEditingDay];
+    if (Object.keys(state.dateNotes[m]).length === 0) delete state.dateNotes[m];
+  }
+  if (typeof saveSnapshot === 'function') saveSnapshot();
+  if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
+  closeModal('date-note-modal');
+  renderTable();
+}
+
 // === 科別畫筆 — 全域函式(供下拉的 onclick 用) ===
 // 設為科別畫筆後,點班別格子就會寫入該科別
 function useDeptBrush(deptValue) {
@@ -5545,6 +5700,7 @@ function saveScheduleLocalNow() {
       schedule: state.schedule || {},
       scheduleFlags: state.scheduleFlags || {},
       notes: state.notes || {},
+      dateNotes: state.dateNotes || {},   // 日期備註(教學日/演習等)
       fixed: state.fixed || {},
       holidays: state.holidays || [],
       savedAt: new Date().toISOString(),
@@ -5578,6 +5734,7 @@ function restoreScheduleFromLocal() {
   state.schedule = data.schedule || {};
   state.scheduleFlags = data.scheduleFlags || {};
   state.notes = data.notes || {};
+  state.dateNotes = data.dateNotes || {};
   state.fixed = data.fixed || {};
   if (data.holidays && data.holidays.length > 0) state.holidays = data.holidays;
   console.log(`[班表還原] 已從 localStorage 還原 ${state.month} 的排班內容`);
@@ -5722,7 +5879,8 @@ function renderFairness() {
     let actualOff = 0;
     for (let d = 1; d <= days; d++) {
       const v = s[d];
-      if (v === 'OFF' || v === 'off' || v === 'o' || v === 'O' || v === 'V') actualOff++;
+      // V(特休)是獨立的特休額度,不佔本月公休配額,所以不算進「本月休假」
+      if (v === 'OFF' || v === 'off' || v === 'o' || v === 'O') actualOff++;
     }
 
     const personalTarget = isSpecial ? 0 : targetOff;
@@ -8218,7 +8376,7 @@ async function exportXlsxTraditional() {
       // 外派整月顯示「外」,否則用 sched 內容
       const v = isDispatched ? '外' : (sched[d] || '');
       shiftRowData.push(v);
-      if (!isDispatched && ['OFF','off','o','V'].includes(v)) offCount++;
+      if (!isDispatched && ['OFF','off','o'].includes(v)) offCount++;  // V 不算公休配額
     }
     shiftRowData.push(null);  // OFF 欄一樣 null,merge 後再 setValue
     const shiftRow = ws.addRow(shiftRowData);
@@ -13874,7 +14032,7 @@ const FIREBASE_CONFIG = {
 };
 
 // 公告網頁的 URL(同仁透過 LINE 點)
-const PUBLISH_VIEW_BASE_URL = 'https://cych05845-jpg.github.io/scheduler-leader/schedule-view/';
+const PUBLISH_VIEW_BASE_URL = 'https://cych05845-jpg.github.io/scheduler-leader/schedule-view.html';
 
 // === Firebase SDK 載入(動態 import,不阻塞首屏) ===
 let _firebaseApp = null;
@@ -15390,6 +15548,36 @@ ${userMsg}
 <div id="ai-viol-picker">
   <div class="picker-head">勾選要加入對話的違規(共 <span id="ai-picker-count">0</span> 條)</div>
   <div id="ai-picker-list"></div>
+</div>
+
+<!-- ============================================================
+     日期備註 Modal — 每日獨立備註(教學日/演習/節慶等)
+     ============================================================ -->
+<div class="modal-backdrop" id="date-note-modal" onclick="if(event.target===this) closeModal('date-note-modal')">
+  <div class="modal" style="max-width: 460px">
+    <div class="modal-header">
+      <h3 id="dn-modal-title">📅 日期備註</h3>
+      <button onclick="closeModal('date-note-modal')" style="background: transparent; border: none; font-size: 1.4rem; cursor: pointer; color: #6b6b6b">×</button>
+    </div>
+    <div class="modal-body" style="padding: 1rem 1.2rem">
+      <div style="font-size: 0.85rem; color: #6b7280; margin-bottom: 0.5rem">這個備註只屬於這一天,會顯示在日期欄上方</div>
+      <input type="text" class="dn-input" id="dn-input" placeholder="例如:教學日、停電演習、新人到職" maxlength="40">
+      <div class="dn-preset-row">
+        <button onclick="dnPreset('教學日')">教學日</button>
+        <button onclick="dnPreset('演習')">演習</button>
+        <button onclick="dnPreset('停電演習')">停電演習</button>
+        <button onclick="dnPreset('新人到職')">新人到職</button>
+        <button onclick="dnPreset('會議')">會議</button>
+        <button onclick="dnPreset('停班')">停班</button>
+        <button onclick="dnPreset('颱風')">颱風</button>
+      </div>
+      <div style="display: flex; gap: 6px; justify-content: flex-end">
+        <button onclick="dnClear()" id="dn-clear-btn" style="background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; padding: 6px 12px; border-radius: 4px; cursor: pointer; display: none">🗑 清除</button>
+        <button onclick="closeModal('date-note-modal')" style="background: #f3f4f6; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; cursor: pointer">取消</button>
+        <button onclick="dnSave()" style="background: #d97706; color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: 600">儲存</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ============================================================
