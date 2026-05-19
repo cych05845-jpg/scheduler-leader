@@ -5456,24 +5456,19 @@ function onCellRightClick(e) {
   const noteSectionId = `note-section-${pid}-${day}-${Date.now()}`;
   // 若該格已有備註,自動展開讓 leader 看到目前是什麼
   const noteOpenByDefault = !!currentNote;
-  html += `<div style="font-size:0.78rem; color:#6b7280; padding:4px 6px; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:space-between" onclick="
-    var el = document.getElementById('${noteSectionId}');
-    var arr = document.getElementById('${noteSectionId}-arr');
-    if (el.style.display === 'none') { el.style.display = 'block'; arr.textContent = '▾'; }
-    else { el.style.display = 'none'; arr.textContent = '▸'; }
-  ">
+  html += `<div style="font-size:0.78rem; color:#6b7280; padding:4px 6px; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:space-between" onclick="toggleNoteSection('${noteSectionId}'); event.stopPropagation();">
     <span>📌 個人日備註${currentNote ? ' (目前: ' + escapeHTML(currentNote) + ')' : ''}</span>
     <span id="${noteSectionId}-arr">${noteOpenByDefault ? '▾' : '▸'}</span>
   </div>`;
   html += `<div id="${noteSectionId}" style="display:${noteOpenByDefault ? 'block' : 'none'}">`;
   NOTE_PRESETS.forEach(preset => {
     const active = preset === currentNote ? ' note-active' : '';
-    html += `<button class="${active}" onclick="setNoteForCell('${pid}', ${day}, '${preset}')">${preset}</button>`;
+    html += `<button class="${active}" onclick="event.stopPropagation(); setNoteForCell('${pid}', ${day}, '${preset}')">${preset}</button>`;
   });
   html += '<hr>';
-  html += `<button onclick="setNoteForCell('${pid}', ${day}, '__custom__')">✏ 自訂備註...</button>`;
+  html += `<button onclick="event.stopPropagation(); setNoteForCell('${pid}', ${day}, '__custom__')">✏ 自訂備註...</button>`;
   if (currentNote) {
-    html += `<button onclick="setNoteForCell('${pid}', ${day}, '')" style="color: #c0392b">🗑 清除備註</button>`;
+    html += `<button onclick="event.stopPropagation(); setNoteForCell('${pid}', ${day}, '')" style="color: #c0392b">🗑 清除備註</button>`;
   }
   html += '</div>';
   btnArea.innerHTML = html;
@@ -5497,6 +5492,20 @@ function onCellRightClick(e) {
 function closeContextMenu() {
   const menu = document.getElementById('cell-context-menu');
   if (menu) menu.style.display = 'none';
+}
+
+// 切換右鍵選單個人備註區塊的收合狀態
+function toggleNoteSection(sectionId) {
+  const el = document.getElementById(sectionId);
+  const arr = document.getElementById(sectionId + '-arr');
+  if (!el || !arr) return;
+  if (el.style.display === 'none') {
+    el.style.display = 'block';
+    arr.textContent = '▾';
+  } else {
+    el.style.display = 'none';
+    arr.textContent = '▸';
+  }
 }
 
 function setNoteForCell(pid, day, value) {
