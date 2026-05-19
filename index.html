@@ -4596,7 +4596,7 @@ const NOTE_PRESETS = ['ACLS', '中油', '友善', '標準', 'LM', 'ER M', '教�
 
 // 科別(站位)預設 — 對齊 leader 紙本班表的 12 個科別
 // 也可在右鍵選單自由輸入新科別,不限於這 12 個
-const DEPT_PRESETS = ['T', 'PT', 'CPR', 'O+ST', 'P', 'R1', 'R2', 'R3', 'L', 'L+OB', '8-5\'', 'P+OB', 'R'];
+const DEPT_PRESETS = ['T', 'PT', 'CPR', 'O+ST', 'P', 'R1', 'R2', 'R3', 'L', 'L+OB', 'P+OB', 'R'];
 
 // 半日時段預設 — 半日職同仁依課表安排的時段
 // 標記後該格自動不算 D/E/N 人力(畫筆顯示時段文字蓋掉原班別)
@@ -14811,10 +14811,31 @@ async function doUnpublishView() {
 // 組裝給 view 端的精簡 payload
 function buildPublishViewPayload() {
   const days = (typeof getDaysInMonth === 'function') ? getDaysInMonth(state.month) : 31;
+  // 計算當月國定假日(對齊 state.rules.holidays 而非舊的 state.holidays)
+  // state.rules.holidays 格式:[{date: '2026-05-01', name: '勞動節'}, ...]
   const holidays = [];
+  if (state.rules && Array.isArray(state.rules.holidays)) {
+    const ymPrefix = state.month + '-';
+    state.rules.holidays.forEach(h => {
+      if (h && typeof h.date === 'string' && h.date.startsWith(ymPrefix)) {
+        const dayNum = parseInt(h.date.slice(-2), 10);
+        if (!isNaN(dayNum)) holidays.push(dayNum);
+      }
+    });
+  }
+  // 備援:若 state.holidays 也有東西(舊版相容),也納入
   if (state.holidays && state.holidays[state.month]) {
     Object.keys(state.holidays[state.month]).forEach(d => {
-      if (state.holidays[state.month][d]) holidays.push(parseInt(d, 10));
+      const n = parseInt(d, 10);
+      if (state.holidays[state.month][d] && !holidays.includes(n)) holidays.push(n);
+    });
+  } else if (Array.isArray(state.holidays)) {
+    const ymPrefix = state.month + '-';
+    state.holidays.forEach(h => {
+      if (typeof h === 'string' && h.startsWith(ymPrefix)) {
+        const dayNum = parseInt(h.slice(-2), 10);
+        if (!isNaN(dayNum) && !holidays.includes(dayNum)) holidays.push(dayNum);
+      }
     });
   }
 
