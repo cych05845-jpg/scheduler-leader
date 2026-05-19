@@ -399,14 +399,14 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 .month-table th.dow-sun, .month-table th.dow-sat { background: #fef3c7; }
 .month-table th.holiday { background: #fee2e2; color: #b91c1c; }
 
-/* 六/日/國定假日:全部統一米色,讓 leader 一眼看到「非工作日」 */
+/* 六/日/國定假日:全部統一淺草綠色 */
 .month-table td.col-sat:not(.cell-D):not(.cell-E):not(.cell-N):not(.cell-M),
 .month-table td.col-sun:not(.cell-D):not(.cell-E):not(.cell-N):not(.cell-M),
 .month-table td.col-holiday:not(.cell-D):not(.cell-E):not(.cell-N):not(.cell-M) {
-  background-color: #fef3c7 !important;
+  background-color: #ecfccb !important;
 }
 
-/* 班別格(D/E/N/M)保留班別色,用右上角小三角統一顏色標記 */
+/* 班別格(D/E/N/M)保留班別色,用左上角小三角標記六/日/國定 */
 .month-table td.col-sat.cell-D::before,
 .month-table td.col-sat.cell-E::before,
 .month-table td.col-sat.cell-N::before,
@@ -422,25 +422,26 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   content: '';
   position: absolute;
   top: 0;
-  right: 0;
+  left: 0;
   border-style: solid;
-  border-width: 0 7px 7px 0;
-  border-color: transparent #d97706 transparent transparent;
+  border-width: 7px 7px 0 0;
+  border-color: #65a30d transparent transparent transparent;
+  pointer-events: none;
 }
 .month-table td { position: relative; }
 
-/* 表頭跟 tfoot 統一米色 */
+/* 表頭跟 tfoot 統一淺草綠色 */
 .month-table th.col-sat,
 .month-table th.col-sun,
 .month-table th.col-holiday {
-  background: #fde68a !important;
-  color: #78350f;
+  background: #d9f99d !important;
+  color: #365314;
 }
 .month-table tfoot td.total-num.col-sat,
 .month-table tfoot td.total-num.col-sun,
 .month-table tfoot td.total-num.col-holiday {
-  background: #fde68a !important;
-  color: #78350f;
+  background: #d9f99d !important;
+  color: #365314;
   font-weight: 700;
 }
 .month-table td.col-name {
