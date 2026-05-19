@@ -749,10 +749,10 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 }
 .sched-table tfoot td.short { background: #fca5a5; color: #7f1d1d; font-weight: 800; }
 .sched-table tfoot td.over { background: #fef3c7; color: #92400e; }
-.sched-table tfoot td.ok { background: #d1fae5; }
-.sched-table tfoot td.ok { color: var(--ok); }
+/* OK 不上色 — 只在「缺人」「過量」時用顏色提示,平常無色看起來乾淨 */
+.sched-table tfoot td.ok { background: transparent; color: inherit; }
 
-/* 下半 table(底部 D/E/N 需求/實際統計)六日染淺草綠 */
+/* 下半 table(底部 D/E/N 需求/實際統計)六日淺綠提示 */
 #sched-table-bottom td.dow-sat,
 #sched-table-bottom td.dow-sun,
 #sched-table-bottom td.holiday {
