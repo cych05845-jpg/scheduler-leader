@@ -1587,6 +1587,33 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
       </div>
     </div>
 
+    <!-- 📊 假日公平性(週六/週日/國定 OFF 統計)-->
+    <div class="section side-collapsible" id="sec-holiday-fair" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-holiday-fair')">
+        <span class="side-arrow">▶</span> 📊 假日休假公平性
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
+        <div style="font-size: 0.85rem; color: var(--ink-mute); margin-bottom: 0.4rem">
+          每人在六/日/國定假日的 OFF 數
+          <button onclick="renderHolidayFairness()" style="float:right; padding:2px 8px; font-size:0.8rem; background:#dbeafe; color:#1e40af; border:1px solid #93c5fd; border-radius:3px; cursor:pointer">🔄 重算</button>
+        </div>
+        <div id="holiday-fairness-table" style="max-height: 500px; overflow-y: auto; font-size:0.85rem"></div>
+      </div>
+    </div>
+
+    <!-- 📋 複製班(帶新進)-->
+    <div class="section side-collapsible" id="sec-copy-schedule" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-copy-schedule')">
+        <span class="side-arrow">▶</span> 📋 複製學姊班給新進
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
+        <div style="font-size: 0.85rem; color: var(--ink-mute); margin-bottom: 0.5rem">
+          複製學姊整月班 → 新進,所有 D/E/N/M 自動加「/帶」記號
+        </div>
+        <button onclick="openCopySchedDialog()" style="width:100%; padding:6px; background:#e0e7ff; color:#3730a3; border:1px solid #a5b4fc; border-radius:4px; cursor:pointer; font-size:0.85rem; font-weight:600">📋 開始複製...</button>
+      </div>
+    </div>
+
     <!-- 📊 本月概況(D/E/N/休 統計) -->
     <div class="section side-collapsible" id="sec-overview" data-default="closed">
       <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-overview')">
@@ -5540,6 +5567,263 @@ function setHalfdayTimeForCell(pid, day, value) {
 }
 
 // ============================================================
+// 複製學姊班給新進(整月複製 + 自動加 trainee marker)
+// 操作流程:選來源 + 目標 + 範圍 → 預覽 → 確認套用
+// ============================================================
+function openCopySchedDialog() {
+  const modal = document.getElementById('copy-sched-modal');
+  if (!modal) return;
+
+  // 填入人員下拉(排除離職/留停的人)
+  const eligibleStaff = (state.staff || []).filter(p => !shouldHideStaff(p, state.month));
+  const srcSel = document.getElementById('cs-source');
+  const tgtSel = document.getElementById('cs-target');
+  if (!srcSel || !tgtSel) return;
+
+  // 來源優先列「有設能力階段」的(代表非新進)
+  const seniors = eligibleStaff.filter(p => isCountingForCapacity(p));
+  const juniors = eligibleStaff.filter(p => !isCountingForCapacity(p));
+
+  let srcHtml = '<option value="">-- 選擇學姊 --</option>';
+  srcHtml += '<optgroup label="可帶教(已獨立)">';
+  seniors.forEach(p => { srcHtml += `<option value="${p.id}">${escapeHTML(p.name)} (${escapeHTML(p.level || '')})</option>`; });
+  srcHtml += '</optgroup>';
+  if (juniors.length > 0) {
+    srcHtml += '<optgroup label="其他">';
+    juniors.forEach(p => { srcHtml += `<option value="${p.id}">${escapeHTML(p.name)} (${escapeHTML(p.level || '')})</option>`; });
+    srcHtml += '</optgroup>';
+  }
+  srcSel.innerHTML = srcHtml;
+
+  // 目標優先列「沒設能力階段」的(新進)
+  let tgtHtml = '<option value="">-- 選擇新進 --</option>';
+  tgtHtml += '<optgroup label="新進(無能力階段)">';
+  juniors.forEach(p => { tgtHtml += `<option value="${p.id}">${escapeHTML(p.name)} (${escapeHTML(p.level || '')})</option>`; });
+  tgtHtml += '</optgroup>';
+  tgtHtml += '<optgroup label="其他">';
+  seniors.forEach(p => { tgtHtml += `<option value="${p.id}">${escapeHTML(p.name)} (${escapeHTML(p.level || '')})</option>`; });
+  tgtHtml += '</optgroup>';
+  tgtSel.innerHTML = tgtHtml;
+
+  // 清預覽
+  document.getElementById('cs-preview').innerHTML = '<div style="color:#9ca3af; padding:1rem; text-align:center; border:1px dashed #d1d5db; border-radius:4px">選擇學姊跟新進後,這裡會顯示預覽</div>';
+  const applyBtn = document.getElementById('cs-apply-btn');
+  applyBtn.disabled = true;
+  applyBtn.style.opacity = 0.5;
+
+  modal.classList.add('active');
+}
+
+function csPreview() {
+  const srcId = document.getElementById('cs-source').value;
+  const tgtId = document.getElementById('cs-target').value;
+  const range = document.querySelector('input[name="cs-range"]:checked').value;
+  const previewEl = document.getElementById('cs-preview');
+  const applyBtn = document.getElementById('cs-apply-btn');
+
+  if (!srcId || !tgtId) {
+    previewEl.innerHTML = '<div style="color:#9ca3af; padding:1rem; text-align:center; border:1px dashed #d1d5db; border-radius:4px">選擇學姊跟新進後,這裡會顯示預覽</div>';
+    applyBtn.disabled = true;
+    applyBtn.style.opacity = 0.5;
+    return;
+  }
+
+  if (srcId === tgtId) {
+    previewEl.innerHTML = '<div style="color:#b91c1c; padding:0.8rem; background:#fef2f2; border:1px solid #fecaca; border-radius:4px">⚠ 來源跟目標不能是同一人</div>';
+    applyBtn.disabled = true;
+    applyBtn.style.opacity = 0.5;
+    return;
+  }
+
+  const days = getDaysInMonth(state.month);
+  const srcP = state.staff.find(p => p.id === srcId);
+  const tgtP = state.staff.find(p => p.id === tgtId);
+  const srcSched = state.schedule[srcId] || {};
+  const tgtSched = state.schedule[tgtId] || {};
+
+  // 計算將被複製的格子
+  let willCopy = 0, willOverwrite = 0;
+  for (let d = 1; d <= days; d++) {
+    const v = srcSched[d] || '';
+    if (range === 'work' && !['D','E','N','M'].includes(v)) continue;
+    if (!v && range === 'all') continue;
+    if (tgtSched[d]) willOverwrite++;
+    willCopy++;
+  }
+
+  let html = `<div style="background:#f9fafb; padding:10px; border-radius:4px; margin-bottom:8px">
+    <div style="font-size:0.9rem; font-weight:600; margin-bottom:6px">📋 預覽</div>
+    <div style="font-size:0.85rem; color:#374151">
+      <strong>${escapeHTML(srcP.name)}</strong> → <strong>${escapeHTML(tgtP.name)}</strong>
+      &nbsp;|&nbsp; 將複製 <strong>${willCopy}</strong> 格`;
+  if (willOverwrite > 0) html += `,<span style="color:#b91c1c">覆蓋 ${willOverwrite} 格現有資料</span>`;
+  html += `</div></div>`;
+
+  html += '<table style="width:100%; font-size:0.78rem; border-collapse:collapse; margin-top:6px">';
+  html += '<thead><tr style="background:#1f2937; color:white">';
+  html += '<th style="padding:4px; min-width:36px">日</th>';
+  html += `<th style="padding:4px">${escapeHTML(srcP.name)} 原</th>`;
+  html += `<th style="padding:4px">${escapeHTML(tgtP.name)} 原</th>`;
+  html += `<th style="padding:4px">${escapeHTML(tgtP.name)} 新</th>`;
+  html += '</tr></thead><tbody>';
+
+  for (let d = 1; d <= days; d++) {
+    const srcV = srcSched[d] || '·';
+    const tgtV = tgtSched[d] || '·';
+    let newV = tgtV;
+    let willChange = false;
+    if (range === 'work' && !['D','E','N','M'].includes(srcSched[d])) {
+      newV = tgtV;
+    } else if (!srcSched[d] && range === 'all') {
+      newV = tgtV;
+    } else if (srcSched[d]) {
+      newV = srcSched[d];
+      willChange = (newV !== (tgtSched[d] || ''));
+      if (['D','E','N','M'].includes(newV)) newV = newV + "'";
+    }
+    const bg = willChange ? '#fef3c7' : 'white';
+    html += `<tr style="background:${bg}">`;
+    html += `<td style="padding:3px 4px; border:1px solid #e5e7eb; text-align:center; font-weight:600">${d}</td>`;
+    html += `<td style="padding:3px 4px; border:1px solid #e5e7eb; text-align:center">${escapeHTML(srcV)}</td>`;
+    html += `<td style="padding:3px 4px; border:1px solid #e5e7eb; text-align:center; color:#9ca3af">${escapeHTML(tgtV)}</td>`;
+    html += `<td style="padding:3px 4px; border:1px solid #e5e7eb; text-align:center; font-weight:${willChange ? 700 : 400}">${escapeHTML(newV)}</td>`;
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+
+  previewEl.innerHTML = html;
+  applyBtn.disabled = false;
+  applyBtn.style.opacity = 1;
+}
+
+function csApply() {
+  const srcId = document.getElementById('cs-source').value;
+  const tgtId = document.getElementById('cs-target').value;
+  const range = document.querySelector('input[name="cs-range"]:checked').value;
+  if (!srcId || !tgtId || srcId === tgtId) return;
+
+  snapshotState('複製學姊班');
+
+  const days = getDaysInMonth(state.month);
+  const srcSched = state.schedule[srcId] || {};
+  if (!state.schedule[tgtId]) state.schedule[tgtId] = {};
+  if (!state.scheduleFlags) state.scheduleFlags = {};
+  if (!state.scheduleFlags[tgtId]) state.scheduleFlags[tgtId] = {};
+
+  let copied = 0;
+  for (let d = 1; d <= days; d++) {
+    const v = srcSched[d] || '';
+    if (range === 'work' && !['D','E','N','M'].includes(v)) continue;
+    if (!v && range === 'all') continue;
+    state.schedule[tgtId][d] = v;
+    if (['D','E','N','M'].includes(v)) {
+      state.scheduleFlags[tgtId][d] = Object.assign(state.scheduleFlags[tgtId][d] || {}, { marker: 'trainee' });
+    }
+    copied++;
+  }
+
+  closeModal('copy-sched-modal');
+  renderTable();
+  if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
+  alert(`✓ 已複製 ${copied} 格,所有 D/E/N/M 都加上「'」未獨立記號`);
+}
+
+// ============================================================
+// 假日休假公平性 — 統計每人在週六/週日/國定假日的 OFF 數
+// 顯示表格 + 平均值,排序看誰假日休最少
+// ============================================================
+function renderHolidayFairness() {
+  const container = document.getElementById('holiday-fairness-table');
+  if (!container) return;
+
+  const days = getDaysInMonth(state.month);
+  const visibleStaff = state.staff.filter(p => !shouldHideStaff(p, state.month));
+
+  const rows = visibleStaff.map(p => {
+    const sched = state.schedule[p.id] || {};
+    let satOff = 0, sunOff = 0, holOff = 0, weekdayOff = 0;
+    let satWork = 0, sunWork = 0, holWork = 0;
+    for (let d = 1; d <= days; d++) {
+      const v = sched[d];
+      const dow = getDayOfWeek(state.month, d);
+      const hol = isHoliday(state.month, d);
+      const isOff = ['OFF','off','o','O'].includes(v);
+      const isV = v === 'V';
+      const isWork = ['D','E','N','M'].includes(v);
+
+      if (hol) {
+        if (isOff || isV) holOff++;
+        if (isWork) holWork++;
+      } else if (dow === 6) {
+        if (isOff || isV) satOff++;
+        if (isWork) satWork++;
+      } else if (dow === 0) {
+        if (isOff || isV) sunOff++;
+        if (isWork) sunWork++;
+      } else {
+        if (isOff || isV) weekdayOff++;
+      }
+    }
+    return {
+      p, satOff, sunOff, holOff, weekdayOff,
+      satWork, sunWork, holWork,
+      total: satOff + sunOff + holOff,
+      isCounting: isCountingForCapacity(p),
+    };
+  });
+
+  rows.sort((a, b) => a.total - b.total);
+
+  const counting = rows.filter(r => r.isCounting);
+  const avgSat = counting.length ? counting.reduce((s, r) => s + r.satOff, 0) / counting.length : 0;
+  const avgSun = counting.length ? counting.reduce((s, r) => s + r.sunOff, 0) / counting.length : 0;
+  const avgHol = counting.length ? counting.reduce((s, r) => s + r.holOff, 0) / counting.length : 0;
+  const avgTotal = avgSat + avgSun + avgHol;
+
+  let html = `<div style="background:#f0f9ff; padding:8px 10px; border-radius:4px; margin-bottom:8px; font-size:0.8rem; border-left:3px solid #0284c7">
+    <strong>平均值(${counting.length} 位正式人力):</strong>
+    六 ${avgSat.toFixed(1)} | 日 ${avgSun.toFixed(1)} | 國定 ${avgHol.toFixed(1)} | 合計 ${avgTotal.toFixed(1)}
+  </div>`;
+
+  html += '<table style="width:100%; font-size:0.8rem; border-collapse:collapse">';
+  html += '<thead><tr style="background:#1f2937; color:white">';
+  html += '<th style="padding:5px 4px; text-align:left">姓名</th>';
+  html += '<th style="padding:5px 4px; text-align:center">六休</th>';
+  html += '<th style="padding:5px 4px; text-align:center">日休</th>';
+  html += '<th style="padding:5px 4px; text-align:center">國定休</th>';
+  html += '<th style="padding:5px 4px; text-align:center; background:#fbbf24; color:#78350f">假日總</th>';
+  html += '<th style="padding:5px 4px; text-align:center; color:#9ca3af">平日休</th>';
+  html += '</tr></thead><tbody>';
+
+  rows.forEach(r => {
+    const diff = r.total - avgTotal;
+    let rowBg = '';
+    if (r.isCounting) {
+      if (diff <= -2) rowBg = '#fee2e2';
+      else if (diff <= -1) rowBg = '#fef3c7';
+      else if (diff >= 2) rowBg = '#dcfce7';
+    } else {
+      rowBg = '#f9fafb';
+    }
+    html += `<tr style="background:${rowBg}; border-bottom:1px solid #e5e7eb">`;
+    html += `<td style="padding:4px 6px; ${!r.isCounting ? 'color:#9ca3af; font-style:italic' : 'font-weight:600'}">${escapeHTML(r.p.name)}${!r.isCounting ? ' <span style="font-size:0.7rem">(不算)</span>' : ''}</td>`;
+    html += `<td style="padding:4px; text-align:center" title="休 ${r.satOff} / 上 ${r.satWork}">${r.satOff}</td>`;
+    html += `<td style="padding:4px; text-align:center" title="休 ${r.sunOff} / 上 ${r.sunWork}">${r.sunOff}</td>`;
+    html += `<td style="padding:4px; text-align:center" title="休 ${r.holOff} / 上 ${r.holWork}">${r.holOff}</td>`;
+    html += `<td style="padding:4px; text-align:center; font-weight:700; background:rgba(251,191,36,0.15)">${r.total}</td>`;
+    html += `<td style="padding:4px; text-align:center; color:#9ca3af">${r.weekdayOff}</td>`;
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+
+  html += `<div style="margin-top:8px; font-size:0.72rem; color:#6b7280; padding:6px 8px; background:#f9fafb; border-radius:3px">
+    🟥 比平均少 2+ &nbsp; 🟨 比平均少 1-2 &nbsp; 🟩 比平均多 2+ &nbsp;|&nbsp; "(不算)"=新進/實習/半日/留停
+  </div>`;
+
+  container.innerHTML = html;
+}
+
+// ============================================================
 // 日期備註(每日獨立) — 例:教學日、演習、節慶
 // 資料結構:state.dateNotes[month][day] = noteString
 // 顯示位置:班表頂部日期欄旁,有備註時整欄頂部冒橘色線
@@ -5654,6 +5938,45 @@ function useCustomDeptBrush() {
   const v = (input.value || '').trim();
   if (!v) { alert('請輸入科別名稱'); return; }
   useDeptBrush(v);
+  input.value = '';
+}
+
+// ============================================================
+// 半日時段畫筆下拉(8-12 / 10-14 / 12-16 / 8-4 + 自訂)
+// 點 🌗 半日 按鈕 → 展開下拉 → 點任一時段 → 設為畫筆 + 關下拉
+// ============================================================
+function useHalftimeBrush(timeValue) {
+  state.currentBrush = timeValue;
+
+  // 視覺提示:浮動列「🌗 半日」按鈕變 active
+  document.querySelectorAll('#floating-brush-bar .fb-btn').forEach(b => {
+    b.classList.toggle('active', b.id === 'fb-halftime-toggle');
+  });
+  document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active'));
+
+  // 改按鈕文字顯示當前畫筆
+  const toggle = document.getElementById('fb-halftime-toggle');
+  if (toggle) {
+    toggle.textContent = '🌗 ' + timeValue;
+    toggle.title = `半日時段畫筆:${timeValue} — 點班別格子會設為這個時段(不計入人力)`;
+  }
+
+  // 關閉下拉
+  const dropdown = document.getElementById('fb-halftime-dropdown');
+  if (dropdown) dropdown.style.display = 'none';
+}
+
+function useCustomHalftimeBrush() {
+  const input = document.getElementById('fb-halftime-custom');
+  if (!input) return;
+  const v = (input.value || '').trim();
+  if (!v) { alert('請輸入時段(例:9-13)'); return; }
+  // 簡單驗證:必須是 X-Y 格式
+  if (!/^\d+-\d+$/.test(v)) {
+    alert('時段格式錯誤,請用 X-Y(例:9-13)');
+    return;
+  }
+  useHalftimeBrush(v);
   input.value = '';
 }
 
@@ -14653,6 +14976,24 @@ function toggleSidePanelCollapse() {
     document.querySelectorAll('#floating-brush-bar .fb-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.brush === brush);
     });
+    // 半日按鈕文字復原(若當前畫筆不是半日時段)
+    const halfToggle = document.getElementById('fb-halftime-toggle');
+    if (halfToggle) {
+      const isHalftime = /^\d+-\d+$/.test(brush);
+      if (isHalftime) {
+        halfToggle.textContent = '🌗 ' + brush;
+        halfToggle.classList.add('active');
+      } else {
+        halfToggle.textContent = '🌗 半日 ▾';
+        halfToggle.classList.remove('active');
+      }
+    }
+    // 科別按鈕文字復原(若當前畫筆不是科別)
+    const deptToggle = document.getElementById('fb-dept-toggle');
+    if (deptToggle && !brush.startsWith('__dept_')) {
+      deptToggle.textContent = '🏥 科別';
+      deptToggle.classList.remove('active');
+    }
   }
   function syncFromFloat(brush) {
     if (typeof state !== 'undefined') state.currentBrush = brush;
@@ -14769,6 +15110,42 @@ function toggleSidePanelCollapse() {
       document.addEventListener('click', (e) => {
         if (!deptDropdown.contains(e.target) && e.target !== deptToggle) {
           deptDropdown.style.display = 'none';
+        }
+      });
+    }
+
+    // === 半日時段下拉(浮動畫筆右側)===
+    const halfToggle = $('fb-halftime-toggle');
+    const halfDropdown = $('fb-halftime-dropdown');
+    if (halfToggle && halfDropdown) {
+      // 預設 4 個時段按鈕綁 click
+      halfDropdown.querySelectorAll('.fb-halftime-opt').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          useHalftimeBrush(btn.dataset.brush);
+        });
+      });
+
+      halfToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (halfDropdown.style.display === 'none' || !halfDropdown.style.display) {
+          const rect = halfToggle.getBoundingClientRect();
+          halfDropdown.style.display = 'block';
+          const dropRect = halfDropdown.getBoundingClientRect();
+          let left = rect.left;
+          if (left + dropRect.width > window.innerWidth - 10) {
+            left = window.innerWidth - dropRect.width - 10;
+          }
+          halfDropdown.style.left = Math.max(10, left) + 'px';
+          halfDropdown.style.top = Math.max(10, rect.top - dropRect.height - 6) + 'px';
+        } else {
+          halfDropdown.style.display = 'none';
+        }
+      });
+      // 點外面關閉
+      document.addEventListener('click', (e) => {
+        if (!halfDropdown.contains(e.target) && e.target !== halfToggle) {
+          halfDropdown.style.display = 'none';
         }
       });
     }
@@ -15651,10 +16028,7 @@ ${userMsg}
   <button class="fb-btn" data-brush="V" title="特休">V</button>
   <button class="fb-btn" data-brush="" title="清除">✕</button>
   <span class="fb-divider" title="半日時段(不計入人力)"></span>
-  <button class="fb-btn fb-halftime" data-brush="8-12" title="半日時段 8-12(此格不計入人力)">8-12</button>
-  <button class="fb-btn fb-halftime" data-brush="10-14" title="半日時段 10-14(此格不計入人力)">10-14</button>
-  <button class="fb-btn fb-halftime" data-brush="12-16" title="半日時段 12-16(此格不計入人力)">12-16</button>
-  <button class="fb-btn fb-halftime" data-brush="8-4" title="半日時段 8-4(此格不計入人力)">8-4</button>
+  <button class="fb-btn fb-halftime" id="fb-halftime-toggle" title="選半日時段畫筆(8-12 / 10-14 等;不計入人力)">🌗 半日 ▾</button>
   <span class="fb-divider" title="記號畫筆"></span>
   <button class="fb-btn fb-marker" data-brush="__marker_preceptor__" title="標記為帶教(D/帶):此格不計入正式人力">/帶</button>
   <button class="fb-btn fb-marker" data-brush="__marker_trainee__" title="標記為未獨立(D'):此格不計入正式人力">'</button>
@@ -15662,6 +16036,20 @@ ${userMsg}
   <span class="fb-divider" title="科別畫筆"></span>
   <button class="fb-btn fb-dept" id="fb-dept-toggle" title="選科別畫筆(畫上後點班別格設定科別)">🏥 科別</button>
   <button class="fb-close" id="fb-close" title="收起(可從左下角圖示重新打開)">×</button>
+</div>
+<!-- 半日時段下拉(浮動列展開) -->
+<div id="fb-halftime-dropdown" style="display:none; position:fixed; background:white; border:1px solid #d1d5db; border-radius:6px; box-shadow:0 8px 24px rgba(0,0,0,0.15); padding:8px; z-index:8501; min-width:200px">
+  <div style="font-size:0.78rem; color:#0e7490; padding:4px; font-weight:600; border-bottom:1px solid #e5e7eb; margin-bottom:6px">🌗 選半日時段畫筆(此格不計入人力)</div>
+  <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:4px">
+    <button class="fb-halftime-opt" data-brush="8-12" style="padding:8px 4px; background:#ecfeff; border:1px solid #a5f3fc; color:#0e7490; border-radius:4px; cursor:pointer; font-size:0.85rem; font-weight:600">8-12</button>
+    <button class="fb-halftime-opt" data-brush="10-14" style="padding:8px 4px; background:#ecfeff; border:1px solid #a5f3fc; color:#0e7490; border-radius:4px; cursor:pointer; font-size:0.85rem; font-weight:600">10-14</button>
+    <button class="fb-halftime-opt" data-brush="12-16" style="padding:8px 4px; background:#ecfeff; border:1px solid #a5f3fc; color:#0e7490; border-radius:4px; cursor:pointer; font-size:0.85rem; font-weight:600">12-16</button>
+    <button class="fb-halftime-opt" data-brush="8-4" style="padding:8px 4px; background:#ecfeff; border:1px solid #a5f3fc; color:#0e7490; border-radius:4px; cursor:pointer; font-size:0.85rem; font-weight:600">8-4</button>
+  </div>
+  <div style="display:flex; gap:4px; margin-top:8px; padding-top:8px; border-top:1px solid #e5e7eb">
+    <input type="text" id="fb-halftime-custom" placeholder="自訂時段(例:9-13)..." style="flex:1; padding:5px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.85rem">
+    <button onclick="useCustomHalftimeBrush()" style="background:#0e7490; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:0.82rem; font-weight:600">套用</button>
+  </div>
 </div>
 <!-- 科別下拉(浮動列展開) -->
 <div id="fb-dept-dropdown" style="display:none; position:fixed; background:white; border:1px solid #d1d5db; border-radius:6px; box-shadow:0 8px 24px rgba(0,0,0,0.15); padding:8px; z-index:8501; min-width:240px">
@@ -15709,6 +16097,43 @@ ${userMsg}
 <div id="ai-viol-picker">
   <div class="picker-head">勾選要加入對話的違規(共 <span id="ai-picker-count">0</span> 條)</div>
   <div id="ai-picker-list"></div>
+</div>
+
+<!-- ============================================================
+     複製學姊班給新進 — Modal
+     ============================================================ -->
+<div class="modal-backdrop" id="copy-sched-modal" onclick="if(event.target===this) closeModal('copy-sched-modal')">
+  <div class="modal" style="max-width: 720px; max-height: 86vh; display: flex; flex-direction: column">
+    <div class="modal-header">
+      <h3>📋 複製學姊班給新進</h3>
+      <button onclick="closeModal('copy-sched-modal')" style="background: transparent; border: none; font-size: 1.4rem; cursor: pointer; color: #6b6b6b">×</button>
+    </div>
+    <div class="modal-body" style="padding: 1rem 1.2rem; overflow-y: auto; flex: 1">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px">
+        <div>
+          <label style="display:block; font-size:0.85rem; color:#6b7280; margin-bottom:4px; font-weight:600">學姊(來源)</label>
+          <select id="cs-source" onchange="csPreview()" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px"></select>
+        </div>
+        <div>
+          <label style="display:block; font-size:0.85rem; color:#6b7280; margin-bottom:4px; font-weight:600">新進(目標)</label>
+          <select id="cs-target" onchange="csPreview()" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px"></select>
+        </div>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block; font-size:0.85rem; color:#6b7280; margin-bottom:4px; font-weight:600">複製範圍</label>
+        <label style="display:inline-block; margin-right:14px"><input type="radio" name="cs-range" value="all" checked onchange="csPreview()"> 整月(含休假)</label>
+        <label style="display:inline-block; margin-right:14px"><input type="radio" name="cs-range" value="work" onchange="csPreview()"> 只複製 D/E/N/M(休假留空)</label>
+      </div>
+      <div style="margin-bottom:8px; font-size:0.85rem; color:#0c4a6e; background:#e0f2fe; padding:8px 10px; border-radius:4px; border-left:3px solid #0284c7">
+        💡 所有複製過去的 D/E/N/M 班會自動加「/帶」記號(新進帶教,不計入正式人力)
+      </div>
+      <div id="cs-preview" style="margin-top:12px"></div>
+      <div style="display: flex; gap: 6px; justify-content: flex-end; margin-top:14px; border-top:1px solid #e5e7eb; padding-top:10px">
+        <button onclick="closeModal('copy-sched-modal')" style="background: #f3f4f6; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 4px; cursor: pointer">取消</button>
+        <button id="cs-apply-btn" onclick="csApply()" disabled style="background: #4f46e5; color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: 600; opacity:0.5">✓ 確認套用</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ============================================================
