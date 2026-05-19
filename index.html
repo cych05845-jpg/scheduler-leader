@@ -625,14 +625,40 @@ td.shift-empty { background: #fff; color: #ccc; }
 
 /* Note indicator (red dot) on cells with notes */
 .note-dot {
+  /* 舊版小紅點,保留以防其他地方用到 — 改用 note-bar 顯示文字 */
+  display: none;
+}
+/* 個人日備註(紫色橫條,顯示在班別上方)*/
+td.cell-with-note {
+  padding-top: 12px !important;
+  vertical-align: middle;
+}
+.note-bar {
   position: absolute;
-  top: 1px;
-  left: 2px;
-  font-size: 8px;
-  color: #d97706;
-  line-height: 1;
+  top: 0;
+  left: 0;
+  right: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: white;
+  background: #7c3aed;
+  padding: 1px 2px;
+  line-height: 1.1;
   pointer-events: none;
-  z-index: 2;
+  text-align: center;
+  border-bottom: 1px solid #5b21b6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  z-index: 1;
+}
+/* 同時有科別跟備註 → 科別在最上、備註在中、班別在下 */
+td.cell-with-dept.cell-with-note {
+  padding-top: 24px !important;  /* 為兩個橫條留空間 */
+}
+td.cell-with-dept.cell-with-note .note-bar {
+  top: 12px;  /* 在科別 label 下方 */
+  border-top: 1px solid #5b21b6;
 }
 td[data-pid] {
   position: relative;
@@ -2843,26 +2869,25 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   .date-note-icon.active {
     display: none;
   }
-  /* 日期備註(顯示在日期數字上方)*/
+  /* 日期備註(顯示在日期數字上方,占整格頂端橘色橫條)*/
   .date-note-top {
     display: block;
-    font-size: 0.7rem;
+    font-size: 0.78rem;
     font-weight: 700;
-    line-height: 1;
+    line-height: 1.1;
     color: #fef3c7;
     background: #d97706;
-    padding: 1px 2px;
-    margin: -2px -3px 1px;
-    border-radius: 2px 2px 0 0;
-    max-width: 100%;
+    padding: 2px 2px;
+    margin: -4px -5px 2px;  /* 拉到 th 的左右上邊緣 */
+    border-bottom: 1px solid #92400e;
+    max-width: none;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   th.day-cell.has-date-note {
     padding-top: 0 !important;
-    background: #92400e !important;
-    color: white !important;
+    vertical-align: top !important;
   }
   /* 日期備註 modal */
   #date-note-modal .dn-input {
@@ -4556,7 +4581,7 @@ const NOTE_PRESETS = ['ACLS', '中油', '友善', '標準', 'LM', 'ER M', '教�
 
 // 科別(站位)預設 — 對齊 leader 紙本班表的 12 個科別
 // 也可在右鍵選單自由輸入新科別,不限於這 12 個
-const DEPT_PRESETS = ['T', 'PT', 'CPR', 'O+ST', 'P', 'R1', 'R2', 'R3', 'L+OB', '8-5\'', 'P+OB', 'R'];
+const DEPT_PRESETS = ['T', 'PT', 'CPR', 'O+ST', 'P', 'R1', 'R2', 'R3', 'L', 'L+OB', '8-5\'', 'P+OB', 'R'];
 
 // 半日時段預設 — 半日職同仁依課表安排的時段
 // 標記後該格自動不算 D/E/N 人力(畫筆顯示時段文字蓋掉原班別)
@@ -5111,8 +5136,12 @@ function renderTable() {
       const deptSuffix = deptFlag ? ` · 科別:${deptFlag}` : '';
       const halftimeSuffix = isHalftime ? ` · 半日時段 ${halftimeFlag}(不計入人力)` : '';
       // Note (per-person per-day annotation: ACLS / 中油 / 友善 ...)
+      // 顯示在班別上方,紫色橫條 + 文字
       const noteText = (state.notes[p.id] && state.notes[p.id][d]) || '';
-      const noteIndicator = noteText ? '<span class="note-dot" title="' + escapeHTML(noteText) + '">●</span>' : '';
+      const noteIndicator = noteText
+        ? `<span class="note-bar" title="${escapeHTML(noteText)}">${escapeHTML(noteText.length > 4 ? noteText.slice(0, 3) + '⋯' : noteText)}</span>`
+        : '';
+      if (noteText) cls += ' cell-with-note';
       const noteTitle = noteText ? `\n📌 ${noteText}` : '';
 
       // 整月外派:格子顯示「外」,紅底白字,點擊仍會開該人視窗

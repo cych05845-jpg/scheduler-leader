@@ -398,6 +398,51 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 }
 .month-table th.dow-sun, .month-table th.dow-sat { background: #fef3c7; }
 .month-table th.holiday { background: #fee2e2; color: #b91c1c; }
+
+/* 六/日/國定假日:全部統一米色,讓 leader 一眼看到「非工作日」 */
+.month-table td.col-sat:not(.cell-D):not(.cell-E):not(.cell-N):not(.cell-M),
+.month-table td.col-sun:not(.cell-D):not(.cell-E):not(.cell-N):not(.cell-M),
+.month-table td.col-holiday:not(.cell-D):not(.cell-E):not(.cell-N):not(.cell-M) {
+  background-color: #fef3c7 !important;
+}
+
+/* 班別格(D/E/N/M)保留班別色,用右上角小三角統一顏色標記 */
+.month-table td.col-sat.cell-D::before,
+.month-table td.col-sat.cell-E::before,
+.month-table td.col-sat.cell-N::before,
+.month-table td.col-sat.cell-M::before,
+.month-table td.col-sun.cell-D::before,
+.month-table td.col-sun.cell-E::before,
+.month-table td.col-sun.cell-N::before,
+.month-table td.col-sun.cell-M::before,
+.month-table td.col-holiday.cell-D::before,
+.month-table td.col-holiday.cell-E::before,
+.month-table td.col-holiday.cell-N::before,
+.month-table td.col-holiday.cell-M::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-style: solid;
+  border-width: 0 7px 7px 0;
+  border-color: transparent #d97706 transparent transparent;
+}
+.month-table td { position: relative; }
+
+/* 表頭跟 tfoot 統一米色 */
+.month-table th.col-sat,
+.month-table th.col-sun,
+.month-table th.col-holiday {
+  background: #fde68a !important;
+  color: #78350f;
+}
+.month-table tfoot td.total-num.col-sat,
+.month-table tfoot td.total-num.col-sun,
+.month-table tfoot td.total-num.col-holiday {
+  background: #fde68a !important;
+  color: #78350f;
+  font-weight: 700;
+}
 .month-table td.col-name {
   position: sticky;
   left: 0;
@@ -488,15 +533,27 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 /* 月曆底部每日人數統計(D/E/N)*/
 .month-table tbody tr:hover td.col-off { background: #fcd34d; }
 
-/* 日期備註標記 — 月曆表頭 */
+/* 日期備註標記 — 月曆表頭(文字橫條在數字上方,跟主班表一致)*/
 .month-table th.has-date-note {
-  box-shadow: inset 0 4px 0 0 #d97706;
-  position: relative;
+  padding-top: 0 !important;
+  vertical-align: top !important;
+}
+.date-note-top {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #fef3c7;
+  background: #d97706;
+  padding: 2px 2px;
+  margin: -5px -8px 2px;
+  border-bottom: 1px solid #92400e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .month-cell-note-icon {
-  font-size: 0.55rem;
-  line-height: 1;
-  margin-top: 1px;
+  display: none;  /* 改用 date-note-top */
 }
 
 /* 日期備註 — 個人月曆 */
@@ -544,21 +601,25 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 .month-cell-shift {
   line-height: 1;
 }
-/* 個人日備註(月曆視圖,班別下方紫色小條)*/
+/* 個人日備註(月曆視圖,班別上方紫色小條)*/
 .month-cell-pnote {
   font-size: 0.62rem;
   font-weight: 600;
   color: white;
   background: #7c3aed;
-  margin: 1px -8px -5px;
+  margin: -5px -8px 1px;
   padding: 1px 0;
-  border-top: 1px solid #5b21b6;
+  border-bottom: 1px solid #5b21b6;
   line-height: 1;
   text-align: center;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 如果同時有科別跟個人備註,科別已經有 margin-top -5px,需要拉開分隔 */
+.month-cell-dept + .month-cell-pnote {
+  margin-top: 0;
 }
 .month-table td.cell-N .month-cell-dept {
   color: #fef3c7;
@@ -1120,8 +1181,8 @@ function renderMonthTable() {
     const dn = (state.dateNotes || {})[d];
     if (dn) cls += ' has-date-note';
     const dnTitle = dn ? `${dn}` : `${d} 日`;
-    const dnIcon = dn ? '<div class="month-cell-note-icon">📝</div>' : '';
-    html += `<th class="${cls}" title="${esc(dnTitle)}">${d}${dnIcon}</th>`;
+    const dnTop = dn ? `<div class="date-note-top" title="${esc(dn)}">${esc(dn.length > 5 ? dn.slice(0, 4) + '⋯' : dn)}</div>` : '';
+    html += `<th class="${cls}" title="${esc(dnTitle)}">${dnTop}${d}</th>`;
   }
   html += '<th class="col-off" rowspan="2" title="本月公休數(不含特休 V)">休</th>';
   html += '</tr><tr>';
@@ -1129,7 +1190,12 @@ function renderMonthTable() {
     const date = new Date(year, monthIdx, d);
     const dow = date.getDay();
     const dowName = ['日','一','二','三','四','五','六'][dow];
-    html += `<th style="font-size:0.7rem; font-weight:400">${dowName}</th>`;
+    const isHol = state.holidays.includes(d);
+    let dowCls = '';
+    if (isHol) dowCls = 'col-holiday';
+    else if (dow === 0) dowCls = 'col-sun';
+    else if (dow === 6) dowCls = 'col-sat';
+    html += `<th class="${dowCls}" style="font-size:0.7rem; font-weight:400">${dowName}</th>`;
   }
   html += '</tr></thead><tbody>';
 
@@ -1152,6 +1218,13 @@ function renderMonthTable() {
       const flag = pFlags[d] || {};
       let cls = sh ? `cell-${sh}` : '';
       if (d === todayDay) cls += ' today-col';
+      // 加日期屬性 class:六/日/國定 — 整欄上色用
+      const dDate = new Date(year, monthIdx, d);
+      const dDow = dDate.getDay();
+      const dIsHol = state.holidays.includes(d);
+      if (dIsHol) cls += ' col-holiday';
+      else if (dDow === 0) cls += ' col-sun';
+      else if (dDow === 6) cls += ' col-sat';
       if (flag.underline) cls += ' cell-underline';
       if (flag.marker === 'preceptor') cls += ' marker-preceptor';
       if (flag.marker === 'trainee') cls += ' marker-trainee';
@@ -1162,8 +1235,8 @@ function renderMonthTable() {
       const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
         ? `<div class="month-cell-dept">${esc(flag.dept)}</div>` : '';
       const noteDot = personNote ? `<div class="month-cell-pnote" title="${esc(personNote)}">${esc(personNote.length > 4 ? personNote.slice(0,3) + '⋯' : personNote)}</div>` : '';
-      // 科別在上,班別在下,個人備註在右下角小字
-      html += `<td class="${cls}" title="${personNote ? esc(personNote) : ''}">${deptSmall}<div class="month-cell-shift">${esc(display)}</div>${noteDot}</td>`;
+      // 排序:科別(最上) → 個人備註 → 班別 D(下)
+      html += `<td class="${cls}" title="${personNote ? esc(personNote) : ''}">${deptSmall}${noteDot}<div class="month-cell-shift">${esc(display)}</div></td>`;
     }
     // OFF 數欄
     // OFF 數欄(只顯示公休數,V 算特休不顯示在這)
@@ -1192,7 +1265,15 @@ function renderMonthTable() {
         if (flag.halfdayTime) return;
         count++;
       });
-      const cls = d === todayDay ? 'today-col' : '';
+      // 加日期屬性 class — 六/日/國定整欄一致上色
+      const dDate = new Date(year, monthIdx, d);
+      const dDow = dDate.getDay();
+      const dIsHol = state.holidays.includes(d);
+      let cls = '';
+      if (d === todayDay) cls += ' today-col';
+      if (dIsHol) cls += ' col-holiday';
+      else if (dDow === 0) cls += ' col-sun';
+      else if (dDow === 6) cls += ' col-sat';
       html += `<td class="${cls} total-num">${count}</td>`;
     }
     html += '<td class="col-off"></td></tr>';
