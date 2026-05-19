@@ -481,6 +481,122 @@ td.cell-underline.cell-marker-preceptor::after,
 td.cell-underline.cell-marker-trainee::after {
   /* 角標相同位置 — underline 是底部、marker 是右上,所以本來就不打架 */
 }
+
+/* === 科別標記(右下角小字) === */
+td.cell-with-dept .cell-dept-label {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #047857;
+  background: rgba(255,255,255,0.85);
+  padding: 0 2px;
+  border-radius: 2px 0 0 0;
+  line-height: 1.2;
+  pointer-events: none;
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  z-index: 1;
+}
+/* 深色班別(N 黑底)用白色科別字 */
+td.shift-N.cell-with-dept .cell-dept-label {
+  color: #fef3c7;
+  background: rgba(0,0,0,0.5);
+}
+
+/* === 科別右鍵選單 === */
+#dept-context-menu {
+  position: fixed;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  padding: 8px;
+  z-index: 9500;
+  display: none;
+  min-width: 240px;
+  max-width: 300px;
+}
+#dept-context-menu.active { display: block; }
+#dept-context-menu .dept-menu-head {
+  padding: 4px 4px 6px;
+  font-size: 0.8rem;
+  color: #6b7280;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 6px;
+}
+#dept-context-menu .dept-menu-head strong {
+  color: #1f2937;
+}
+#dept-context-menu .dept-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+#dept-context-menu .dept-btn {
+  padding: 7px 4px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #047857;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.2;
+}
+#dept-context-menu .dept-btn:hover {
+  background: #047857;
+  color: white;
+}
+#dept-context-menu .dept-btn.clear {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+#dept-context-menu .dept-btn.clear:hover { background: #b91c1c; color: white; }
+#dept-context-menu .dept-custom-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e5e7eb;
+}
+#dept-context-menu .dept-custom-row input {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+#dept-context-menu .dept-custom-row button {
+  background: #047857;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/* 科別畫筆按鈕 — 浮動工具列 */
+#floating-brush-bar .fb-btn.fb-dept {
+  background: #f0fdf4;
+  color: #047857;
+  border-color: #bbf7d0;
+  font-size: 0.72rem;
+  width: 46px;
+  font-weight: 600;
+}
+#floating-brush-bar .fb-btn.fb-dept.active {
+  border-color: var(--ink);
+  transform: scale(1.08);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.08);
+}
 td.shift-o { background: #fafaf5; color: #999; font-style: italic; }
 td.shift-V { background: var(--V); color: var(--V-text); }
 td.shift-empty { background: #fff; color: #ccc; }
@@ -4285,6 +4401,10 @@ const state = {
 // 預設備註選項 (右鍵選單)
 const NOTE_PRESETS = ['ACLS', '中油', '友善', '標準', 'LM', 'ER M', '教學', '會議', '請假', '研習'];
 
+// 科別(站位)預設 — 對齊 leader 紙本班表的 12 個科別
+// 也可在右鍵選單自由輸入新科別,不限於這 12 個
+const DEPT_PRESETS = ['T', 'PT', 'CPR', 'O+ST', 'P', 'R1', 'R2', 'R3', 'L+OB', '8-5\'', 'P+OB', 'R'];
+
 // Shift codes
 const SHIFTS = ['D', 'E', 'N', 'M', 'O', 'V'];
 const SHIFT_INFO = {
@@ -4787,6 +4907,13 @@ function renderTable() {
       if (state.fixed[p.id] && state.fixed[p.id][d]) cls += ' fixed';
       if (showViol && consecViol[d]) cls += ' viol-consec';
 
+      // 科別標記(右下角小字)— 只對工作班顯示
+      const deptFlag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d] && state.scheduleFlags[p.id][d].dept) || '';
+      if (deptFlag && ['D','E','N','M'].includes(shift)) cls += ' cell-with-dept';
+      const deptLabel = (deptFlag && ['D','E','N','M'].includes(shift))
+        ? `<span class="cell-dept-label" title="科別:${escapeHTML(deptFlag)}">${escapeHTML(deptFlag)}</span>`
+        : '';
+
       // Display: 'o' shown as 'off', otherwise as-is
       const display = shift === 'o' ? 'off' : (shift || '');
       const titleSuffix = shift === 'OFF' ? ' (中籤預假)'
@@ -4796,6 +4923,7 @@ function renderTable() {
       const markerSuffix = markerFlag === 'preceptor' ? ' [帶教,不計入人力]'
                          : markerFlag === 'trainee' ? ' [未獨立,不計入人力]'
                          : '';
+      const deptSuffix = deptFlag ? ` · 科別:${deptFlag}` : '';
       // Note (per-person per-day annotation: ACLS / 中油 / 友善 ...)
       const noteText = (state.notes[p.id] && state.notes[p.id][d]) || '';
       const noteIndicator = noteText ? '<span class="note-dot" title="' + escapeHTML(noteText) + '">●</span>' : '';
@@ -4806,7 +4934,7 @@ function renderTable() {
         const dispatchTitle = `${p.name} ${d}日 外派支援 ${p.dispatch || '(未填單位)'}`;
         html += `<td class="cell" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" style="background: #fee2e2; color: #b91c1c; font-weight: 600" title="${dispatchTitle}">外</td>`;
       } else {
-        html += `<td class="${cls}" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" title="${p.name} ${d}日 ${shift}${titleSuffix}${markerSuffix}${noteTitle}">${noteIndicator}${display}</td>`;
+        html += `<td class="${cls}" data-pid="${p.id}" data-day="${d}" onclick="onCellClick(event)" oncontextmenu="onCellRightClick(event); return false;" title="${p.name} ${d}日 ${shift}${titleSuffix}${markerSuffix}${deptSuffix}${noteTitle}">${noteIndicator}${display}${deptLabel}</td>`;
       }
     }
 
@@ -5137,16 +5265,37 @@ function onCellRightClick(e) {
   const btnArea = document.getElementById('ctx-menu-buttons');
 
   const currentNote = (state.notes[pid] && state.notes[pid][day]) || '';
-  header.textContent = `📌 ${person.name} ${day}日 備註${currentNote ? '(目前: ' + currentNote + ')' : ''}`;
+  const currentShift = (state.schedule[pid] || {})[day] || '';
+  const currentDept = (state.scheduleFlags && state.scheduleFlags[pid] && state.scheduleFlags[pid][day] && state.scheduleFlags[pid][day].dept) || '';
+  header.textContent = `${person.name} ${day}日 ${currentShift || '空'}${currentDept ? ' · 科別 ' + currentDept : ''}`;
 
   // Build buttons
   let html = '';
+
+  // === 科別區塊(只對工作班顯示) ===
+  if (['D','E','N','M'].includes(currentShift)) {
+    html += '<div style="font-size:0.78rem; color:#047857; padding:4px 6px; font-weight:600">🏥 科別(站位)</div>';
+    html += '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:3px; margin-bottom:6px">';
+    DEPT_PRESETS.forEach(dept => {
+      const active = dept === currentDept ? ' style="background:#047857;color:white;border-color:#047857"' : '';
+      html += `<button${active} onclick="setDeptForCell('${pid}', ${day}, '${dept}')" style="padding:5px 2px;font-size:0.78rem;background:#f0fdf4;border:1px solid #bbf7d0;color:#047857;border-radius:3px;font-weight:600">${dept}</button>`;
+    });
+    html += '</div>';
+    html += `<div style="display:flex; gap:3px; margin-bottom:6px"><input type="text" id="dept-custom-input-ctx" placeholder="自訂科別..." style="flex:1;padding:4px 6px;font-size:0.82rem;border:1px solid #d1d5db;border-radius:3px" onkeydown="if(event.key==='Enter'){setDeptForCell('${pid}', ${day}, this.value); event.preventDefault();}"><button onclick="setDeptForCell('${pid}', ${day}, document.getElementById('dept-custom-input-ctx').value)" style="background:#047857;color:white;border:none;padding:4px 8px;border-radius:3px;font-size:0.78rem">+</button></div>`;
+    if (currentDept) {
+      html += `<button onclick="setDeptForCell('${pid}', ${day}, '')" style="color:#b91c1c;width:100%;margin-bottom:6px">🗑 清除科別</button>`;
+    }
+    html += '<hr style="margin:6px 0">';
+  }
+
+  // === 備註區塊(原有) ===
+  html += `<div style="font-size:0.78rem; color:#6b7280; padding:4px 6px; font-weight:600">📌 個人日備註${currentNote ? ' (目前: ' + currentNote + ')' : ''}</div>`;
   NOTE_PRESETS.forEach(preset => {
     const active = preset === currentNote ? ' note-active' : '';
     html += `<button class="${active}" onclick="setNoteForCell('${pid}', ${day}, '${preset}')">${preset}</button>`;
   });
   html += '<hr>';
-  html += `<button onclick="setNoteForCell('${pid}', ${day}, '__custom__')">✏ 自訂...</button>`;
+  html += `<button onclick="setNoteForCell('${pid}', ${day}, '__custom__')">✏ 自訂備註...</button>`;
   if (currentNote) {
     html += `<button onclick="setNoteForCell('${pid}', ${day}, '')" style="color: #c0392b">🗑 清除備註</button>`;
   }
@@ -5194,6 +5343,68 @@ function setNoteForCell(pid, day, value) {
   if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
   // Re-render
   renderTable();
+}
+
+// ============================================================
+// 科別(站位)設定 — 寫入 scheduleFlags[pid][day].dept
+// 對 D/E/N/M 工作班才有意義;設空字串 = 清除
+// ============================================================
+function setDeptForCell(pid, day, value) {
+  closeContextMenu();
+  const v = (value || '').trim();
+  if (!state.scheduleFlags) state.scheduleFlags = {};
+  if (!state.scheduleFlags[pid]) state.scheduleFlags[pid] = {};
+  if (v) {
+    state.scheduleFlags[pid][day] = Object.assign(state.scheduleFlags[pid][day] || {}, { dept: v });
+  } else {
+    if (state.scheduleFlags[pid][day]) {
+      delete state.scheduleFlags[pid][day].dept;
+      if (Object.keys(state.scheduleFlags[pid][day]).length === 0) delete state.scheduleFlags[pid][day];
+    }
+  }
+  if (typeof saveSnapshot === 'function') saveSnapshot();
+  if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
+  renderTable();
+}
+
+// === 科別畫筆 — 全域函式(供下拉的 onclick 用) ===
+// 設為科別畫筆後,點班別格子就會寫入該科別
+function useDeptBrush(deptValue) {
+  const brushValue = (deptValue === '__dept_clear__')
+    ? '__dept_clear__'
+    : `__dept_${deptValue}__`;
+  state.currentBrush = brushValue;
+
+  // 視覺提示:浮動列「🏥 科別」按鈕變 active
+  document.querySelectorAll('#floating-brush-bar .fb-btn').forEach(b => {
+    b.classList.toggle('active', b.id === 'fb-dept-toggle');
+  });
+  document.querySelectorAll('.brush-btn').forEach(b => b.classList.remove('active'));
+
+  // 改按鈕文字顯示當前畫筆
+  const toggle = document.getElementById('fb-dept-toggle');
+  if (toggle) {
+    if (deptValue === '__dept_clear__') {
+      toggle.textContent = '🏥 清';
+      toggle.title = '科別畫筆:清除模式 — 點班別格子會清掉科別';
+    } else {
+      toggle.textContent = '🏥 ' + deptValue;
+      toggle.title = `科別畫筆:${deptValue} — 點班別格子會設為這個科別`;
+    }
+  }
+
+  // 關閉下拉
+  const dropdown = document.getElementById('fb-dept-dropdown');
+  if (dropdown) dropdown.style.display = 'none';
+}
+
+function useCustomDeptBrush() {
+  const input = document.getElementById('fb-dept-custom');
+  if (!input) return;
+  const v = (input.value || '').trim();
+  if (!v) { alert('請輸入科別名稱'); return; }
+  useDeptBrush(v);
+  input.value = '';
 }
 
 // ============================================================
@@ -5268,6 +5479,31 @@ function onCellClick(e) {
         // 若 flag 物件被清空就整個刪掉
         if (Object.keys(state.scheduleFlags[pid][day]).length === 0) delete state.scheduleFlags[pid][day];
       }
+    }
+    renderTable();
+    autoSaveScheduleLocal();
+    return;
+  }
+
+  // === 科別畫筆模式(__dept_XXX__ / __dept_clear__) ===
+  if (brush && brush.indexOf('__dept_') === 0) {
+    const currentShift = state.schedule[pid][day];
+    if (brush !== '__dept_clear__' && !['D','E','N','M'].includes(currentShift)) {
+      td.style.outline = '2px solid #ef4444';
+      setTimeout(() => { td.style.outline = ''; }, 600);
+      return;
+    }
+    if (brush === '__dept_clear__') {
+      if (state.scheduleFlags && state.scheduleFlags[pid] && state.scheduleFlags[pid][day]) {
+        delete state.scheduleFlags[pid][day].dept;
+        if (Object.keys(state.scheduleFlags[pid][day]).length === 0) delete state.scheduleFlags[pid][day];
+      }
+    } else {
+      // brush 格式:__dept_<name>__,例如 __dept_R1__、__dept_T__、__dept_自訂_xxx__
+      const deptValue = brush.slice(7, -2);  // 去掉 __dept_ 前綴跟 __ 後綴
+      if (!state.scheduleFlags) state.scheduleFlags = {};
+      if (!state.scheduleFlags[pid]) state.scheduleFlags[pid] = {};
+      state.scheduleFlags[pid][day] = Object.assign(state.scheduleFlags[pid][day] || {}, { dept: deptValue });
     }
     renderTable();
     autoSaveScheduleLocal();
@@ -13617,25 +13853,75 @@ function restoreAllDisplaced() {
 setTimeout(() => { if (typeof syncTargetDaysInput === 'function') syncTargetDaysInput(); }, 100);
 
 // ============================================================
-// 公告給同仁:把班表推上雲端,給 schedule-view.html 讀取
-// 依賴後端 Apps Script 新 case:'publishView' / 'unpublishView' / 'getPublishStatus'
+// 公告給同仁(Firebase Realtime Database 即時同步版)
+// 不需要 Apps Script 後端,leader 寫 → 同仁網頁立刻看到
+// 設計:
+//   - 公告 = 寫入 Firebase 'schedules/{month}'
+//   - 撤回 = 改 status 欄位
+//   - 即時 = schedule-view.html 用 onValue 監聽,不用重整
+//   - 自動同步 = 改科別時若有「自動同步」開關,寫一次格子自動推上 Firebase
 // ============================================================
 
-// 公告網頁的 URL(讓另一位 leader 開,或同仁透過 LINE 點)
-// 修改此處為你實際的 GitHub Pages 網址
+// === Firebase 設定(你的專案 config) ===
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDiR4V_KZTBaLIuPLZOben9r4HFprGTW1k",
+  authDomain: "cych-ed-scheduling.firebaseapp.com",
+  databaseURL: "https://cych-ed-scheduling-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "cych-ed-scheduling",
+  storageBucket: "cych-ed-scheduling.firebasestorage.app",
+  messagingSenderId: "1017004700616",
+  appId: "1:1017004700616:web:3ae45a3a26957249cc46fd"
+};
+
+// 公告網頁的 URL(同仁透過 LINE 點)
 const PUBLISH_VIEW_BASE_URL = 'https://cych05845-jpg.github.io/schedule-view/';
 
-// 載入時:若已登入,顯示「📢 公告給同仁」按鈕
+// === Firebase SDK 載入(動態 import,不阻塞首屏) ===
+let _firebaseApp = null;
+let _firebaseDb = null;
+let _firebaseReady = false;
+let _firebaseReadyPromise = null;
+
+async function ensureFirebase() {
+  if (_firebaseReady) return true;
+  if (_firebaseReadyPromise) return _firebaseReadyPromise;
+
+  _firebaseReadyPromise = (async () => {
+    try {
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js');
+      const dbMod = await import('https://www.gstatic.com/firebasejs/10.13.2/firebase-database.js');
+      _firebaseApp = appMod.initializeApp(FIREBASE_CONFIG);
+      _firebaseDb = dbMod.getDatabase(_firebaseApp);
+      // 把常用函式掛到全域(讓後續呼叫方便)
+      window._fbHelpers = {
+        ref: dbMod.ref,
+        set: dbMod.set,
+        update: dbMod.update,
+        get: dbMod.get,
+        remove: dbMod.remove,
+        onValue: dbMod.onValue,
+        serverTimestamp: dbMod.serverTimestamp,
+      };
+      _firebaseReady = true;
+      console.log('[firebase] 已連線');
+      return true;
+    } catch (e) {
+      console.error('[firebase] 載入失敗', e);
+      _firebaseReadyPromise = null;  // 允許重試
+      throw e;
+    }
+  })();
+
+  return _firebaseReadyPromise;
+}
+
+// 載入時:顯示「📢 公告給同仁」按鈕
+// (不再依賴 leader edition token,因為已不用 Apps Script)
 (function initPublishViewButton() {
   setTimeout(() => {
-    if (typeof IS_LEADER_EDITION !== 'undefined' && IS_LEADER_EDITION) {
-      const token = (typeof getAuthToken === 'function') ? getAuthToken() : null;
-      if (token) {
-        const btn = document.getElementById('btn-publish-view');
-        if (btn) btn.style.display = '';
-      }
-    }
-  }, 600);
+    const btn = document.getElementById('btn-publish-view');
+    if (btn) btn.style.display = '';
+  }, 400);
 })();
 
 async function openPublishViewModal() {
@@ -13650,24 +13936,57 @@ async function openPublishViewModal() {
   const link = `${PUBLISH_VIEW_BASE_URL}?m=${encodeURIComponent(state.month)}`;
   document.getElementById('pv-share-link').value = link;
 
-  // 撈當前公告狀態
+  // 重置狀態
   document.getElementById('pv-status-text').textContent = '載入中...';
   document.getElementById('pv-status-detail').textContent = '';
   document.getElementById('pv-unpublish-btn').style.display = 'none';
+  const publishBtn = modal.querySelector('button[onclick="doPublishView()"]');
+  if (publishBtn) {
+    publishBtn.disabled = false;
+    publishBtn.style.opacity = '1';
+  }
 
   try {
-    const token = getAuthToken();
-    if (!token) { document.getElementById('pv-status-text').textContent = '未登入'; return; }
-    const result = await apiCall('getPublishStatus', { token, month: state.month });
-    if (!result.ok) {
-      document.getElementById('pv-status-text').textContent = '⚠ 無法查詢狀態';
-      document.getElementById('pv-status-detail').textContent = result.error || '';
-      return;
+    // 8 秒 timeout 防卡死
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('TIMEOUT')), 8000)
+    );
+    await Promise.race([ensureFirebase(), timeoutPromise]);
+
+    // 讀取當前月的狀態
+    const { ref, get } = window._fbHelpers;
+    const monthKey = state.month.replace(/[.#$\[\]/]/g, '_');
+    const snap = await Promise.race([
+      get(ref(_firebaseDb, `schedules/${monthKey}/meta`)),
+      timeoutPromise,
+    ]);
+    if (snap && snap.exists()) {
+      const meta = snap.val();
+      renderPvStatus(meta.status || 'published', meta.publishedAt, meta.publishedBy);
+    } else {
+      renderPvStatus('not_published', '', '');
     }
-    renderPvStatus(result.status, result.publishedAt, result.publishedBy);
   } catch (e) {
-    document.getElementById('pv-status-text').textContent = '⚠ 連線失敗';
-    document.getElementById('pv-status-detail').textContent = e.message || '';
+    if (e.message === 'TIMEOUT') {
+      showBackendNotReady('Firebase 連線逾時(8 秒)', '請確認:1) 網路通暢 2) Firebase 專案 cych-ed-scheduling 已開啟 Realtime Database 3) 規則允許讀寫');
+    } else {
+      showBackendNotReady('Firebase 連線失敗', e.message || '');
+    }
+  }
+}
+
+function showBackendNotReady(title, detail) {
+  const txt = document.getElementById('pv-status-text');
+  const det = document.getElementById('pv-status-detail');
+  txt.innerHTML = '🔴 ' + title;
+  txt.style.color = '#dc2626';
+  det.innerHTML = `${detail}<br><br>💡 不急著做這個的話,「科別欄位」「記號畫筆」「AI 助理」這些不需要連線,可以直接用。`;
+  const modal = document.getElementById('publish-view-modal');
+  const publishBtn = modal && modal.querySelector('button[onclick="doPublishView()"]');
+  if (publishBtn) {
+    publishBtn.disabled = true;
+    publishBtn.style.opacity = '0.4';
+    publishBtn.style.cursor = 'not-allowed';
   }
 }
 
@@ -13676,14 +13995,14 @@ function renderPvStatus(status, at, by) {
   const detail = document.getElementById('pv-status-detail');
   const unpubBtn = document.getElementById('pv-unpublish-btn');
   if (status === 'published') {
-    txt.innerHTML = '🟢 已公告中';
+    txt.innerHTML = '🟢 已公告中(即時同步)';
     txt.style.color = '#059669';
-    detail.textContent = `公告時間:${at || '─'}${by ? '  ·  by ' + by : ''}`;
+    detail.innerHTML = `公告時間:${formatTimestamp(at)}${by ? '  ·  by ' + by : ''}<br><span style="color:#059669; font-size:0.85rem">✨ 之後改科別、班別會自動推到同仁手機</span>`;
     unpubBtn.style.display = '';
   } else if (status === 'withdrawn') {
     txt.innerHTML = '🟡 已撤回(同仁看到「調整中」)';
     txt.style.color = '#d97706';
-    detail.textContent = `上次公告:${at || '─'}${by ? '  ·  by ' + by : ''}`;
+    detail.textContent = `上次公告:${formatTimestamp(at)}${by ? '  ·  by ' + by : ''}`;
     unpubBtn.style.display = 'none';
   } else {
     txt.innerHTML = '⚪ 尚未公告';
@@ -13691,6 +14010,14 @@ function renderPvStatus(status, at, by) {
     detail.textContent = '';
     unpubBtn.style.display = 'none';
   }
+}
+
+function formatTimestamp(ts) {
+  if (!ts) return '─';
+  try {
+    const d = (typeof ts === 'number') ? new Date(ts) : new Date(ts);
+    return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  } catch (e) { return String(ts); }
 }
 
 function copyPublishLink() {
@@ -13704,43 +14031,44 @@ function copyPublishLink() {
   }
 }
 
+// 公告 = 寫入 Firebase + 設 status: 'published'
 async function doPublishView() {
-  if (!confirm(`確定公告 ${state.month} 班表?\n\n同仁打開連結會看到當前班表內容。\n如有違規警告,也會一併公告。`)) return;
+  if (!confirm(`確定公告 ${state.month} 班表?\n\n同仁打開連結會「即時」看到當前班表內容。\n之後任何修改(包含科別)會自動同步,不用再按公告。`)) return;
 
   try {
-    const token = getAuthToken();
-    if (!token) { alert('未登入'); return; }
+    await ensureFirebase();
+    const { ref, set, serverTimestamp } = window._fbHelpers;
 
-    // 組裝 view 端需要的資料(精簡版:只含必要欄位、不含規則設定)
     const viewData = buildPublishViewPayload();
-    const payloadStr = JSON.stringify(viewData);
-
-    // 太大的話可能要警告
-    if (payloadStr.length > 800000) {
-      if (!confirm(`資料量較大(${Math.round(payloadStr.length/1024)} KB),公告可能稍慢。繼續?`)) return;
-    }
+    const monthKey = state.month.replace(/[.#$\[\]/]/g, '_');
 
     const btn = event.target;
     const origText = btn.textContent;
     btn.disabled = true;
     btn.textContent = '⏳ 公告中...';
 
-    const result = await apiCall('publishView', {
-      token,
-      month: state.month,
-      data: payloadStr,
+    const publishedAt = Date.now();
+    const publishedBy = (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '';
+
+    await set(ref(_firebaseDb, `schedules/${monthKey}`), {
+      data: viewData,
+      meta: {
+        status: 'published',
+        publishedAt,
+        publishedBy,
+        version: 1,
+      }
     });
 
     btn.disabled = false;
     btn.textContent = origText;
 
-    if (!result.ok) {
-      alert('❌ 公告失敗:' + (result.error || '未知錯誤'));
-      return;
-    }
-    alert(`✅ 公告成功!\n\n${result.publishedAt ? '時間:' + result.publishedAt + '\n\n' : ''}你可以複製連結到 LINE 群組,同仁打開即可看到。`);
-    // 更新狀態顯示
-    renderPvStatus('published', result.publishedAt, result.publishedBy);
+    // 開啟自動同步 — 之後改格子會自動推
+    enableAutoSyncForMonth(state.month);
+
+    alert(`✅ 公告成功!\n\n📲 同仁打開連結即可看到。\n✨ 之後改科別/班別會「自動」同步到同仁手機,不用再來這裡按公告。\n\n已複製連結,可貼到 LINE 群組。`);
+    copyPublishLink();
+    renderPvStatus('published', publishedAt, publishedBy);
   } catch (e) {
     alert('❌ 公告失敗:' + (e.message || e));
   }
@@ -13750,24 +14078,22 @@ async function doUnpublishView() {
   if (!confirm(`確定撤回 ${state.month} 公告?\n\n撤回後,同仁打開連結會看到「班表調整中」提示。\n再次公告會覆蓋這次撤回。`)) return;
 
   try {
-    const token = getAuthToken();
-    if (!token) { alert('未登入'); return; }
-
-    const result = await apiCall('unpublishView', { token, month: state.month });
-    if (!result.ok) {
-      alert('❌ 撤回失敗:' + (result.error || ''));
-      return;
-    }
-    alert('✓ 已撤回\n\n同仁打開連結會看到「調整中」提示。');
-    renderPvStatus('withdrawn', result.publishedAt, result.publishedBy);
+    await ensureFirebase();
+    const { ref, update } = window._fbHelpers;
+    const monthKey = state.month.replace(/[.#$\[\]/]/g, '_');
+    await update(ref(_firebaseDb, `schedules/${monthKey}/meta`), {
+      status: 'withdrawn',
+    });
+    // 關閉自動同步
+    disableAutoSyncForMonth(state.month);
+    alert('✓ 已撤回\n\n同仁打開連結會看到「調整中」提示。\n自動同步已停止。');
+    renderPvStatus('withdrawn', Date.now(), (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '');
   } catch (e) {
     alert('❌ 撤回失敗:' + (e.message || e));
   }
 }
 
 // 組裝給 view 端的精簡 payload
-// 只帶:月份、人員清單(姓名/職級/能力/備註)、班表、scheduleFlags
-// 不帶:規則設定、AI 對話歷史、操作日誌等
 function buildPublishViewPayload() {
   const days = (typeof getDaysInMonth === 'function') ? getDaysInMonth(state.month) : 31;
   const holidays = [];
@@ -13777,7 +14103,6 @@ function buildPublishViewPayload() {
     });
   }
 
-  // 過濾掉應該隱藏的人員(離職、留停等)
   const staff = (state.staff || []).filter(p => !shouldHideStaff(p, state.month)).map(p => ({
     id: p.id,
     name: p.name,
@@ -13788,13 +14113,11 @@ function buildPublishViewPayload() {
     dispatch: p.dispatch || '',
   }));
 
-  // 班表(只取本月)
   const schedule = {};
   staff.forEach(p => {
     schedule[p.id] = state.schedule[p.id] || {};
   });
 
-  // 旗標(底線/marker)
   const flags = {};
   staff.forEach(p => {
     if (state.scheduleFlags && state.scheduleFlags[p.id]) {
@@ -13810,10 +14133,98 @@ function buildPublishViewPayload() {
     staff,
     schedule,
     flags,
-    publishedBy: (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '',
-    publishedAt: new Date().toISOString(),
   };
 }
+
+// ============================================================
+// 自動同步 — leader 改格子後自動推到 Firebase
+// 機制:state 改動後 debounce 1.5 秒 → 重組 payload → 寫 Firebase
+// 只在「該月已公告」時啟動,撤回後停止
+// ============================================================
+const _autoSyncState = {
+  enabledMonths: new Set(),  // 已啟用自動同步的月份
+  pendingTimer: null,
+};
+
+function enableAutoSyncForMonth(month) {
+  _autoSyncState.enabledMonths.add(month);
+  try { localStorage.setItem('autoSyncMonths', JSON.stringify([..._autoSyncState.enabledMonths])); } catch (e) {}
+}
+
+function disableAutoSyncForMonth(month) {
+  _autoSyncState.enabledMonths.delete(month);
+  try { localStorage.setItem('autoSyncMonths', JSON.stringify([..._autoSyncState.enabledMonths])); } catch (e) {}
+}
+
+// 重啟時還原已啟用的月份
+(function restoreAutoSyncMonths() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('autoSyncMonths') || '[]');
+    saved.forEach(m => _autoSyncState.enabledMonths.add(m));
+  } catch (e) {}
+})();
+
+// debounce 推送:每次改格子呼叫此函式
+function triggerAutoSync() {
+  if (!state.month) return;
+  if (!_autoSyncState.enabledMonths.has(state.month)) return;  // 該月未公告,不推
+  if (_autoSyncState.pendingTimer) clearTimeout(_autoSyncState.pendingTimer);
+  _autoSyncState.pendingTimer = setTimeout(async () => {
+    try {
+      await ensureFirebase();
+      const { ref, update } = window._fbHelpers;
+      const monthKey = state.month.replace(/[.#$\[\]/]/g, '_');
+      const viewData = buildPublishViewPayload();
+      // 只更新 data 不動 meta(避免覆蓋 publishedAt/publishedBy)
+      await update(ref(_firebaseDb, `schedules/${monthKey}`), {
+        data: viewData,
+      });
+      // 同時更新 meta.lastSyncedAt
+      await update(ref(_firebaseDb, `schedules/${monthKey}/meta`), {
+        lastSyncedAt: Date.now(),
+      });
+      showAutoSyncToast();
+    } catch (e) {
+      console.warn('[firebase] 自動同步失敗', e);
+      showAutoSyncToast('error');
+    }
+  }, 1500);  // 1.5 秒 debounce
+}
+
+function showAutoSyncToast(kind) {
+  let el = document.getElementById('auto-sync-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'auto-sync-toast';
+    el.style.cssText = 'position:fixed; bottom:20px; left:20px; padding:6px 12px; border-radius:4px; font-size:0.82rem; z-index:9000; box-shadow:0 4px 12px rgba(0,0,0,0.15); transition:opacity 0.3s';
+    document.body.appendChild(el);
+  }
+  if (kind === 'error') {
+    el.textContent = '⚠ 同步失敗(可稍後重試)';
+    el.style.background = '#fee2e2';
+    el.style.color = '#991b1b';
+  } else {
+    el.textContent = '☁ 已同步至同仁手機';
+    el.style.background = '#dcfce7';
+    el.style.color = '#166534';
+  }
+  el.style.opacity = '1';
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.style.opacity = '0'; }, 2500);
+}
+
+// Hook 進 renderTable:每次格子變動後嘗試自動同步
+(function hookAutoSync() {
+  // 等所有腳本載完
+  setTimeout(() => {
+    const _orig = window.renderTable;
+    if (typeof _orig !== 'function') return;
+    window.renderTable = function() {
+      _orig.apply(this, arguments);
+      triggerAutoSync();
+    };
+  }, 800);
+})();
 
 // ============================================================
 // 右欄收起/展開
@@ -14008,6 +14419,43 @@ function toggleSidePanelCollapse() {
     // 關閉/顯示按鈕
     $('fb-close').onclick = hide;
     $('floating-brush-toggle').onclick = show;
+
+    // === 科別下拉(浮動畫筆右側) ===
+    const deptToggle = $('fb-dept-toggle');
+    const deptDropdown = $('fb-dept-dropdown');
+    if (deptToggle && deptDropdown) {
+      // 把預設科別填入下拉 grid
+      const grid = $('fb-dept-grid');
+      const presets = (typeof DEPT_PRESETS !== 'undefined') ? DEPT_PRESETS : ['T','PT','CPR','O+ST','P','R1','R2','R3','L+OB','8-5\'','P+OB','R'];
+      grid.innerHTML = presets.map(d =>
+        `<button onclick="useDeptBrush('${d.replace(/'/g, "\\'")}')" style="padding:6px 4px; background:#f0fdf4; border:1px solid #bbf7d0; color:#047857; border-radius:3px; cursor:pointer; font-size:0.82rem; font-weight:600">${d}</button>`
+      ).join('');
+
+      deptToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (deptDropdown.style.display === 'none' || !deptDropdown.style.display) {
+          // 打開,定位在按鈕上方
+          const rect = deptToggle.getBoundingClientRect();
+          deptDropdown.style.display = 'block';
+          // 預設出現在按鈕上方
+          const dropRect = deptDropdown.getBoundingClientRect();
+          let left = rect.left;
+          if (left + dropRect.width > window.innerWidth - 10) {
+            left = window.innerWidth - dropRect.width - 10;
+          }
+          deptDropdown.style.left = Math.max(10, left) + 'px';
+          deptDropdown.style.top = Math.max(10, rect.top - dropRect.height - 6) + 'px';
+        } else {
+          deptDropdown.style.display = 'none';
+        }
+      });
+      // 點外面關閉
+      document.addEventListener('click', (e) => {
+        if (!deptDropdown.contains(e.target) && e.target !== deptToggle) {
+          deptDropdown.style.display = 'none';
+        }
+      });
+    }
 
     // 拖動
     initDrag();
@@ -14890,7 +15338,19 @@ ${userMsg}
   <button class="fb-btn fb-marker" data-brush="__marker_preceptor__" title="標記為帶教(D/帶):此格不計入正式人力">/帶</button>
   <button class="fb-btn fb-marker" data-brush="__marker_trainee__" title="標記為未獨立(D'):此格不計入正式人力">'</button>
   <button class="fb-btn fb-marker" data-brush="__marker_clear__" title="清除記號(保留班別)">⌫號</button>
+  <span class="fb-divider" title="科別畫筆"></span>
+  <button class="fb-btn fb-dept" id="fb-dept-toggle" title="選科別畫筆(畫上後點班別格設定科別)">🏥 科別</button>
   <button class="fb-close" id="fb-close" title="收起(可從左下角圖示重新打開)">×</button>
+</div>
+<!-- 科別下拉(浮動列展開) -->
+<div id="fb-dept-dropdown" style="display:none; position:fixed; background:white; border:1px solid #d1d5db; border-radius:6px; box-shadow:0 8px 24px rgba(0,0,0,0.15); padding:8px; z-index:8501; min-width:240px">
+  <div style="font-size:0.78rem; color:#047857; padding:4px; font-weight:600; border-bottom:1px solid #e5e7eb; margin-bottom:6px">🏥 選科別畫筆 → 點班別格子設定</div>
+  <div id="fb-dept-grid" style="display:grid; grid-template-columns:repeat(3,1fr); gap:4px"></div>
+  <div style="display:flex; gap:4px; margin-top:8px; padding-top:8px; border-top:1px solid #e5e7eb">
+    <input type="text" id="fb-dept-custom" placeholder="自訂科別..." style="flex:1; padding:5px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.85rem">
+    <button onclick="useCustomDeptBrush()" style="background:#047857; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:0.82rem; font-weight:600">套用</button>
+  </div>
+  <button onclick="useDeptBrush('__dept_clear__')" style="margin-top:6px; width:100%; padding:5px; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:4px; cursor:pointer; font-size:0.82rem; font-weight:600">⌫ 清除科別畫筆</button>
 </div>
 <button id="floating-brush-toggle" title="顯示浮動畫筆">🖌</button>
 

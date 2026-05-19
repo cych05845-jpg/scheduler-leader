@@ -149,6 +149,16 @@ body { padding-bottom: env(safe-area-inset-bottom); }
 }
 .shift-person .marker-tag.preceptor { background: #c2410c; color: white; }
 .shift-person .marker-tag.trainee { color: #1e40af; font-size: 0.85rem; padding: 0; background: transparent; }
+.shift-person .dept-tag {
+  font-size: 0.7rem;
+  padding: 1px 5px;
+  background: #d1fae5;
+  color: #065f46;
+  border-radius: 3px;
+  font-weight: 700;
+  margin-left: auto;
+  white-space: nowrap;
+}
 
 .date-nav {
   display: flex;
@@ -293,6 +303,24 @@ body { padding-bottom: env(safe-area-inset-bottom); }
 .cal-cell.empty { background: #fafafa; border: none; }
 .cal-cell .day-num { font-size: 0.7rem; color: #9ca3af; position: absolute; top: 2px; left: 4px; }
 .cal-cell .shift-mark { font-weight: 700; font-size: 0.95rem; margin-top: 6px; }
+.cal-cell-dept {
+  font-size: 0.62rem;
+  font-weight: 600;
+  margin-top: 2px;
+  background: rgba(255,255,255,0.85);
+  color: #047857;
+  padding: 0 3px;
+  border-radius: 2px;
+  line-height: 1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-cell.shift-N .cal-cell-dept {
+  background: rgba(0,0,0,0.4);
+  color: #fef3c7;
+}
 .cal-cell.shift-D { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
 .cal-cell.shift-E { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
 .cal-cell.shift-N { background: #374151; color: white; border-color: #1f2937; }
@@ -390,6 +418,14 @@ body { padding-bottom: env(safe-area-inset-bottom); }
 }
 .month-table td.marker-preceptor::after { content: '帶'; color: #c2410c; font-weight: 700; }
 .month-table td.marker-trainee::after { content: "'"; color: #1e40af; font-weight: 700; }
+.month-cell-dept {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #047857;
+  margin-top: 1px;
+  line-height: 1;
+}
+.month-table td.cell-N .month-cell-dept { color: #fef3c7; }
 
 /* === 浮水印 === */
 .watermark {
@@ -481,9 +517,9 @@ body { padding-bottom: env(safe-area-inset-bottom); }
       <div class="title">📅 班表公告</div>
       <div class="desc">查詢本月班表、個人班、今天誰上什麼班</div>
     </button>
-    <button class="app-btn disabled" onclick="alert('「站位排班」功能正在開發中,敬請期待。\\n\\n預計功能:每天 D/E/N 班人員分配到 14 個站位(檢傷/CPR/治療區/Leader 等)')">
-      <div class="title">🏥 站位排班<span class="badge">開發中</span></div>
-      <div class="desc">每天班別人員分配到 10+ 個站位</div>
+    <button class="app-btn disabled" onclick="alert('「科別排班」功能正在開發中,敬請期待。\\n\\n預計功能:每天 D/E/N 班人員分配到 12+ 個科別(檢傷 T / 兒童檢傷 PT / 急救區 CPR / 留觀區 O+ST / 治療區 R1/R2/R3 / Leader+OB / 8-5\\' 等)\\n\\n目前 leader 可在主排班工具的格子上「右鍵 → 科別」,或用浮動畫筆🏥 科別按鈕設定。同仁透過此公告網頁就能看到每天自己的科別。')">
+      <div class="title">🏥 科別排班<span class="badge">開發中</span></div>
+      <div class="desc">每天班別人員分配到 12+ 個科別(檢傷/CPR/治療區/Leader 等)</div>
     </button>
   </div>
 </div>
@@ -551,15 +587,41 @@ body { padding-bottom: env(safe-area-inset-bottom); }
 
 <div class="watermark">院內公告 · 請勿外傳</div>
 
-<script>
+<script type="module">
 // ============================================================
-// 急診排班 · 公告網頁
-// 從 Apps Script fetch 已公告的班表 JSON,渲染唯讀視圖
-// 配合 index.html 中的 'publishView' / 'unpublishView' / 'getPublishStatus' Apps Script case
+// 急診排班 · 公告網頁(Firebase 即時版)
+// 從 Firebase Realtime Database 即時監聽,leader 改即顯
 // ============================================================
 
-// 修改為實際的 Apps Script URL(與 index.html BACKEND_URL 一致)
-const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbwvr5TCo7p85eE8S7_5hV_KBb_x_frJFMA8yq8mS4i1a6Z39YESfmFKHbqI2JVk4lvp/exec';
+// 修改為實際的 Firebase 設定(與 index.html FIREBASE_CONFIG 一致)
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDiR4V_KZTBaLIuPLZOben9r4HFprGTW1k",
+  authDomain: "cych-ed-scheduling.firebaseapp.com",
+  databaseURL: "https://cych-ed-scheduling-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "cych-ed-scheduling",
+  storageBucket: "cych-ed-scheduling.firebasestorage.app",
+  messagingSenderId: "1017004700616",
+  appId: "1:1017004700616:web:3ae45a3a26957249cc46fd"
+};
+
+let _fbApp = null;
+let _fbDb = null;
+let _fbHelpers = null;
+let _currentListener = null;  // 用於斷開舊監聽
+
+async function initFirebase() {
+  if (_fbDb) return _fbDb;
+  const appMod = await import('https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js');
+  const dbMod = await import('https://www.gstatic.com/firebasejs/10.13.2/firebase-database.js');
+  _fbApp = appMod.initializeApp(FIREBASE_CONFIG);
+  _fbDb = dbMod.getDatabase(_fbApp);
+  _fbHelpers = {
+    ref: dbMod.ref,
+    onValue: dbMod.onValue,
+    off: dbMod.off,
+  };
+  return _fbDb;
+}
 
 const state = {
   month: null,        // 'YYYY-MM'
@@ -581,58 +643,81 @@ function enterScheduleApp() {
   loadData();
 }
 
-// === 載入資料 ===
+// === 載入資料(Firebase 即時監聽) ===
 async function loadData() {
   showStatus('loading');
   try {
     const params = new URLSearchParams(window.location.search);
     const month = params.get('m') || guessCurrentMonth();
     state.month = month;
-    state.viewDate = new Date();  // 預設看「今天」
+    state.viewDate = new Date();
     document.getElementById('hdr-month').textContent = formatMonthLabel(month);
 
-    const response = await fetch(BACKEND_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'fetchPublished', month }),
+    await initFirebase();
+    const { ref, onValue, off } = _fbHelpers;
+    const monthKey = month.replace(/[.#$\[\]/]/g, '_');
+    const monthRef = ref(_fbDb, `schedules/${monthKey}`);
+
+    // 斷開舊監聽(避免月份切換時資料疊加)
+    if (_currentListener) {
+      try { off(_currentListener); } catch (e) {}
+    }
+    _currentListener = monthRef;
+
+    // 即時監聽:資料變動時自動觸發 onValue 的 callback
+    onValue(monthRef, (snapshot) => {
+      try {
+        if (!snapshot.exists()) {
+          showStatus('empty', '此月份尚未公告');
+          return;
+        }
+        const node = snapshot.val();
+        const meta = node.meta || {};
+        const data = node.data;
+
+        if (meta.status === 'withdrawn') {
+          showStatus('withdrawn',
+            `${formatMonthLabel(month)} 班表調整中`,
+            meta.publishedAt ? `上次公告:${formatDate(meta.publishedAt)}` : ''
+          );
+          return;
+        }
+
+        if (!data) {
+          showStatus('empty', '此月份尚未公告');
+          return;
+        }
+
+        // 載入資料
+        state.days = data.days || 30;
+        state.holidays = data.holidays || [];
+        state.staff = data.staff || [];
+        state.schedule = data.schedule || {};
+        state.flags = data.flags || {};
+        state.publishedAt = meta.publishedAt || '';
+        state.publishedBy = meta.publishedBy || '';
+
+        hideStatus();
+        const syncTag = meta.lastSyncedAt && meta.lastSyncedAt !== meta.publishedAt
+          ? ` · 更新於 ${formatDate(meta.lastSyncedAt)}`
+          : '';
+        document.getElementById('hdr-subtitle').innerHTML =
+          `📡 即時同步中 · 公告 ${formatDate(state.publishedAt)}${state.publishedBy ? ' by ' + state.publishedBy : ''}${syncTag}`;
+
+        renderToday();
+        renderPersonList();
+        renderMonthTable();
+      } catch (err) {
+        console.error('資料處理失敗', err);
+        showStatus('error', '資料格式錯誤', err.message);
+      }
+    }, (errorObj) => {
+      console.error('Firebase 監聽錯誤', errorObj);
+      showStatus('error', 'Firebase 連線失敗', errorObj.message || '請確認網路與權限設定');
     });
-    if (!response.ok) throw new Error('HTTP ' + response.status);
-    const result = await response.json();
-
-    if (!result.ok) {
-      showStatus('error', result.error || '無法取得班表資料');
-      return;
-    }
-
-    if (result.status === 'not_published') {
-      showStatus('empty', '此月份尚未公告');
-      return;
-    }
-
-    if (result.status === 'withdrawn') {
-      showStatus('withdrawn', `${formatMonthLabel(month)} 班表調整中`, result.publishedAt ? `上次公告:${formatDate(result.publishedAt)}` : '');
-      return;
-    }
-
-    // 已公告 → 載入資料
-    const data = JSON.parse(result.data);
-    state.days = data.days || 30;
-    state.holidays = data.holidays || [];
-    state.staff = data.staff || [];
-    state.schedule = data.schedule || {};
-    state.flags = data.flags || {};
-    state.publishedAt = result.publishedAt || '';
-    state.publishedBy = result.publishedBy || '';
-
-    hideStatus();
-    document.getElementById('hdr-subtitle').textContent = `公告於 ${formatDate(state.publishedAt)}${state.publishedBy ? ' · by ' + state.publishedBy : ''}`;
-
-    renderToday();
-    renderPersonList();
-    renderMonthTable();
   } catch (e) {
     console.error(e);
-    showStatus('error', '連線失敗', e.message);
+    showStatus('error', '初始化失敗', e.message);
   }
 }
 
@@ -699,8 +784,8 @@ function renderToday() {
   state.staff.forEach(p => {
     const sh = (state.schedule[p.id] || {})[day];
     if (buckets[sh] !== undefined) {
-      const marker = (state.flags[p.id] && state.flags[p.id][day] && state.flags[p.id][day].marker) || '';
-      buckets[sh].push({ p, marker });
+      const flag = (state.flags[p.id] && state.flags[p.id][day]) || {};
+      buckets[sh].push({ p, marker: flag.marker || '', dept: flag.dept || '' });
     }
   });
 
@@ -723,11 +808,12 @@ function renderToday() {
         <span class="shift-count">(${arr.length} 人)</span>
       </div>
       <div class="shift-people">`;
-    arr.forEach(({p, marker}) => {
+    arr.forEach(({p, marker, dept}) => {
       const markerTag = marker === 'preceptor' ? '<span class="marker-tag preceptor">帶</span>'
                       : marker === 'trainee' ? "<span class='marker-tag trainee'>'</span>"
                       : '';
-      html += `<div class="shift-person" onclick="openPersonByName('${escAttr(p.name)}')">${esc(p.name)}${markerTag}</div>`;
+      const deptTag = dept ? `<span class="dept-tag">${esc(dept)}</span>` : '';
+      html += `<div class="shift-person" onclick="openPersonByName('${escAttr(p.name)}')">${esc(p.name)}${deptTag}${markerTag}</div>`;
     });
     if (arr.length === 0) html += `<div style="color:#9ca3af; font-size:0.85rem; padding:6px">無人</div>`;
     html += '</div></div>';
@@ -829,7 +915,9 @@ function openPersonDetail(pid) {
     if (flag.marker === 'preceptor') cls += ' marker-preceptor';
     if (flag.marker === 'trainee') cls += ' marker-trainee';
     const display = sh === 'o' ? 'off' : (sh || '');
-    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div></div>`;
+    const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
+      ? `<div class="cal-cell-dept">${esc(flag.dept)}</div>` : '';
+    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}</div>`;
   }
   document.getElementById('pd-calendar').innerHTML = html;
 }
@@ -883,7 +971,9 @@ function renderMonthTable() {
       if (flag.marker === 'preceptor') cls += ' marker-preceptor';
       if (flag.marker === 'trainee') cls += ' marker-trainee';
       const display = sh === 'o' ? 'off' : (sh || '·');
-      html += `<td class="${cls}">${esc(display)}</td>`;
+      const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
+        ? `<div class="month-cell-dept">${esc(flag.dept)}</div>` : '';
+      html += `<td class="${cls}">${esc(display)}${deptSmall}</td>`;
     }
     html += '</tr>';
   });
@@ -918,6 +1008,15 @@ function formatDate(iso) {
     return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   } catch (e) { return iso; }
 }
+
+// === 把 inline-onclick 用到的函式掛到 window(module 預設不會自動掛) ===
+window.enterScheduleApp = enterScheduleApp;
+window.switchTab = switchTab;
+window.changeViewDate = changeViewDate;
+window.openPersonDetail = openPersonDetail;
+window.openPersonByName = openPersonByName;
+window.closePersonDetail = closePersonDetail;
+window.onPersonSearchInput = onPersonSearchInput;
 </script>
 </body>
 </html>
