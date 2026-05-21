@@ -931,6 +931,26 @@ async function loadData() {
         state.publishedAt = meta.publishedAt || '';
         state.publishedBy = meta.publishedBy || '';
 
+        // === 排序保險:HN 最上 → D/E/N → 半日墊底 ===
+        // 即使 index.html 端忘了排,這裡也能保證順序對
+        const isHalftime = (p) => {
+          const f = state.flags[p.id] || {};
+          return Object.values(f).some(x => x && x.halfdayTime);
+        };
+        const getGroup = (p) => {
+          if (p.level === 'HN' || (p.name && /護理長/.test(p.name))) return 0;
+          if (isHalftime(p)) return 2;
+          return 1;
+        };
+        const origIdx = new Map(state.staff.map((p, i) => [p.id, i]));
+        state.staff.sort((a, b) => {
+          const ga = getGroup(a), gb = getGroup(b);
+          if (ga !== gb) return ga - gb;
+          return (origIdx.get(a.id) || 0) - (origIdx.get(b.id) || 0);
+        });
+        console.log('[公告 schedule-view 排序] HN 位置:', state.staff.findIndex(p => p.level === 'HN' || (p.name && /護理長/.test(p.name))) + 1);
+        console.log('[公告 schedule-view 排序] 前 3 位:', state.staff.slice(0, 3).map(p => `${p.name}(${p.level})`));
+
         hideStatus();
         const syncTag = meta.lastSyncedAt && meta.lastSyncedAt !== meta.publishedAt
           ? ` · 更新於 ${formatDate(meta.lastSyncedAt)}`
