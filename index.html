@@ -14852,6 +14852,27 @@ function buildPublishViewPayload() {
     _countAsCapacity: isCountingForCapacity(p),
   }));
 
+  // 排序規則:
+  // 1. 半日職墊底(整月有打過 halfdayTime 標記)
+  // 2. 其他人嚴格保持 state.staff 原本順序(你手動編的順序)
+  // 用 Array.from + index 追蹤,確保 stable sort
+  const isHalfdayJob = (p) => {
+    const flags = (state.scheduleFlags && state.scheduleFlags[p.id]) || {};
+    return Object.values(flags).some(f => f && f.halfdayTime);
+  };
+  // 取得「原 state.staff 順序」的索引值 — 用 index 排序確保非半日職維持原順序
+  const origOrderMap = new Map((state.staff || []).map((sp, i) => [sp.id, i]));
+  const origStaffMap = new Map((state.staff || []).map(sp => [sp.id, sp]));
+  staff.sort((a, b) => {
+    const aHalf = isHalfdayJob(origStaffMap.get(a.id) || a) ? 1 : 0;
+    const bHalf = isHalfdayJob(origStaffMap.get(b.id) || b) ? 1 : 0;
+    if (aHalf !== bHalf) return aHalf - bHalf;  // 半日墊底
+    // 其他人按原 state.staff 順序(你手動編的)
+    const ai = origOrderMap.has(a.id) ? origOrderMap.get(a.id) : 9999;
+    const bi = origOrderMap.has(b.id) ? origOrderMap.get(b.id) : 9999;
+    return ai - bi;
+  });
+
   const schedule = {};
   staff.forEach(p => {
     schedule[p.id] = state.schedule[p.id] || {};
