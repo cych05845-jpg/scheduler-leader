@@ -340,7 +340,13 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 .cal-cell.shift-M { background: #e9d5ff; color: #6b21a8; border-color: #c4b5fd; }
 .cal-cell.shift-OFF { background: #fce8e8; color: #b91c1c; border-color: #fca5a5; }
 .cal-cell.shift-off,
-.cal-cell.shift-o { background: #f5f5f0; color: #6b6b6b; font-style: italic; }
+.cal-cell.shift-o {
+  background: #f5f5f0;
+  color: #6b6b6b;
+  font-style: italic;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+}
 .cal-cell.shift-V { background: #dcfce7; color: #166534; border-color: #86efac; }
 .cal-cell.today { box-shadow: 0 0 0 2px #059669; }
 .cal-cell.holiday .day-num { color: #b91c1c; font-weight: 700; }
@@ -434,9 +440,23 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 .month-table td.cell-E { background: #fef3c7; color: #92400e; font-weight: 600; }
 .month-table td.cell-N { background: #374151; color: white; font-weight: 600; }
 .month-table td.cell-M { background: #e9d5ff; color: #6b21a8; font-weight: 600; }
-.month-table td.cell-OFF { background: #fce8e8; color: #b91c1c; font-weight: 700; }
-.month-table td.cell-off, .month-table td.cell-o { background: #f5f5f0; color: #6b6b6b; font-style: italic; }
-.month-table td.cell-V { background: #dcfce7; color: #166534; }
+.month-table td.cell-OFF {
+  background: #fce8e8;
+  color: #b91c1c;
+  font-weight: 800;
+  /* 中籤預假(硬假)— 紅底粗體 */
+}
+.month-table td.cell-off, .month-table td.cell-o {
+  background: #f5f5f0;
+  color: #6b6b6b;
+  font-style: italic;
+  text-decoration: underline;  /* 底線標示 — 跟主班表一致 */
+  text-decoration-thickness: 1px;
+}
+.month-table td.cell-V {
+  background: #dcfce7;
+  color: #166534;
+}
 .month-table td.today-col { box-shadow: inset 0 0 0 2px #059669; }
 .month-table td.cell-underline { box-shadow: inset 0 -3px 0 0 #c2410c; }
 .month-table td.marker-preceptor::after,
