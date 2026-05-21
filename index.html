@@ -1665,6 +1665,17 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     </div>
 
     <!-- 📋 複製班(帶新進)-->
+    <!-- 🎯 每日人力需求(移到複製學姊班上方,常用功能往上靠)-->
+    <div class="section side-collapsible" id="sec-demand" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-demand')">
+        <span class="side-arrow">▶</span> 🎯 每日人力需求
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
+        <div id="demand-summary" style="font-size: 0.92rem; color: var(--ink-soft)"></div>
+        <button onclick="openRulesModal()" style="width: 100%; margin-top: 0.5rem; padding: 4px; font-size: 0.9rem">⚙ 修改規則</button>
+      </div>
+    </div>
+
     <div class="section side-collapsible" id="sec-copy-schedule" data-default="closed">
       <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-copy-schedule')">
         <span class="side-arrow">▶</span> 📋 複製學姊班給新進
@@ -1674,22 +1685,6 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
           複製學姊整月班 → 新進,所有 D/E/N/M 自動加「/帶」記號
         </div>
         <button onclick="openCopySchedDialog()" style="width:100%; padding:6px; background:#e0e7ff; color:#3730a3; border:1px solid #a5b4fc; border-radius:4px; cursor:pointer; font-size:0.85rem; font-weight:600">📋 開始複製...</button>
-      </div>
-    </div>
-
-    <!-- 🔄 人員順序 -->
-    <div class="section side-collapsible" id="sec-staff-order" data-default="closed">
-      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-staff-order')">
-        <span class="side-arrow">▶</span> 🔄 人員順序
-      </h3>
-      <div class="side-collapsible-body" style="display: none">
-        <div style="font-size: 0.85rem; color: var(--ink-mute); margin-bottom: 0.5rem">
-          若人員順序混亂,可重設為「Excel 原順序」或當前 state.staff 順序
-        </div>
-        <button onclick="resetStaffOrderToExcel()" style="width:100%; padding:6px; background:#fef3c7; color:#92400e; border:1px solid #fbbf24; border-radius:4px; cursor:pointer; font-size:0.85rem; font-weight:600; margin-bottom:4px">🔄 重設為 Excel 原順序</button>
-        <div style="font-size:0.75rem; color: var(--ink-mute); margin-top:6px">
-          清除你之前手動拖拉的順序,改用最近一次匯入 Excel 的順序
-        </div>
       </div>
     </div>
 
@@ -1706,16 +1701,6 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     <!-- ============== 底部:設定/參考(預設摺疊) ============== -->
 
     <!-- 🎯 每日人力需求 -->
-    <div class="section side-collapsible" id="sec-demand" data-default="closed">
-      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-demand')">
-        <span class="side-arrow">▶</span> 🎯 每日人力需求
-      </h3>
-      <div class="side-collapsible-body" style="display: none">
-        <div id="demand-summary" style="font-size: 0.92rem; color: var(--ink-soft)"></div>
-        <button onclick="openRulesModal()" style="width: 100%; margin-top: 0.5rem; padding: 4px; font-size: 0.9rem">⚙ 修改規則</button>
-      </div>
-    </div>
-
     <!-- 🗓 可休天數計算 -->
     <div class="section side-collapsible" id="sec-offcalc" data-default="closed">
       <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-offcalc')">
@@ -4907,38 +4892,56 @@ function restoreFromLeave(pid) {
 function renderReorderList() {
   const listEl = $('reorder-staff-list');
   if (!listEl) return;
-  if (state.staff.length === 0) {
+
+  // === HN 預設第 1 位(只在「使用者還沒手動調整過」時自動移)===
+  // 用 localStorage 旗標記住「已自動推過 HN」,之後不再自動移
+  const hnAutoSet = localStorage.getItem('hnAutoSetDone_v1');
+  if (!hnAutoSet) {
+    const hnIdx = state.staff.findIndex(p => p.level === 'HN');
+    if (hnIdx > 0) {
+      const [hn] = state.staff.splice(hnIdx, 1);
+      state.staff.unshift(hn);
+      if (typeof saveStaffData === 'function') saveStaffData();
+    }
+    localStorage.setItem('hnAutoSetDone_v1', '1');
+  }
+
+  // === 過濾掉「已離職」的人(留停保留)===
+  const visibleStaff = state.staff.filter(p => p.status !== 'resigned');
+
+  if (visibleStaff.length === 0) {
     listEl.innerHTML = '<div style="color: var(--ink-mute); font-style: italic; padding: 0.3rem 0">尚無人員資料</div>';
     return;
   }
 
-  // 從 state.rules.capabilities 讀能力定義,建 id → 顯示資訊 map
+  // 從 state.rules.capabilities 讀能力定義
   const capDefs = state.rules?.capabilities || [];
-  const capOrder = capDefs.map(c => c.id);  // 順序:basic < P < cpr < tri < lead
-  // 各階段配色 — 從低到高,顏色越深表示越進階
+  const capOrder = capDefs.map(c => c.id);
   const capColors = {
-    basic: { bg: '#f3f4f6', color: '#374151' },   // 灰
-    P:     { bg: '#fce7f3', color: '#9d174d' },   // 粉
-    cpr:   { bg: '#fee2e2', color: '#991b1b' },   // 紅
-    tri:   { bg: '#fef3c7', color: '#854f0b' },   // 黃
-    lead:  { bg: '#dbeafe', color: '#1e3a8a' },   // 藍
+    basic: { bg: '#f3f4f6', color: '#374151' },
+    P:     { bg: '#fce7f3', color: '#9d174d' },
+    cpr:   { bg: '#fee2e2', color: '#991b1b' },
+    tri:   { bg: '#fef3c7', color: '#854f0b' },
+    lead:  { bg: '#dbeafe', color: '#1e3a8a' },
   };
   const capNameMap = {};
   capDefs.forEach(c => { capNameMap[c.id] = c.name || c.id; });
 
-  // 提示文字
   const helpHtml = `<div style="font-size: 0.78rem; color: #0c4a6e; background: #e0f2fe; padding: 6px 8px; border-radius: 3px; margin-bottom: 6px; border-left: 3px solid #0284c7">
-    💡 <strong>快速調順序:</strong>改左邊數字框 → 按 Enter → 該人跳到那個位置(原位置的人往下推)
+    💡 <strong>快速調順序:</strong>改左邊數字框 → 按 Enter → 該人跳到該位置<br>
+    📌 <strong>點姓名</strong> → 跳到該人員設定畫面 &nbsp;|&nbsp; 🔒 HN 自動排第 1 位
   </div>`;
 
-  const itemsHtml = state.staff.map((p, i) => {
+  const itemsHtml = visibleStaff.map((p, displayIdx) => {
+    const realIdx = state.staff.findIndex(sp => sp.id === p.id);
+    const isLeave = p.status === 'leave';
+
     const lv = p.level || '';
     const lvTag = lv ? `<span class="level-tag level-${lv}" style="font-size: 0.78rem; margin-right: 0.4rem">${lv}</span>` : '';
 
-    // 能力:找最高階段(peakStage 優先,沒有再從 capabilities 最後一個取)
+    // 能力(最高階段)
     let peakId = p.peakStage || '';
     if (!peakId && Array.isArray(p.capabilities) && p.capabilities.length > 0) {
-      // 依 capOrder 排序找最高
       for (let j = capOrder.length - 1; j >= 0; j--) {
         if (p.capabilities.includes(capOrder[j])) { peakId = capOrder[j]; break; }
       }
@@ -4947,24 +4950,35 @@ function renderReorderList() {
       ? `<span style="font-size: 0.72rem; padding: 1px 6px; background: ${capColors[peakId]?.bg || '#f3f4f6'}; color: ${capColors[peakId]?.color || '#374151'}; border-radius: 10px; font-weight: 600; margin-left: 6px; white-space: nowrap" title="能力階段:${escapeHTML(capNameMap[peakId] || peakId)}">${peakId}</span>`
       : '';
 
-    return `<div class="reorder-item" draggable="true" data-pid="${p.id}" data-idx="${i}"
+    // 留停標記
+    const leaveTag = isLeave
+      ? `<span style="font-size: 0.7rem; padding: 1px 5px; background: #f3f4f6; color: #6b7280; border-radius: 3px; margin-left: 6px; font-style: italic">留停</span>`
+      : '';
+
+    const rowBg = isLeave ? '#f9fafb' : 'white';
+
+    return `<div class="reorder-item" data-pid="${p.id}" data-idx="${realIdx}"
+      draggable="true"
       ondragstart="onReorderDragStart(event)"
       ondragover="onReorderDragOver(event)"
       ondragleave="onReorderDragLeave(event)"
       ondrop="onReorderDrop(event)"
       ondragend="onReorderDragEnd(event)"
-      style="display: flex; align-items: center; padding: 0.4rem 0.5rem; background: white; border: 1px solid var(--line); border-radius: 3px; margin-bottom: 3px; cursor: grab; user-select: none">
-      <input type="number" min="1" max="${state.staff.length}" value="${i + 1}"
+      style="display: flex; align-items: center; padding: 0.4rem 0.5rem; background: ${rowBg}; border: 1px solid var(--line); border-radius: 3px; margin-bottom: 3px; cursor: grab; user-select: none">
+      <input type="number" min="1" max="${visibleStaff.length}" value="${displayIdx + 1}"
         onchange="reorderByNumber('${p.id}', this.value)"
         onkeydown="if(event.key==='Enter'){this.blur();}"
-        onclick="this.select()"
+        onclick="event.stopPropagation(); this.select()"
         title="改數字按 Enter → 跳到該位置"
         style="width: 42px; padding: 3px 4px; border: 1px solid #d1d5db; border-radius: 3px; font-size: 0.85rem; font-weight: 700; text-align: center; margin-right: 6px; cursor: text"
         ondragstart="event.preventDefault(); event.stopPropagation()">
       <span style="margin-right: 0.4rem; color: var(--ink-mute); cursor: grab; font-size: 0.85rem">⋮⋮</span>
       ${lvTag}
-      <span style="font-weight: 600">${p.name}</span>
+      <span style="font-weight: 600; cursor: pointer; color: #2563eb; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px"
+        onclick="event.stopPropagation(); openPersonModal('${p.id}')"
+        title="點此跳到「${escapeHTML(p.name)}」的人員設定">${escapeHTML(p.name)}</span>
       ${capTag}
+      ${leaveTag}
     </div>`;
   }).join('');
 
@@ -4972,25 +4986,35 @@ function renderReorderList() {
 }
 
 // 按位置編號重排:把 pid 的人移到 newPos(1-based)
+// 注意:這個 newPos 是「visibleStaff(過濾掉離職後)」的位置,要轉換成 state.staff 的真實 index
 function reorderByNumber(pid, newPosStr) {
   const newPos = parseInt(newPosStr, 10);
-  if (isNaN(newPos) || newPos < 1 || newPos > state.staff.length) {
-    renderReorderList();  // 重畫(復原無效輸入)
+  const visibleStaff = state.staff.filter(p => p.status !== 'resigned');
+  if (isNaN(newPos) || newPos < 1 || newPos > visibleStaff.length) {
+    renderReorderList();
     return;
   }
-  const fromIdx = state.staff.findIndex(p => p.id === pid);
-  if (fromIdx === -1) return;
-  const toIdx = newPos - 1;  // 1-based → 0-based
-  if (fromIdx === toIdx) return;
 
-  // 移動:把該人 splice 出來,再 splice 進去
-  const [moved] = state.staff.splice(fromIdx, 1);
-  state.staff.splice(toIdx, 0, moved);
+  // 找在 visibleStaff 裡的當前 index
+  const fromVisIdx = visibleStaff.findIndex(p => p.id === pid);
+  if (fromVisIdx === -1) return;
+  const toVisIdx = newPos - 1;
+  if (fromVisIdx === toVisIdx) {
+    renderReorderList();
+    return;
+  }
 
-  // 存順序
+  // 在 visibleStaff 裡移動(只動非離職)
+  const [moved] = visibleStaff.splice(fromVisIdx, 1);
+  visibleStaff.splice(toVisIdx, 0, moved);
+
+  // 用 visibleStaff 的新順序重組 state.staff(離職的人保持原相對位置在最後)
+  const resigned = state.staff.filter(p => p.status === 'resigned');
+  state.staff = [...visibleStaff, ...resigned];
+
   if (typeof saveStaffData === 'function') saveStaffData();
   renderReorderList();
-  renderTable();  // 主班表也要重新渲染
+  renderTable();
 }
 
 let _reorderDragFromIdx = null;
