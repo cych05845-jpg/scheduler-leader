@@ -1677,6 +1677,22 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
       </div>
     </div>
 
+    <!-- 🔄 人員順序 -->
+    <div class="section side-collapsible" id="sec-staff-order" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-staff-order')">
+        <span class="side-arrow">▶</span> 🔄 人員順序
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
+        <div style="font-size: 0.85rem; color: var(--ink-mute); margin-bottom: 0.5rem">
+          若人員順序混亂,可重設為「Excel 原順序」或當前 state.staff 順序
+        </div>
+        <button onclick="resetStaffOrderToExcel()" style="width:100%; padding:6px; background:#fef3c7; color:#92400e; border:1px solid #fbbf24; border-radius:4px; cursor:pointer; font-size:0.85rem; font-weight:600; margin-bottom:4px">🔄 重設為 Excel 原順序</button>
+        <div style="font-size:0.75rem; color: var(--ink-mute); margin-top:6px">
+          清除你之前手動拖拉的順序,改用最近一次匯入 Excel 的順序
+        </div>
+      </div>
+    </div>
+
     <!-- 📊 本月概況(D/E/N/休 統計) -->
     <div class="section side-collapsible" id="sec-overview" data-default="closed">
       <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-overview')">
@@ -4896,9 +4912,41 @@ function renderReorderList() {
     return;
   }
 
-  listEl.innerHTML = state.staff.map((p, i) => {
+  // 從 state.rules.capabilities 讀能力定義,建 id → 顯示資訊 map
+  const capDefs = state.rules?.capabilities || [];
+  const capOrder = capDefs.map(c => c.id);  // 順序:basic < P < cpr < tri < lead
+  // 各階段配色 — 從低到高,顏色越深表示越進階
+  const capColors = {
+    basic: { bg: '#f3f4f6', color: '#374151' },   // 灰
+    P:     { bg: '#fce7f3', color: '#9d174d' },   // 粉
+    cpr:   { bg: '#fee2e2', color: '#991b1b' },   // 紅
+    tri:   { bg: '#fef3c7', color: '#854f0b' },   // 黃
+    lead:  { bg: '#dbeafe', color: '#1e3a8a' },   // 藍
+  };
+  const capNameMap = {};
+  capDefs.forEach(c => { capNameMap[c.id] = c.name || c.id; });
+
+  // 提示文字
+  const helpHtml = `<div style="font-size: 0.78rem; color: #0c4a6e; background: #e0f2fe; padding: 6px 8px; border-radius: 3px; margin-bottom: 6px; border-left: 3px solid #0284c7">
+    💡 <strong>快速調順序:</strong>改左邊數字框 → 按 Enter → 該人跳到那個位置(原位置的人往下推)
+  </div>`;
+
+  const itemsHtml = state.staff.map((p, i) => {
     const lv = p.level || '';
     const lvTag = lv ? `<span class="level-tag level-${lv}" style="font-size: 0.78rem; margin-right: 0.4rem">${lv}</span>` : '';
+
+    // 能力:找最高階段(peakStage 優先,沒有再從 capabilities 最後一個取)
+    let peakId = p.peakStage || '';
+    if (!peakId && Array.isArray(p.capabilities) && p.capabilities.length > 0) {
+      // 依 capOrder 排序找最高
+      for (let j = capOrder.length - 1; j >= 0; j--) {
+        if (p.capabilities.includes(capOrder[j])) { peakId = capOrder[j]; break; }
+      }
+    }
+    const capTag = peakId
+      ? `<span style="font-size: 0.72rem; padding: 1px 6px; background: ${capColors[peakId]?.bg || '#f3f4f6'}; color: ${capColors[peakId]?.color || '#374151'}; border-radius: 10px; font-weight: 600; margin-left: 6px; white-space: nowrap" title="能力階段:${escapeHTML(capNameMap[peakId] || peakId)}">${peakId}</span>`
+      : '';
+
     return `<div class="reorder-item" draggable="true" data-pid="${p.id}" data-idx="${i}"
       ondragstart="onReorderDragStart(event)"
       ondragover="onReorderDragOver(event)"
@@ -4906,12 +4954,43 @@ function renderReorderList() {
       ondrop="onReorderDrop(event)"
       ondragend="onReorderDragEnd(event)"
       style="display: flex; align-items: center; padding: 0.4rem 0.5rem; background: white; border: 1px solid var(--line); border-radius: 3px; margin-bottom: 3px; cursor: grab; user-select: none">
-      <span style="color: var(--ink-mute); font-size: 0.82rem; min-width: 24px">${i + 1}.</span>
-      <span style="margin-right: 0.4rem; color: var(--ink-mute); cursor: grab">⋮⋮</span>
+      <input type="number" min="1" max="${state.staff.length}" value="${i + 1}"
+        onchange="reorderByNumber('${p.id}', this.value)"
+        onkeydown="if(event.key==='Enter'){this.blur();}"
+        onclick="this.select()"
+        title="改數字按 Enter → 跳到該位置"
+        style="width: 42px; padding: 3px 4px; border: 1px solid #d1d5db; border-radius: 3px; font-size: 0.85rem; font-weight: 700; text-align: center; margin-right: 6px; cursor: text"
+        ondragstart="event.preventDefault(); event.stopPropagation()">
+      <span style="margin-right: 0.4rem; color: var(--ink-mute); cursor: grab; font-size: 0.85rem">⋮⋮</span>
       ${lvTag}
       <span style="font-weight: 600">${p.name}</span>
+      ${capTag}
     </div>`;
   }).join('');
+
+  listEl.innerHTML = helpHtml + itemsHtml;
+}
+
+// 按位置編號重排:把 pid 的人移到 newPos(1-based)
+function reorderByNumber(pid, newPosStr) {
+  const newPos = parseInt(newPosStr, 10);
+  if (isNaN(newPos) || newPos < 1 || newPos > state.staff.length) {
+    renderReorderList();  // 重畫(復原無效輸入)
+    return;
+  }
+  const fromIdx = state.staff.findIndex(p => p.id === pid);
+  if (fromIdx === -1) return;
+  const toIdx = newPos - 1;  // 1-based → 0-based
+  if (fromIdx === toIdx) return;
+
+  // 移動:把該人 splice 出來,再 splice 進去
+  const [moved] = state.staff.splice(fromIdx, 1);
+  state.staff.splice(toIdx, 0, moved);
+
+  // 存順序
+  if (typeof saveStaffData === 'function') saveStaffData();
+  renderReorderList();
+  renderTable();  // 主班表也要重新渲染
 }
 
 let _reorderDragFromIdx = null;
@@ -5653,6 +5732,44 @@ function setHalfdayTimeForCell(pid, day, value) {
 // 複製學姊班給新進(整月複製 + 自動加 trainee marker)
 // 操作流程:選來源 + 目標 + 範圍 → 預覽 → 確認套用
 // ============================================================
+// ============================================================
+// 重設人員順序為 Excel 原順序
+// 機制:刪除 schedulerStaffOrder(手動拖拉的快取) → 用 schedulerStaff 物件的插入順序
+// 插入順序 = 最近一次匯入 Excel 時的順序
+// ============================================================
+function resetStaffOrderToExcel() {
+  const stored = loadStaffData();
+  const storedNames = Object.keys(stored);
+
+  if (storedNames.length === 0) {
+    alert('還沒匯入過人員主檔 — 請先匯入一次 Excel');
+    return;
+  }
+
+  const ok = confirm(
+    `重設順序 — 用最近一次匯入 Excel 的順序覆蓋現在的人員排序?\n\n` +
+    `Excel 主檔有 ${storedNames.length} 人,目前班表 ${state.staff.length} 人。\n\n` +
+    `(目前手動拖拉的順序會被清掉,班表內容不會動)`
+  );
+  if (!ok) return;
+
+  // 清掉手動拖拉的順序快取
+  localStorage.removeItem('schedulerStaffOrder');
+
+  // 用 storedNames 重排 state.staff
+  const indexOf = new Map(storedNames.map((name, i) => [name, i]));
+  state.staff.sort((a, b) => {
+    const ia = indexOf.has(a.name) ? indexOf.get(a.name) : 99999;
+    const ib = indexOf.has(b.name) ? indexOf.get(b.name) : 99999;
+    return ia - ib;
+  });
+
+  if (typeof saveSnapshot === 'function') saveSnapshot();
+  if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
+  renderTable();
+  alert(`✓ 人員順序已重設為 Excel 原順序(${state.staff.length} 人)`);
+}
+
 function openCopySchedDialog() {
   const modal = document.getElementById('copy-sched-modal');
   if (!modal) return;
