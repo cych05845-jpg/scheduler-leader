@@ -736,6 +736,85 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   .home-card { padding: 1.5rem 1.3rem; }
   .home-card h2 { font-size: 1.3rem; }
 }
+
+/* ============================================================
+   📄 PDF 列印模式 (window.print)
+   A4 橫向,每頁約 13 人(73 人會分 6 頁)
+   ============================================================ */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm 6mm;
+  }
+  body {
+    background: white !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft JhengHei", "微軟正黑體", "PingFang TC", sans-serif !important;
+  }
+  /* 隱藏所有非月曆元素 */
+  .app-header, .tabs, .panel:not(#panel-month), .status-banner,
+  .home-screen, #footer, button, .subtitle, #status-panel,
+  #panel-today, #panel-person,
+  .date-note-banner, .month-table-wrap > div:first-child:not(.month-table-wrap) {
+    display: none !important;
+  }
+  #panel-month > div:first-child {
+    display: none !important;  /* 隱藏月曆說明 + PDF 按鈕 */
+  }
+  .panel#panel-month {
+    display: block !important;
+  }
+  /* 月份標題(列印頂部) */
+  body::before {
+    content: attr(data-print-title);
+    display: block;
+    text-align: center;
+    font-size: 14pt;
+    font-weight: 700;
+    padding: 4mm 0 2mm;
+  }
+  /* 月曆表格 */
+  .month-table-wrap {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+    width: 100% !important;
+  }
+  .month-table {
+    width: 100% !important;
+    font-size: 8pt !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto;
+  }
+  .month-table thead {
+    display: table-header-group !important;  /* 每頁重複表頭 */
+  }
+  .month-table tfoot {
+    display: table-footer-group !important;  /* 每頁重複表尾(D/E/N 統計) */
+  }
+  .month-table tbody tr {
+    page-break-inside: avoid;  /* 該列不要被切到下一頁 */
+  }
+  /* 每 13 列強制換頁 */
+  .month-table tbody tr.print-break {
+    page-break-after: always;
+  }
+  /* sticky 取消(列印不需要) */
+  .month-table td.col-name,
+  .month-table th.col-name,
+  .month-table tfoot tr.month-total-row td {
+    position: static !important;
+  }
+  .month-table td, .month-table th {
+    border: 0.4pt solid #888 !important;
+    padding: 1pt 2pt !important;
+    line-height: 1.2 !important;
+  }
+  /* 列印時拿掉 cursor pointer, hover 等效果 */
+  .month-table * {
+    cursor: default !important;
+    box-shadow: none !important;
+  }
+}
 </style>
 </head>
 <body>
@@ -803,8 +882,11 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 
 <!-- === Panel: 月曆 === -->
 <div class="panel" id="panel-month">
-  <div style="margin-bottom: 0.6rem; font-size: 0.85rem; color: #6b7280">
-    左右滑動可看整月;姓名欄會固定在左側。今日格子有綠色框。
+  <div style="margin-bottom: 0.6rem; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap">
+    <div style="font-size: 0.85rem; color: #6b7280; flex: 1; min-width: 200px">
+      左右滑動可看整月;姓名欄會固定在左側。今日格子有綠色框。
+    </div>
+    <button onclick="printMonthAsPdf()" style="padding: 8px 14px; background: #dc2626; color: white; border: none; border-radius: 6px; font-size: 0.92rem; font-weight: 600; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.12)" title="跳出列印對話框,選「儲存為 PDF」即可下載">📄 下載 PDF 班表</button>
   </div>
   <div class="month-table-wrap" id="month-table-wrap"></div>
 </div>
@@ -1368,6 +1450,35 @@ function formatDate(iso) {
   } catch (e) { return iso; }
 }
 
+// === PDF 列印 ===
+// 點按鈕 → 設定每 13 列分頁 → 跳出列印對話框
+// 同仁選「儲存為 PDF」就會下載
+function printMonthAsPdf() {
+  // 1. 設定列印標題(顯示在每頁上方)
+  const ym = state.month || '';
+  document.body.dataset.printTitle = `${ym.replace('-', ' 年 ')} 月急診班表`;
+
+  // 2. 每 13 列加 print-break class(強制分頁)
+  const tbody = document.querySelector('.month-table tbody');
+  if (tbody) {
+    // 先清掉舊的 break class
+    tbody.querySelectorAll('tr.print-break').forEach(tr => tr.classList.remove('print-break'));
+    // 每 13 列加一次 break
+    const rows = tbody.querySelectorAll('tr');
+    const PER_PAGE = 13;
+    rows.forEach((tr, i) => {
+      if (i > 0 && (i + 1) % PER_PAGE === 0 && i < rows.length - 1) {
+        tr.classList.add('print-break');
+      }
+    });
+  }
+
+  // 3. 觸發瀏覽器列印對話框
+  setTimeout(() => {
+    window.print();
+  }, 100);
+}
+
 // === 把 inline-onclick 用到的函式掛到 window(module 預設不會自動掛) ===
 window.enterScheduleApp = enterScheduleApp;
 window.switchTab = switchTab;
@@ -1376,6 +1487,7 @@ window.openPersonDetail = openPersonDetail;
 window.openPersonByName = openPersonByName;
 window.closePersonDetail = closePersonDetail;
 window.onPersonSearchInput = onPersonSearchInput;
+window.printMonthAsPdf = printMonthAsPdf;
 </script>
 </body>
 </html>
