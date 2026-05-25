@@ -1665,7 +1665,30 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     </div>
 
     <!-- 📋 複製班(帶新進)-->
-    <!-- 🎯 每日人力需求(移到複製學姊班上方,常用功能往上靠)-->
+    <!-- 📢 公告說明(每月可更新,顯示在公告網頁頂部給同仁看)-->
+    <div class="section side-collapsible" id="sec-announce" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-announce')">
+        <span class="side-arrow">▶</span> 📢 公告說明
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
+        <div style="font-size: 0.78rem; color: var(--ink-mute); margin-bottom: 0.4rem">
+          顯示在公告網頁頂部給同仁看(每次重新公告時自動推送)
+        </div>
+        <textarea id="announce-text"
+          placeholder="輸入公告內容...(支援多行)"
+          rows="8"
+          style="width:100%; padding:6px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.85rem; font-family:inherit; resize:vertical; line-height:1.4"></textarea>
+        <div style="display:flex; gap:4px; margin-top:6px">
+          <button onclick="useAnnounceTemplate()" style="flex:1; padding:5px; background:#fef3c7; color:#92400e; border:1px solid #fbbf24; border-radius:3px; cursor:pointer; font-size:0.8rem">📋 用預設範本</button>
+          <button onclick="saveAnnouncement()" style="flex:1; padding:5px; background:#dbeafe; color:#1e40af; border:1px solid #93c5fd; border-radius:3px; cursor:pointer; font-size:0.8rem; font-weight:600">💾 儲存</button>
+        </div>
+        <div style="font-size:0.72rem; color: var(--ink-mute); margin-top:6px">
+          儲存後請點主班表上方「📢 公告給同仁」推送
+        </div>
+      </div>
+    </div>
+
+    <!-- 🎯 每日人力需求 -->
     <div class="section side-collapsible" id="sec-demand" data-default="closed">
       <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-demand')">
         <span class="side-arrow">▶</span> 🎯 每日人力需求
@@ -5793,6 +5816,58 @@ function resetStaffOrderToExcel() {
   renderTable();
   alert(`✓ 人員順序已重設為 Excel 原順序(${state.staff.length} 人)`);
 }
+
+// ============================================================
+// 公告說明(顯示在公告網頁頂部給同仁看)
+// 資料存 localStorage:scheduleAnnouncement.{month}
+// 推送時透過 buildPublishViewPayload 帶上去
+// ============================================================
+const ANNOUNCE_TEMPLATE = `📢 急診班表使用說明
+
+• 班別代碼:D 白班 / E 小夜 / N 大夜 / M 中班
+• 休假:OFF=中籤預假  off=一般假  V=特休
+• 半日職顯示時段(例:8-12 / 10-14)
+• 點下方[📆 月曆]看整月班表
+• 點自己名字看[個人]視圖,手機友善
+• 點[📄 下載 PDF]可下載/列印(分 5 頁)
+• 班表若有異動,上方公告時間會更新
+
+✨ 本月特別事項:
+(此處填本月公告,例:6/15-6/20 端午連假請預先告知調班)`;
+
+function loadAnnouncement() {
+  const m = state.month;
+  const stored = localStorage.getItem(`scheduleAnnouncement.${m}`);
+  const ta = document.getElementById('announce-text');
+  if (ta && stored) ta.value = stored;
+}
+
+function saveAnnouncement() {
+  const ta = document.getElementById('announce-text');
+  if (!ta) return;
+  const text = ta.value;
+  const m = state.month;
+  localStorage.setItem(`scheduleAnnouncement.${m}`, text);
+  // 若已經 publish 過,立即同步到 Firebase(不用整個重推 payload)
+  if (typeof autoSyncPublishedView === 'function') autoSyncPublishedView();
+  alert(`✓ 公告說明已儲存(${text.length} 字)\n\n請點主班表上方「📢 公告給同仁」推送給同仁`);
+}
+
+function useAnnounceTemplate() {
+  const ta = document.getElementById('announce-text');
+  if (!ta) return;
+  if (ta.value.trim() && !confirm('現有內容會被覆蓋,確定?')) return;
+  ta.value = ANNOUNCE_TEMPLATE;
+}
+
+// 開啟「📢 公告說明」區塊時自動載入該月內容
+const _origToggleSidePanel = window.toggleSidePanelSection;
+window.toggleSidePanelSection = function(id, forceOpen) {
+  if (typeof _origToggleSidePanel === 'function') _origToggleSidePanel(id, forceOpen);
+  if (id === 'sec-announce') {
+    setTimeout(loadAnnouncement, 50);
+  }
+};
 
 function openCopySchedDialog() {
   const modal = document.getElementById('copy-sched-modal');
@@ -14993,26 +15068,38 @@ function buildPublishViewPayload() {
     _countAsCapacity: isCountingForCapacity(p),
   }));
 
-  // 排序規則:
-  // 1. 半日職墊底(整月有打過 halfdayTime 標記)
-  // 2. 其他人嚴格保持 state.staff 原本順序(你手動編的順序)
-  // 用 Array.from + index 追蹤,確保 stable sort
+  // 排序規則(三層):
+  // 1. HN 永遠在最上面(level === 'HN')
+  // 2. 半日職墊底(整月有打過 halfdayTime 標記)
+  // 3. 其他人嚴格保持 state.staff 原本順序(你手動編的順序)
   const isHalfdayJob = (p) => {
     const flags = (state.scheduleFlags && state.scheduleFlags[p.id]) || {};
     return Object.values(flags).some(f => f && f.halfdayTime);
   };
-  // 取得「原 state.staff 順序」的索引值 — 用 index 排序確保非半日職維持原順序
+  // 取得「原 state.staff 順序」的索引值
   const origOrderMap = new Map((state.staff || []).map((sp, i) => [sp.id, i]));
   const origStaffMap = new Map((state.staff || []).map(sp => [sp.id, sp]));
+  // 分組函式:0=HN, 1=一般, 2=半日(數字越大排越後面)
+  const getGroup = (id) => {
+    const sp = origStaffMap.get(id);
+    if (!sp) return 1;
+    // HN 判斷:level='HN' 或 name 含「護理長」
+    if (sp.level === 'HN' || (sp.name && /護理長/.test(sp.name))) return 0;
+    if (isHalfdayJob(sp)) return 2;
+    return 1;
+  };
   staff.sort((a, b) => {
-    const aHalf = isHalfdayJob(origStaffMap.get(a.id) || a) ? 1 : 0;
-    const bHalf = isHalfdayJob(origStaffMap.get(b.id) || b) ? 1 : 0;
-    if (aHalf !== bHalf) return aHalf - bHalf;  // 半日墊底
-    // 其他人按原 state.staff 順序(你手動編的)
+    const ga = getGroup(a.id);
+    const gb = getGroup(b.id);
+    if (ga !== gb) return ga - gb;
+    // 同組內按原 state.staff 順序
     const ai = origOrderMap.has(a.id) ? origOrderMap.get(a.id) : 9999;
     const bi = origOrderMap.has(b.id) ? origOrderMap.get(b.id) : 9999;
     return ai - bi;
   });
+  // DEBUG:在 console 印排序結果,你按 F12 可以看到
+  console.log('[公告排序 debug] 前 3 位:', staff.slice(0,3).map(s => `${s.name}(${s.level})`));
+  console.log('[公告排序 debug] HN 位置:', staff.findIndex(s => s.level === 'HN') + 1);
 
   const schedule = {};
   staff.forEach(p => {
@@ -15037,6 +15124,9 @@ function buildPublishViewPayload() {
     }
   });
 
+  // 公告說明(來自側欄「📢 公告說明」)
+  const announcement = localStorage.getItem(`scheduleAnnouncement.${state.month}`) || '';
+
   return {
     version: 1,
     month: state.month,
@@ -15047,6 +15137,7 @@ function buildPublishViewPayload() {
     flags,
     dateNotes,
     personNotes,
+    announcement,
   };
 }
 
