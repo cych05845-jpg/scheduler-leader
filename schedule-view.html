@@ -803,6 +803,28 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   .month-table thead {
     display: table-header-group !important;  /* 每頁重複表頭 */
   }
+  /* 表頭 th 在列印時:取消所有 sticky,確保每頁顯示 */
+  .month-table thead th,
+  .month-table thead tr th {
+    position: static !important;
+    top: auto !important;
+    background: #f3f4f6 !important;
+    color: #111 !important;
+    font-weight: 700 !important;
+    border: 0.4pt solid #555 !important;
+    padding: 2pt 1pt !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .month-table thead th.dow-sun,
+  .month-table thead th.dow-sat,
+  .month-table thead th.holiday,
+  .month-table thead th.col-sat,
+  .month-table thead th.col-sun,
+  .month-table thead th.col-holiday {
+    background: #d9f99d !important;
+    color: #365314 !important;
+  }
   .month-table tfoot {
     display: table-footer-group !important;  /* 每頁重複表尾(D/E/N 統計) */
   }
@@ -1487,7 +1509,7 @@ function printMonthAsPdf() {
   if (tbody) {
     tbody.querySelectorAll('tr.print-break').forEach(tr => tr.classList.remove('print-break'));
     const rows = tbody.querySelectorAll('tr');
-    const PER_PAGE = 13;
+    const PER_PAGE = 16;
     rows.forEach((tr, i) => {
       if (i > 0 && (i + 1) % PER_PAGE === 0 && i < rows.length - 1) {
         tr.classList.add('print-break');
