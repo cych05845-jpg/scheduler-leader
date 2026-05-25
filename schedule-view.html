@@ -399,8 +399,23 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   background: #f9fafb;
   font-weight: 600;
   position: sticky;
-  top: 0;
   z-index: 5;
+}
+/* 第 1 列(日期)固定在最上 */
+.month-table thead tr:nth-child(1) th {
+  top: 0;
+  z-index: 6;
+}
+/* 第 2 列(星期)固定在日期下方 */
+.month-table thead tr:nth-child(2) th {
+  top: 22px;
+  z-index: 5;
+  border-top: 1px solid #d1d5db;
+}
+/* 姓名欄(col-name)有 rowspan=2 — 從第 1 列開始,要跨 2 列高度 */
+.month-table th.col-name {
+  top: 0;
+  z-index: 10;
 }
 .month-table th.dow-sun, .month-table th.dow-sat { background: #fef3c7; }
 .month-table th.holiday { background: #fee2e2; color: #b91c1c; }
@@ -886,7 +901,7 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
     <div style="font-size: 0.85rem; color: #6b7280; flex: 1; min-width: 200px">
       左右滑動可看整月;姓名欄會固定在左側。今日格子有綠色框。
     </div>
-    <button onclick="printMonthAsPdf()" style="padding: 8px 14px; background: #dc2626; color: white; border: none; border-radius: 6px; font-size: 0.92rem; font-weight: 600; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.12)" title="跳出列印對話框,選「儲存為 PDF」即可下載">📄 下載 PDF 班表</button>
+    <button id="btn-print-pdf" style="padding: 8px 14px; background: #dc2626; color: white; border: none; border-radius: 6px; font-size: 0.92rem; font-weight: 600; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.12)" title="跳出列印對話框,選「儲存為 PDF」即可下載">📄 下載 PDF 班表</button>
   </div>
   <div class="month-table-wrap" id="month-table-wrap"></div>
 </div>
@@ -1454,16 +1469,23 @@ function formatDate(iso) {
 // 點按鈕 → 設定每 13 列分頁 → 跳出列印對話框
 // 同仁選「儲存為 PDF」就會下載
 function printMonthAsPdf() {
-  // 1. 設定列印標題(顯示在每頁上方)
+  console.log('[PDF] 按鈕被點擊,準備列印');
+
+  // 1. 確認目前在月曆 tab
+  const monthPanel = document.getElementById('panel-month');
+  if (!monthPanel || !monthPanel.classList.contains('active')) {
+    alert('請先切到「📆 月曆」分頁再下載 PDF');
+    return;
+  }
+
+  // 2. 設定列印標題(顯示在每頁上方)
   const ym = state.month || '';
   document.body.dataset.printTitle = `${ym.replace('-', ' 年 ')} 月急診班表`;
 
-  // 2. 每 13 列加 print-break class(強制分頁)
+  // 3. 每 13 列加 print-break class(強制分頁)
   const tbody = document.querySelector('.month-table tbody');
   if (tbody) {
-    // 先清掉舊的 break class
     tbody.querySelectorAll('tr.print-break').forEach(tr => tr.classList.remove('print-break'));
-    // 每 13 列加一次 break
     const rows = tbody.querySelectorAll('tr');
     const PER_PAGE = 13;
     rows.forEach((tr, i) => {
@@ -1471,13 +1493,46 @@ function printMonthAsPdf() {
         tr.classList.add('print-break');
       }
     });
+    console.log(`[PDF] ${rows.length} 列,每 ${PER_PAGE} 列分頁`);
+  } else {
+    console.warn('[PDF] 找不到 tbody — 表格還沒渲染?');
+    alert('班表還沒載入完成,請稍候再試');
+    return;
   }
 
-  // 3. 觸發瀏覽器列印對話框
+  // 4. 觸發瀏覽器列印對話框
   setTimeout(() => {
     window.print();
-  }, 100);
+  }, 200);
 }
+
+// 把 printMonthAsPdf 同時掛到 window(避免 module + Safari 不認 inline onclick 的問題)
+window.printMonthAsPdf = printMonthAsPdf;
+
+// addEventListener 註冊 — 用 MutationObserver 觀察按鈕出現後立即綁
+// 因為按鈕在 panel-month 裡,初始 display:none,DOMContentLoaded 時可能還在
+function bindPrintButton() {
+  const btn = document.getElementById('btn-print-pdf');
+  if (btn && !btn.dataset.bound) {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      printMonthAsPdf();
+    });
+    btn.dataset.bound = '1';
+    console.log('[PDF] 按鈕已綁定 click 事件');
+    return true;
+  }
+  return false;
+}
+
+// 多重保險:DOMContentLoaded + load + setInterval 直到綁成功
+document.addEventListener('DOMContentLoaded', bindPrintButton);
+window.addEventListener('load', bindPrintButton);
+let bindRetry = 0;
+const bindTimer = setInterval(() => {
+  if (bindPrintButton() || bindRetry++ > 20) clearInterval(bindTimer);
+}, 500);
 
 // === 把 inline-onclick 用到的函式掛到 window(module 預設不會自動掛) ===
 window.enterScheduleApp = enterScheduleApp;
