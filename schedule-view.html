@@ -476,14 +476,17 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   color: #6b6b6b;
   font-style: italic;
 }
-/* off 文字加底線(對 .month-cell-shift div 設定才會生效)*/
-.month-table td.cell-off .month-cell-shift,
-.month-table td.cell-o .month-cell-shift {
+/* off(軟假/申請預假未中籤)加底線標示 — 只套用在「off 班別」,不套用一般 o */
+.month-table td.cell-off .month-cell-shift {
   text-decoration: underline;
   text-decoration-thickness: 2px;
   text-decoration-color: #b91c1c;       /* 紅色底線,跟 OFF 同色,讓「軟假/硬假」視覺有關聯 */
   text-underline-offset: 2px;
   display: inline-block;                /* 讓底線只到文字長度,不延伸到整個 div */
+}
+/* 一般休假(小寫 o)不加底線 — 跟主班表 td.shift-o 一致 */
+.month-table td.cell-o .month-cell-shift {
+  text-decoration: none;
 }
 .month-table td.cell-V {
   background: #dcfce7;
@@ -952,12 +955,12 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 </div>
 
 <!-- === 公告說明區(顯示 leader 設定的本月公告)=== -->
-<div id="announce-banner" style="display: none; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 1px solid #f59e0b; border-radius: 8px; padding: 12px 16px; margin: 0 0 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.08)">
-  <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 6px">
+<div id="announce-banner" style="display: none; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 1px solid #f59e0b; border-radius: 8px; margin: 0 0 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden">
+  <div id="announce-header" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; cursor: pointer; user-select: none; transition: background 0.15s" onmouseover="this.style.background='rgba(180,83,9,0.08)'" onmouseout="this.style.background='transparent'" title="點我收合/展開">
     <div style="font-weight: 700; color: #92400e; font-size: 0.95rem">📢 本月公告</div>
-    <button id="announce-toggle" style="background: transparent; border: none; cursor: pointer; color: #92400e; font-size: 1rem; padding: 0 4px" title="收合/展開">▾</button>
+    <span id="announce-toggle" style="color: #92400e; font-size: 1.1rem; font-weight: 700; transition: transform 0.2s">▾</span>
   </div>
-  <div id="announce-content" style="font-size: 0.9rem; color: #78350f; line-height: 1.55; white-space: pre-wrap"></div>
+  <div id="announce-content" style="font-size: 0.9rem; color: #78350f; line-height: 1.55; white-space: pre-wrap; padding: 0 14px 12px; border-top: 1px solid rgba(180, 83, 9, 0.2)"></div>
 </div>
 
 <!-- === Panel: 今天 === -->
@@ -1567,6 +1570,7 @@ function renderAnnouncement() {
   const banner = document.getElementById('announce-banner');
   const content = document.getElementById('announce-content');
   const toggleBtn = document.getElementById('announce-toggle');
+  const header = document.getElementById('announce-header');
   if (!banner || !content) return;
   const text = (state.announcement || '').trim();
   if (!text) {
@@ -1582,14 +1586,36 @@ function renderAnnouncement() {
   content.innerHTML = escaped;
   banner.style.display = 'block';
 
-  // 收合 toggle
-  if (toggleBtn && !toggleBtn.dataset.bound) {
-    toggleBtn.addEventListener('click', () => {
-      const isHidden = content.style.display === 'none';
-      content.style.display = isHidden ? 'block' : 'none';
-      toggleBtn.textContent = isHidden ? '▾' : '▸';
+  // 套用記住的收合狀態(每個月份分別記住,跨月份不會互相影響)
+  const collapseKey = `announceCollapsed.${state.month}`;
+  const isCollapsed = localStorage.getItem(collapseKey) === '1';
+  applyAnnounceCollapse(isCollapsed);
+
+  // 整個 header 可點(不只 ▾ 按鈕)
+  if (header && !header.dataset.bound) {
+    header.addEventListener('click', () => {
+      const currentlyCollapsed = content.style.display === 'none';
+      const newCollapsed = !currentlyCollapsed;
+      applyAnnounceCollapse(newCollapsed);
+      localStorage.setItem(collapseKey, newCollapsed ? '1' : '0');
     });
-    toggleBtn.dataset.bound = '1';
+    header.dataset.bound = '1';
+  }
+}
+
+// 套用收合狀態的 UI
+function applyAnnounceCollapse(collapsed) {
+  const content = document.getElementById('announce-content');
+  const toggleBtn = document.getElementById('announce-toggle');
+  if (!content || !toggleBtn) return;
+  if (collapsed) {
+    content.style.display = 'none';
+    toggleBtn.textContent = '▸';
+    toggleBtn.style.transform = 'rotate(0deg)';
+  } else {
+    content.style.display = 'block';
+    toggleBtn.textContent = '▾';
+    toggleBtn.style.transform = 'rotate(0deg)';
   }
 }
 
