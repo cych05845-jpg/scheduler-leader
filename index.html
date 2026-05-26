@@ -9139,6 +9139,10 @@ async function exportXlsxTraditional() {
     // ---- Shift row (bottom) — 前 5 欄也留空 ----
     const shiftRowData = [null, null, null, null, null];
     let offCount = 0;
+    // DEBUG:第 1 個半日職的處理過程
+    const isHalfdayPerson = (state.scheduleFlags && state.scheduleFlags[p.id]) ?
+      Object.values(state.scheduleFlags[p.id]).some(f => f && f.halfdayTime) : false;
+    if (isHalfdayPerson) console.log(`[Excel debug] ${p.name} 是半日職,開始處理:`);
     for (let d = 1; d <= days; d++) {
       // 留停:整月空白;外派:整月「外」;其他:用 sched 內容
       let v;
@@ -9146,22 +9150,26 @@ async function exportXlsxTraditional() {
       else if (isDispatched) v = '外';
       else {
         v = sched[d] || '';
-        // 半日時段(8-12 / 10-14 等)優先顯示時段文字(蓋掉 D 字)
         const flag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d]) || {};
-        if (flag.halfdayTime && ['D','E','N','M'].includes(v)) {
-          v = flag.halfdayTime;  // 例:8-12 / 10-14
+        if (isHalfdayPerson && d <= 5) {
+          console.log(`  Day ${d}: sched=${v}, flag=`, JSON.stringify(flag));
         }
-        // marker(帶教/未獨立)顯示記號 — 跟院內 PDF 一致
+        if (flag.halfdayTime && ['D','E','N','M'].includes(v)) {
+          v = flag.halfdayTime;
+        }
         else if (flag.marker === 'preceptor' && ['D','E','N','M'].includes(v)) {
           v = v + '/帶';
         } else if (flag.marker === 'trainee' && ['D','E','N','M'].includes(v)) {
           v = v + "'";
         }
+        if (isHalfdayPerson && d <= 5) {
+          console.log(`  Day ${d}: 最終寫入 = ${v}`);
+        }
       }
       shiftRowData.push(v);
-      if (!isDispatched && !isOnLeave && ['OFF','off','o'].includes(v)) offCount++;  // V 不算公休配額
+      if (!isDispatched && !isOnLeave && ['OFF','off','o'].includes(v)) offCount++;
     }
-    shiftRowData.push(null);  // OFF 欄一樣 null,merge 後再 setValue
+    shiftRowData.push(null);
     const shiftRow = ws.addRow(shiftRowData);
     shiftRow.height = 18;
 
