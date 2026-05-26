@@ -9144,7 +9144,20 @@ async function exportXlsxTraditional() {
       let v;
       if (isOnLeave) v = '';
       else if (isDispatched) v = '外';
-      else v = sched[d] || '';
+      else {
+        v = sched[d] || '';
+        // 半日時段(8-12 / 10-14 等)優先顯示時段文字(蓋掉 D 字)
+        const flag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d]) || {};
+        if (flag.halfdayTime && ['D','E','N','M'].includes(v)) {
+          v = flag.halfdayTime;  // 例:8-12 / 10-14
+        }
+        // marker(帶教/未獨立)顯示記號 — 跟院內 PDF 一致
+        else if (flag.marker === 'preceptor' && ['D','E','N','M'].includes(v)) {
+          v = v + '/帶';
+        } else if (flag.marker === 'trainee' && ['D','E','N','M'].includes(v)) {
+          v = v + "'";
+        }
+      }
       shiftRowData.push(v);
       if (!isDispatched && !isOnLeave && ['OFF','off','o'].includes(v)) offCount++;  // V 不算公休配額
     }
