@@ -814,7 +814,7 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
     background: #f3f4f6 !important;
     color: #111 !important;
     font-weight: 700 !important;
-    border: 0.4pt solid #555 !important;
+    border: 0.6pt solid #333 !important;
     padding: 2pt 1pt !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
@@ -828,9 +828,38 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
     background: #d9f99d !important;
     color: #365314 !important;
   }
+  /* tfoot 改成 row-group(不每頁重複,只在最後一頁顯示)*/
   .month-table tfoot {
-    display: table-footer-group !important;  /* 每頁重複表尾(D/E/N 統計) */
+    display: table-row-group !important;
   }
+  /* 列印時隱藏原本的 tfoot(因為已經用 JS 複製一份到表格後面)*/
+  .month-table tfoot.hide-on-print {
+    display: none !important;
+  }
+  /* 列印用統計表(獨立 table,只出現一次在所有班表後面)*/
+  #print-stats-copy {
+    display: table !important;
+    margin-top: 4mm;
+    page-break-before: avoid;
+  }
+  #print-stats-copy thead th {
+    background: #f3f4f6 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* tfoot 上方加粗線,跟內文分開 */
+  .month-table tfoot tr.month-total-row:first-child td {
+    border-top: 2pt solid #111 !important;
+  }
+  .month-table tfoot tr.month-total-row td {
+    background: #f9fafb !important;
+    font-weight: 700 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .month-table tfoot td.total-label.cell-D { background: #1e40af !important; color: white !important; }
+  .month-table tfoot td.total-label.cell-E { background: #92400e !important; color: white !important; }
+  .month-table tfoot td.total-label.cell-N { background: #111827 !important; color: white !important; }
   .month-table tbody tr {
     page-break-inside: avoid;  /* 該列不要被切到下一頁 */
   }
@@ -882,7 +911,7 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
     overflow: hidden !important;
   }
   .month-table td, .month-table th {
-    border: 0.4pt solid #888 !important;
+    border: 0.6pt solid #333 !important;
     padding: 1pt 1pt !important;
     line-height: 1.1 !important;
     text-align: center !important;
@@ -912,6 +941,17 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   .month-table td.cell-N { background: #374151 !important; color: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   .month-table td.cell-M { background: #e9d5ff !important; color: #6b21a8 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   .month-table td.cell-V { background: #dcfce7 !important; color: #166534 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  /* 半日時段(8-12 / 10-14 等)— 青色背景,顯示時段文字 */
+  .month-table td.cell-halftime {
+    background: #ecfeff !important;
+    color: #0e7490 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .month-table td.cell-halftime .month-cell-shift {
+    font-size: 6pt !important;
+    font-weight: 700 !important;
+  }
   /* 列印時拿掉 cursor pointer, hover 等效果 */
   .month-table * {
     cursor: default !important;
@@ -1491,6 +1531,8 @@ function renderMonthTable() {
   // ===== 底部每日人數統計列(D / E / N)=====
   // 排除帶教/未獨立/半日時段 — 跟主班表邏輯一致
   html += '<tfoot>';
+  // DEBUG:列出第一天 D 班的計算過程
+  let _debugFirstD = [];
   ['D', 'E', 'N'].forEach(sh => {
     const labelClass = `cell-${sh}`;
     html += `<tr class="month-total-row"><td class="col-name total-label ${labelClass}">${sh} 班</td>`;
@@ -1506,6 +1548,7 @@ function renderMonthTable() {
         if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
         if (flag.halfdayTime) return;
         count++;
+        if (sh === 'D' && d === 1) _debugFirstD.push(p.name);
       });
       // 加日期屬性 class — 六/日/國定整欄一致上色
       const dDate = new Date(year, monthIdx, d);
@@ -1521,6 +1564,8 @@ function renderMonthTable() {
     html += '<td class="col-off"></td></tr>';
   });
   html += '</tfoot>';
+  // DEBUG:印出第一天 D 班計算明細(對比主班表是否一致)
+  console.log('[公告 D 班統計 debug] 6/1 D 班計入人員:', _debugFirstD);
 
   html += '</table>';
   document.getElementById('month-table-wrap').innerHTML = html;
@@ -1620,7 +1665,7 @@ function applyAnnounceCollapse(collapsed) {
 }
 
 // === PDF 列印 ===
-// 點按鈕 → 設定每 13 列分頁 → 跳出列印對話框
+// 點按鈕 → 設定每 N 列分頁 → 把 tfoot 暫時搬到表格後 → 列印
 // 同仁選「儲存為 PDF」就會下載
 function printMonthAsPdf() {
   console.log('[PDF] 按鈕被點擊,準備列印');
@@ -1636,7 +1681,7 @@ function printMonthAsPdf() {
   const ym = state.month || '';
   document.body.dataset.printTitle = `${ym.replace('-', ' 年 ')} 月急診班表`;
 
-  // 3. 每 13 列加 print-break class(強制分頁)
+  // 3. 每 N 列加 print-break class(強制分頁)
   const tbody = document.querySelector('.month-table tbody');
   if (tbody) {
     tbody.querySelectorAll('tr.print-break').forEach(tr => tr.classList.remove('print-break'));
@@ -1654,9 +1699,41 @@ function printMonthAsPdf() {
     return;
   }
 
-  // 4. 觸發瀏覽器列印對話框
+  // 4. 把 tfoot 暫時拷貝成「列印用統計表」放在表格後面
+  //    這樣只會出現「一次」在最後一頁,不會每頁重複
+  const table = document.querySelector('.month-table');
+  const tfoot = table?.querySelector('tfoot');
+  if (tfoot && table) {
+    // 先移除舊的列印副本(避免重複建立)
+    const oldCopy = document.getElementById('print-stats-copy');
+    if (oldCopy) oldCopy.remove();
+
+    // 建立新的列印副本:獨立一個 table,只放在原表格後面
+    const copy = document.createElement('table');
+    copy.id = 'print-stats-copy';
+    copy.className = 'month-table print-stats-only';
+    copy.innerHTML = `
+      <thead>${table.querySelector('thead').innerHTML}</thead>
+      <tbody>${tfoot.innerHTML}</tbody>
+    `;
+    // 加 CSS:平常隱藏,列印才顯示
+    copy.style.display = 'none';
+    table.parentNode.insertBefore(copy, table.nextSibling);
+
+    // 隱藏原 tfoot(列印時)
+    tfoot.classList.add('hide-on-print');
+  }
+
+  // 5. 觸發瀏覽器列印對話框
   setTimeout(() => {
     window.print();
+    // 列印完後,清掉臨時副本 + 還原 tfoot
+    setTimeout(() => {
+      const oldCopy = document.getElementById('print-stats-copy');
+      if (oldCopy) oldCopy.remove();
+      const ft = document.querySelector('.month-table tfoot');
+      if (ft) ft.classList.remove('hide-on-print');
+    }, 1000);
   }, 200);
 }
 

@@ -4679,6 +4679,10 @@ function isCountingForCapacity(p) {
   if (p.dispatch) return false;
   // 2. 半日 / 實習 等級 → 不算
   if (p.level === '半日' || p.level === '實習') return false;
+  // 2.5 整月有打過 halfdayTime 標記(8-12 等)→ 半日職人員,不算 D/E/N 人力
+  const flags = (state.scheduleFlags && state.scheduleFlags[p.id]) || {};
+  const isHalfdayJob = Object.values(flags).some(f => f && f.halfdayTime);
+  if (isHalfdayJob) return false;
   // 3. 備註含特殊狀況 → 不算
   if (p.note && /夜護|病假|離職|實習|帶/.test(p.note)) return false;
   if (p.special && /夜護|病假|實習|半日|帶/.test(p.special)) return false;
@@ -8890,7 +8894,14 @@ async function exportXlsx() {
       let count = 0;
       exportStaff.forEach(p => {
         if (!isCountingForCapacity(p)) return;  // 排除新進/實習/留停/外派
-        if ((state.schedule[p.id] || {})[d] === st) count++;
+        if ((state.schedule[p.id] || {})[d] !== st) return;
+        // 排除 marker 格子(帶教 / 未獨立)— 該格雖然班別是 D/E/N,但不算正式戰力
+        // 跟主班表底部「D/E/N 需求/實際」統計邏輯一致
+        const flag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d]) || {};
+        if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
+        // 排除半日時段格子(該人該日只上 8-12 等部分時段)
+        if (flag.halfdayTime) return;
+        count++;
       });
       const dow = getDayOfWeek(state.month, d);
       const Dm = state.rules.demand;
@@ -8899,7 +8910,6 @@ async function exportXlsx() {
       else if (dow === 0) need = Dm.sunday[st];
       else if (dow === 1) need = Dm.monday[st];
       else need = Dm.weekday[st];
-      // 修:跟標籤「需求/實際」順序一致(原本是 count/need,順序顛倒造成誤讀)
       row.push(`${need}/${count}`);
       counts.push({ count, need });
     }
@@ -9016,14 +9026,15 @@ async function exportXlsxTraditional() {
     cell.border = thinBorder;
   }
 
-  // ---------- Visible staff:離職前隱藏,**留停保留**(顯示「留停」狀態) ----------
+  // ---------- Visible staff:離職前隱藏 + 留停隱藏 ----------
   const visible = state.staff.filter(p => {
+    if (p.status === 'leave') return false;  // 留停人員整月不上班 → 不出現在 Excel
     if (p.status === 'resigned' && p.statusDate) {
       const rd = new Date(p.statusDate);
       const monthStart = new Date(state.month + '-01');
       if (rd < monthStart) return false;
     }
-    return true;  // 含留停
+    return true;
   });
 
   // ---------- Column layout ----------
@@ -9223,13 +9234,19 @@ async function exportXlsxTraditional() {
   // ---------- DAILY TOTAL ROWS (D / E / N each) ----------
   // Helper: count by shift, excluding non-counting people
   // 使用全域 isCountingForCapacity (含「沒設能力階段」過濾)
+  // 同時排除 marker(帶教/未獨立)跟 halfdayTime(半日時段)— 跟主班表底部統計一致
   function countShiftAtDay(sh, d) {
     let n = 0;
     visible.forEach(p => {
       if (!isCountingForCapacity(p)) return;
       const v = (state.schedule[p.id] || {})[d] || '';
-      // 只算純 D/E/N (排除 D/帶、D'、E' 等形變)
-      if (v === sh) n++;
+      if (v !== sh) return;  // 只算純 D/E/N
+      // 排除 marker(帶教/未獨立)— 該格雖然班別是 D/E/N,但不算正式戰力
+      const flag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d]) || {};
+      if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
+      // 排除半日時段(該人該日只上 8-12 等部分時段)
+      if (flag.halfdayTime) return;
+      n++;
     });
     return n;
   }
