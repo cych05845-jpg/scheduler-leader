@@ -26,8 +26,8 @@
   --D-text: #8a6d00;
   --E: #e8f0f7;
   --E-text: #1e4a7a;
-  --N: #2d3748;
-  --N-text: #ffffff;
+  --N: #e5e7eb;
+  --N-text: #374151;
   --M: #ffe4b5;
   --M-text: #7a4a00;
   --O: #f5f5f0;
@@ -8654,11 +8654,11 @@ async function exportXlsx() {
   const SHIFT_STYLES = {
     'D': { fgColor: 'FFFEF6CC', fontColor: 'FF8B6914', bold: false },
     'E': { fgColor: 'FFE3F2FD', fontColor: 'FF1565C0', bold: false },
-    'N': { fgColor: 'FF1F2937', fontColor: 'FFFFFFFF', bold: true },
+    'N': { fgColor: 'FFE5E7EB', fontColor: 'FF374151', bold: true },        // 淺灰底深灰字(改自黑底白字)
     'M': { fgColor: 'FFE9D5FF', fontColor: 'FF5B21B6', bold: false },
     'OFF': { fgColor: 'FFFCE8E8', fontColor: 'FFB91C1C', bold: true },
-    'off': { fgColor: 'FFF5F5F0', fontColor: 'FF6B6B6B', italic: true, underline: true },
-    'o':   { fgColor: 'FFFAFAF5', fontColor: 'FF999999', italic: true, displayAs: 'off' },
+    'off': { fgColor: 'FFFFFFFF', fontColor: 'FFB91C1C', italic: true, underline: true },   // 白底紅字
+    'o':   { fgColor: 'FFFFFFFF', fontColor: 'FFB91C1C', italic: true, displayAs: 'off' },  // 白底紅字
     'V':   { fgColor: 'FFD1FAE5', fontColor: 'FF065F46', bold: false },
   };
 
@@ -8675,9 +8675,9 @@ async function exportXlsx() {
       color: { argb: s.fontColor },
       bold: !!s.bold,
       italic: !!s.italic,
-      underline: !!s.underline || !!forceUnderline,  // 外部旗標可加上底線(D/E/N 被動上班)
+      underline: !!s.underline || !!forceUnderline,
       name: 'Microsoft JhengHei',
-      size: 10,
+      size: 12,
     };
     cell.alignment = { horizontal: 'center', vertical: 'middle' };
     cell.border = {
@@ -8945,12 +8945,24 @@ async function exportXlsx() {
   cols.push({ width: 9 });    // 輔導員(2-3 字中文姓名)
   cols.push({ width: 14 });   // 姓名(3-4 字中文姓名 + padding)
   cols.push({ width: 11 });   // 到職日
-  for (let d = 1; d <= days; d++) cols.push({ width: 4 });
+  for (let d = 1; d <= days; d++) cols.push({ width: 5 });
   cols.push({ width: 6 });    // OFF
   ws.columns = cols;
 
   // Freeze panes — first 5 cols + first 4 rows
   ws.views = [{ state: 'frozen', xSplit: 5, ySplit: 4 }];
+
+  // Print setup — A4 橫向滿版
+  ws.pageSetup = {
+    paperSize: 9,  // A4
+    orientation: 'landscape',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    margins: { left: 0.2, right: 0.2, top: 0.3, bottom: 0.3, header: 0.15, footer: 0.15 },
+    printTitlesRow: '1:4',
+    horizontalCentered: true,
+  };
 
   // ============================================================
   // WRITE FILE
@@ -8989,11 +9001,11 @@ async function exportXlsxTraditional() {
   const SHIFT_STYLES = {
     'D':   { fgColor: 'FFFEF6CC', fontColor: 'FF8B6914' },
     'E':   { fgColor: 'FFE3F2FD', fontColor: 'FF1565C0' },
-    'N':   { fgColor: 'FF1F2937', fontColor: 'FFFFFFFF', bold: true },
+    'N':   { fgColor: 'FFE5E7EB', fontColor: 'FF374151', bold: true },     // 淺灰底深灰字
     'M':   { fgColor: 'FFE9D5FF', fontColor: 'FF5B21B6' },
     'OFF': { fgColor: 'FFFCE8E8', fontColor: 'FFB91C1C', bold: true },
-    'off': { fgColor: 'FFF5F5F0', fontColor: 'FF6B6B6B', italic: true, underline: true },
-    'o':   { fgColor: 'FFFAFAF5', fontColor: 'FF999999', italic: true, displayAs: 'off' },
+    'off': { fgColor: 'FFFFFFFF', fontColor: 'FFB91C1C', italic: true, underline: true },   // 白底紅字
+    'o':   { fgColor: 'FFFFFFFF', fontColor: 'FFB91C1C', italic: true, displayAs: 'off' },  // 白底紅字
     'V':   { fgColor: 'FFD1FAE5', fontColor: 'FF065F46' },
   };
   const SAT_FILL = 'FFE0F2FE';
@@ -9128,7 +9140,7 @@ async function exportXlsxTraditional() {
     }
     noteRowData.push(null);  // OFF column (will merge & setValue after)
     const noteRow = ws.addRow(noteRowData);
-    noteRow.height = 14;
+    noteRow.height = 18;
     for (let d = 1; d <= days; d++) {
       const cell = noteRow.getCell(FIRST_DAY_COL + d - 1);
       cell.font = { size: 8, name: 'Microsoft JhengHei', color: { argb: 'FF991B1B' }, italic: true };
@@ -9163,7 +9175,7 @@ async function exportXlsxTraditional() {
     }
     shiftRowData.push(null);  // OFF 欄一樣 null,merge 後再 setValue
     const shiftRow = ws.addRow(shiftRowData);
-    shiftRow.height = 18;
+    shiftRow.height = 24;
 
     // Style first 5 columns (id/level/mentor/name/hire) — 先 merge,再 setValue 到 anchor
     // 跟 OFF 欄一樣的順序,確保 anchor 行為正確
@@ -9321,22 +9333,23 @@ async function exportXlsxTraditional() {
   ws.getColumn(COL_NAME).width = 14;    // 姓名(3-4 字中文 + padding)
   ws.getColumn(COL_HIRE).width = 11;
   for (let d = 1; d <= days; d++) {
-    ws.getColumn(FIRST_DAY_COL + d - 1).width = 4.5;
+    ws.getColumn(FIRST_DAY_COL + d - 1).width = 5;
   }
   ws.getColumn(COL_OFF_TOTAL).width = 6;
 
   // Freeze panes — first 5 columns + first 4 header rows
   ws.views = [{ state: 'frozen', xSplit: 5, ySplit: 4 }];
 
-  // Print setup
+  // Print setup — A4 橫向滿版
   ws.pageSetup = {
-    paperSize: 8,  // A3
+    paperSize: 9,  // A4
     orientation: 'landscape',
     fitToPage: true,
     fitToWidth: 1,
     fitToHeight: 0,
-    margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
-    printTitlesRow: '1:4',  // repeat header on each printed page
+    margins: { left: 0.2, right: 0.2, top: 0.3, bottom: 0.3, header: 0.15, footer: 0.15 },
+    printTitlesRow: '1:4',
+    horizontalCentered: true,
   };
 
   // ---------- Write file ----------
