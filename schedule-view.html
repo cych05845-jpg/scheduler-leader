@@ -635,13 +635,45 @@ body[data-schedule-type="aide"] .month-table th,
 body[data-schedule-type="aide"] .month-table td {
   font-size: 0.88rem;  /* 跟護理師一致(避免列印姓名截斷)*/
 }
-/* 助理員姓名欄保證足夠寬,列印時不截斷(3-4 字中文 + 員編 padding) */
+/* 助理員姓名欄:桌面/列印保證寬(姓名 + 員編不截斷),手機自動縮小省空間 */
 body[data-schedule-type="aide"] .month-table th.col-name,
 body[data-schedule-type="aide"] .month-table td.col-name {
   min-width: 100px;
   white-space: nowrap;
   padding-left: 8px;
   padding-right: 8px;
+}
+/* 手機螢幕(<= 768px)— 姓名欄縮小 */
+@media screen and (max-width: 768px) {
+  body[data-schedule-type="aide"] .month-table th.col-name,
+  body[data-schedule-type="aide"] .month-table td.col-name {
+    min-width: 60px;
+    max-width: 70px;
+    padding-left: 4px;
+    padding-right: 4px;
+    font-size: 0.78rem;
+  }
+  /* 手機上姓名欄序號變小 */
+  body[data-schedule-type="aide"] .month-table .seq-num {
+    font-size: 0.7rem;
+  }
+  /* 手機上助理員月曆其他格子也縮小一點 */
+  body[data-schedule-type="aide"] .month-table th,
+  body[data-schedule-type="aide"] .month-table td {
+    padding: 3px 4px;
+    font-size: 0.78rem;
+  }
+}
+/* 列印時保持桌面寬度(避免姓名截斷) */
+@media print {
+  body[data-schedule-type="aide"] .month-table th.col-name,
+  body[data-schedule-type="aide"] .month-table td.col-name {
+    min-width: 100px !important;
+    max-width: none !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+    font-size: 0.88rem !important;
+  }
 }
 .month-cell-dept {
   font-size: 0.78rem;       /* 字體放大 */
