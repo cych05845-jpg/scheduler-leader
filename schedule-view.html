@@ -1628,10 +1628,10 @@ function renderMonthTable() {
   // 共用函式:渲染一組人力統計(技/助 各 3 列:D/E/12-20 or D/E/N)
   function renderGroupStats(groupName, matchFn, shifts) {
     let h = '';
-    // 分組標題列(灰底)
-    h += `<tr style="background: #e5e7eb"><td class="col-name" style="background: #e5e7eb; font-weight: 800; color: #374151; text-align: center; padding: 4px 8px; font-size: 0.82rem">━ ${groupName} 統計 ━</td>`;
-    for (let d = 1; d <= state.days; d++) h += '<td style="background: #e5e7eb"></td>';
-    h += '<td style="background: #e5e7eb"></td></tr>';
+    // 統計區「迷你標題列」(淡灰底)— 因為前面已有深色組別大標題,這裡用淡色就好
+    h += `<tr style="background: #f3f4f6"><td class="col-name" style="background: #f3f4f6; font-weight: 600; color: #6b7280; text-align: center; padding: 3px 8px; font-size: 0.75rem">▼ ${groupName} 人力 ▼</td>`;
+    for (let d = 1; d <= state.days; d++) h += '<td style="background: #f3f4f6"></td>';
+    h += '<td style="background: #f3f4f6"></td></tr>';
 
     shifts.forEach(sh => {
       const labelClass = sh === '12-20' ? '' : `cell-${sh}`;
@@ -1674,9 +1674,29 @@ function renderMonthTable() {
       { code: '事', name: '事務員', match: (p) => p.level === '事', shifts: null },  // 事務員不統計
     ];
 
-    TYPE_GROUPS.forEach(grp => {
+    TYPE_GROUPS.forEach((grp, idx) => {
       const groupStaff = state.staff.filter(grp.match);
       if (groupStaff.length === 0) return;
+      // 第 2 組(及之後)前先插入「空白分隔列」+ 「組別標題列」 — 讓視覺有明顯切換
+      if (idx > 0) {
+        // 空白分隔列(高度大)— 拉開上一組統計 / 這一組人員的距離
+        html += `<tr class="group-separator"><td class="col-name" style="background: white; border: none; height: 16px; padding: 0"></td>`;
+        for (let d = 1; d <= state.days; d++) html += '<td style="background: white; border: none; padding: 0"></td>';
+        html += '<td style="background: white; border: none; padding: 0"></td></tr>';
+      }
+      // 組別標題列(深色橫條,明顯區隔)
+      const grpColors = {
+        '技': { bg: 'linear-gradient(90deg, #0e7490 0%, #155e75 100%)', color: 'white' },
+        '助': { bg: 'linear-gradient(90deg, #c2410c 0%, #9a3412 100%)', color: 'white' },
+        '事': { bg: 'linear-gradient(90deg, #6b21a8 0%, #581c87 100%)', color: 'white' },
+      };
+      const c = grpColors[grp.code] || { bg: '#374151', color: 'white' };
+      html += `<tr class="group-header-row"><td class="col-name" style="background: ${c.bg}; color: ${c.color}; font-weight: 800; text-align: center; padding: 6px 8px; letter-spacing: 2px; text-shadow: 0 1px 2px rgba(0,0,0,0.3); font-size: 0.92rem">═ ${grp.name} ═</td>`;
+      for (let d = 1; d <= state.days; d++) {
+        html += `<td style="background: ${c.bg}; border-color: rgba(255,255,255,0.2)"></td>`;
+      }
+      html += `<td style="background: ${c.bg}"></td></tr>`;
+
       // 渲染這組的人員
       groupStaff.forEach(p => {
         seqNum++;
