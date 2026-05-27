@@ -4694,9 +4694,9 @@ const state = {
 // 預設備註選項 (右鍵選單)
 const NOTE_PRESETS = ['ACLS', '中油', '友善', '標準', 'LM', 'ER M', '教學', '會議', '請假', '研習'];
 
-// 科別(站位)預設 — 對齊 leader 紙本班表的 12 個科別
-// 也可在右鍵選單自由輸入新科別,不限於這 12 個
-const DEPT_PRESETS = ['T', 'PT', 'CPR', 'O+ST', 'P', 'R1', 'R2', 'R3', 'L', 'L+OB', 'P+OB', 'R'];
+// 助理員科別預設 — 助理員只分「內科」「外科」兩個區域
+// 也可在右鍵選單自由輸入新科別,不限於這 2 個
+const DEPT_PRESETS = ['內', '外'];
 
 // 半日時段預設 — 半日職同仁依課表安排的時段
 // 標記後該格自動不算 D/E/N 人力(畫筆顯示時段文字蓋掉原班別)
@@ -5280,7 +5280,15 @@ function renderTable() {
       const typeName = TYPE_NAMES[myType] || myType || '其他';
       const totalDayCols = state.days || getDaysInMonth(state.month);
       const totalCols = 5 + totalDayCols + 4;  // 5 個 meta 欄 + N 個日期 + 4 個統計欄
-      html += `<tr class="type-group-row" style="background: linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%)"><td colspan="${totalCols}" style="padding: 6px 12px; color: white; font-weight: 700; font-size: 0.95rem; text-align: left; letter-spacing: 1px">═══ ${typeName} ═══</td></tr>`;
+      // 各類型用不同的深色背景 + 白字(對比清楚)
+      const GROUP_COLORS = {
+        '技': 'linear-gradient(90deg, #0e7490 0%, #155e75 100%)',     // 深青(技術員)
+        '助': 'linear-gradient(90deg, #c2410c 0%, #9a3412 100%)',     // 深橘(助理員)
+        '工讀': 'linear-gradient(90deg, #ca8a04 0%, #a16207 100%)',    // 深黃(工讀)
+        '事': 'linear-gradient(90deg, #6b21a8 0%, #581c87 100%)',     // 深紫(事務員)
+      };
+      const bg = GROUP_COLORS[myType] || 'linear-gradient(90deg, #374151 0%, #1f2937 100%)';
+      html += `<tr class="type-group-row" style="background: ${bg}"><td colspan="${totalCols}" style="padding: 8px 14px; color: white; font-weight: 800; font-size: 1rem; text-align: left; letter-spacing: 2px; text-shadow: 0 1px 2px rgba(0,0,0,0.3)">═══ ${typeName} ═══</td></tr>`;
       prevType = myType;
     }
 
@@ -5546,11 +5554,34 @@ function syncColumnWidths() {
   const tblBottom = document.getElementById('sched-table-bottom');
   if (!tblTop || !tblBottom) return;
 
-  // 抓上半第一個 tbody tr 的每一格寬度,作為基準
-  const firstRow = tblTop.querySelector('tbody tr');
-  if (!firstRow) return;
+  // 抓上半第一個「有人員資料」的 tbody tr 的每一格寬度,作為基準
+  // 注意:助理員模式時,tbody 第一列可能是分組標題列(═══ 技術員 ═══, colspan=N+7)
+  // 必須跳過,找真正有 col-name 的人員列
+  let firstRow = null;
+  const allRows = tblTop.querySelectorAll('tbody tr');
+  for (const tr of allRows) {
+    // 真正的人員列:第一個 td 是 col-name 而且不是分組標題(colspan 通常 = 1)
+    const firstTd = tr.children[0];
+    if (!firstTd) continue;
+    if (firstTd.classList.contains('col-name') && tr.children.length > 3) {
+      firstRow = tr;
+      break;
+    }
+  }
+  if (!firstRow) return;  // 沒人員列,跳過同步
   const topCells = firstRow.children;
-  const bottomRow = tblBottom.querySelector('tbody tr');
+  // 也需要找下半的「真正人員列」(跳過分組標題)— 我們的策略:用第一個 tr 的 cells.length > 3
+  let bottomRow = null;
+  const allBottomRows = tblBottom.querySelectorAll('tbody tr');
+  for (const tr of allBottomRows) {
+    const firstTd = tr.children[0];
+    if (!firstTd) continue;
+    // 跳過分組標題列(只有 1 個 td colspan 滿)
+    if (tr.children.length > 3) {
+      bottomRow = tr;
+      break;
+    }
+  }
   if (!bottomRow) return;
   const bottomCells = bottomRow.children;
 
@@ -5763,11 +5794,11 @@ function onCellRightClick(e) {
 
   // === 科別區塊(只對工作班顯示) ===
   if (['D','E','N','M'].includes(currentShift)) {
-    html += '<div style="font-size:0.78rem; color:#047857; padding:4px 6px; font-weight:600">🏥 科別(站位)</div>';
-    html += '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:3px; margin-bottom:6px">';
+    html += '<div style="font-size:0.78rem; color:#047857; padding:4px 6px; font-weight:600">🏥 科別(內/外)</div>';
+    html += '<div style="display:grid; grid-template-columns:repeat(2,1fr); gap:4px; margin-bottom:6px">';
     DEPT_PRESETS.forEach(dept => {
-      const active = dept === currentDept ? ' style="background:#047857;color:white;border-color:#047857"' : '';
-      html += `<button${active} onclick="setDeptForCell('${pid}', ${day}, '${dept}')" style="padding:5px 2px;font-size:0.78rem;background:#f0fdf4;border:1px solid #bbf7d0;color:#047857;border-radius:3px;font-weight:600">${dept}</button>`;
+      const active = dept === currentDept ? ' style="background:#047857;color:white;border-color:#047857;padding:8px;font-size:1rem;border-radius:4px;font-weight:700"' : ' style="padding:8px;font-size:1rem;background:#f0fdf4;border:1px solid #bbf7d0;color:#047857;border-radius:4px;font-weight:700"';
+      html += `<button${active} onclick="setDeptForCell('${pid}', ${day}, '${dept}')">${dept}</button>`;
     });
     html += '</div>';
     html += `<div style="display:flex; gap:3px; margin-bottom:6px"><input type="text" id="dept-custom-input-ctx" placeholder="自訂科別..." style="flex:1;padding:4px 6px;font-size:0.82rem;border:1px solid #d1d5db;border-radius:3px" onkeydown="if(event.key==='Enter'){setDeptForCell('${pid}', ${day}, this.value); event.preventDefault();}"><button onclick="setDeptForCell('${pid}', ${day}, document.getElementById('dept-custom-input-ctx').value)" style="background:#047857;color:white;border:none;padding:4px 8px;border-radius:3px;font-size:0.78rem">+</button></div>`;
@@ -5787,18 +5818,29 @@ function onCellRightClick(e) {
 
   // === 個人日備註(chip 樣式,塞在 1-2 行不佔空間)===
   html += `<div style="font-size:0.78rem; color:#6b7280; padding:4px 6px; font-weight:600">📌 個人日備註${currentNote ? ' (' + escapeHTML(currentNote) + ')' : ''}</div>`;
+  // 直接輸入框(不用點「自訂備註」再跳 prompt)
+  html += `<div style="display:flex; gap:3px; padding:4px 6px; margin-bottom:4px">
+    <input type="text" id="note-input-ctx" value="${escapeHTML(currentNote)}" placeholder="輸入備註(教學/中油/ACLS...)" 
+      style="flex:1;padding:5px 8px;font-size:0.85rem;border:1px solid #d1d5db;border-radius:3px" 
+      onkeydown="if(event.key==='Enter'){setNoteForCell('${pid}', ${day}, this.value); event.preventDefault();}">
+    <button onclick="setNoteForCell('${pid}', ${day}, document.getElementById('note-input-ctx').value)" 
+      style="background:#374151;color:white;border:none;padding:4px 10px;border-radius:3px;font-size:0.82rem;font-weight:600">✓ 存</button>
+  </div>`;
   html += '<div class="note-chips" style="display:flex; flex-wrap:wrap; gap:3px; padding:0 6px 6px">';
   NOTE_PRESETS.forEach(preset => {
     const active = preset === currentNote ? ' note-chip-active' : '';
     html += `<button class="note-chip${active}" onclick="setNoteForCell('${pid}', ${day}, '${preset}')">${preset}</button>`;
   });
   html += '</div>';
-  html += '<hr style="margin:4px 0">';
-  html += `<button onclick="setNoteForCell('${pid}', ${day}, '__custom__')">✏ 自訂備註...</button>`;
   if (currentNote) {
     html += `<button onclick="setNoteForCell('${pid}', ${day}, '')" style="color: #c0392b">🗑 清除備註</button>`;
   }
   btnArea.innerHTML = html;
+  // 自動 focus 輸入框讓 leader 可以直接打字
+  setTimeout(() => {
+    const inp = document.getElementById('note-input-ctx');
+    if (inp) inp.select();
+  }, 50);
 
   // Position menu near click
   menu.style.display = 'block';
