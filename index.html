@@ -26,7 +26,7 @@
   --D-text: #8a6d00;
   --E: #e8f0f7;
   --E-text: #1e4a7a;
-  --N: #4b5563;
+  --N: #6b7280;
   --N-text: #ffffff;
   --M: #ffe4b5;
   --M-text: #7a4a00;
@@ -1351,6 +1351,11 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   <h1>
     急診排班輔助工具
   </h1>
+  <!-- 班表類型切換 -->
+  <div class="schedule-type-switcher" style="display: flex; gap: 4px; margin-left: 16px; background: rgba(255,255,255,0.1); padding: 3px; border-radius: 8px">
+    <button class="type-tab active" disabled style="background: white; color: #1a1a1a; border: none; padding: 6px 14px; border-radius: 6px; font-size: 0.92rem; font-weight: 700; cursor: default; box-shadow: 0 1px 3px rgba(0,0,0,0.1)">👩‍⚕️ 護理師</button>
+    <button class="type-tab" onclick="location.href='scheduler-aide.html'" style="background: transparent; color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 0.92rem; font-weight: 600; cursor: pointer; opacity: 0.85" onmouseover="this.style.opacity='1';this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.opacity='0.85';this.style.background='transparent'" title="切換到技術員 / 助理員 / 事務員班表">🩺 技助事員</button>
+  </div>
   <div class="topbar-actions">
     <button onclick="openHelpModal()">❓ 使用說明</button>
     <button onclick="openRulesModal()">⚙ 規則設定</button>
@@ -8654,7 +8659,7 @@ async function exportXlsx() {
   const SHIFT_STYLES = {
     'D': { fgColor: 'FFFEF6CC', fontColor: 'FF8B6914', bold: false },
     'E': { fgColor: 'FFE3F2FD', fontColor: 'FF1565C0', bold: false },
-    'N': { fgColor: 'FF4B5563', fontColor: 'FFFFFFFF', bold: true },        // 中灰底白字
+    'N': { fgColor: 'FF6B7280', fontColor: 'FFFFFFFF', bold: true },
     'M': { fgColor: 'FFE9D5FF', fontColor: 'FF5B21B6', bold: false },
     'OFF': { fgColor: 'FFFCE8E8', fontColor: 'FFB91C1C', bold: true },
     'off': { fgColor: 'FFFFFFFF', fontColor: 'FFB91C1C', italic: true, underline: true },   // 白底紅字
@@ -9001,7 +9006,7 @@ async function exportXlsxTraditional() {
   const SHIFT_STYLES = {
     'D':   { fgColor: 'FFFEF6CC', fontColor: 'FF8B6914' },
     'E':   { fgColor: 'FFE3F2FD', fontColor: 'FF1565C0' },
-    'N':   { fgColor: 'FF4B5563', fontColor: 'FFFFFFFF', bold: true },     // 中灰底白字
+    'N':   { fgColor: 'FF6B7280', fontColor: 'FFFFFFFF', bold: true },
     'M':   { fgColor: 'FFE9D5FF', fontColor: 'FF5B21B6' },
     'OFF': { fgColor: 'FFFCE8E8', fontColor: 'FFB91C1C', bold: true },
     'off': { fgColor: 'FFFFFFFF', fontColor: 'FFB91C1C', italic: true, underline: true },   // 白底紅字

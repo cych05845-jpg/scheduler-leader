@@ -1359,13 +1359,18 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   <h1>
     急診技助事員排班工具
   </h1>
+  <!-- 班表類型切換 -->
+  <div class="schedule-type-switcher" style="display: flex; gap: 4px; margin-left: 16px; background: rgba(255,255,255,0.1); padding: 3px; border-radius: 8px">
+    <button class="type-tab" onclick="location.href='index.html'" style="background: transparent; color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 0.92rem; font-weight: 600; cursor: pointer; opacity: 0.85" onmouseover="this.style.opacity='1';this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.opacity='0.85';this.style.background='transparent'" title="切換到護理師班表">👩‍⚕️ 護理師</button>
+    <button class="type-tab active" disabled style="background: white; color: #1a1a1a; border: none; padding: 6px 14px; border-radius: 6px; font-size: 0.92rem; font-weight: 700; cursor: default; box-shadow: 0 1px 3px rgba(0,0,0,0.1)">🩺 技助事員</button>
+  </div>
   <div class="topbar-actions">
     <button onclick="openHelpModal()">❓ 使用說明</button>
     <button onclick="openRulesModal()">⚙ 規則設定</button>
     <button onclick="openImportModal()">📥 匯入 Excel</button>
     <button onclick="exportXlsx()" class="primary">⬇ 匯出班表</button>
     <button onclick="exportXlsxTraditional()" style="background: #d97706; color: white; border-color: #d97706" title="2 列/人:上列備註 + 下列班別,跟院內 PDF 格式對齊">⬇ 匯出傳統格式</button>
-    <button id="btn-publish-view" onclick="openPublishViewModal()" style="background: #059669; color: white; border-color: #059669; display: none" title="把班表公告給全護理師看(LINE 群分享連結)">📢 公告給同仁</button>
+    <button id="btn-publish-view" onclick="openPublishViewModal()" style="background: #059669; color: white; border-color: #059669; display: none" title="把班表公告給技助事員看(LINE 群分享連結)">📢 公告給同仁</button>
     <button onclick="leaderLogout()" id="logout-btn" style="display: none; background: #ef4444; color: white; border-color: #ef4444">🚪 登出</button>
   </div>
 </div>
