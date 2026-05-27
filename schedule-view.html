@@ -989,11 +989,12 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 </div>
 
 <!-- === 班表類型切換 (護理師 / 助理員) === -->
-<div id="schedule-type-switcher" style="display: none; max-width: 1280px; margin: 8px auto 0; padding: 0 12px;">
-  <div style="display: flex; gap: 4px; background: #e5e7eb; padding: 4px; border-radius: 10px; max-width: 360px; margin: 0 auto;">
-    <button id="type-tab-nurse" class="type-tab-btn active" onclick="switchScheduleType('nurse')" style="flex: 1; background: white; color: #1a1a1a; border: none; padding: 8px 14px; border-radius: 7px; font-size: 0.92rem; font-weight: 700; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: all 0.15s">👩‍⚕️ 護理師</button>
-    <button id="type-tab-aide" class="type-tab-btn" onclick="switchScheduleType('aide')" style="flex: 1; background: transparent; color: #6b7280; border: none; padding: 8px 14px; border-radius: 7px; font-size: 0.92rem; font-weight: 600; cursor: pointer; transition: all 0.15s">🩺 技助事員</button>
+<div id="schedule-type-switcher" style="display: none; max-width: 1280px; margin: 12px auto 0; padding: 0 12px; position: relative; z-index: 100">
+  <div style="display: flex; gap: 6px; background: linear-gradient(135deg, #f0f9ff 0%, #dbeafe 100%); padding: 6px; border-radius: 12px; max-width: 480px; margin: 0 auto; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15); border: 2px solid #93c5fd;">
+    <button id="type-tab-nurse" class="type-tab-btn active" onclick="switchScheduleType('nurse'); return false;" style="flex: 1; background: white; color: #1e40af; border: 2px solid #3b82f6; padding: 10px 16px; border-radius: 8px; font-size: 0.95rem; font-weight: 800; cursor: pointer; box-shadow: 0 2px 6px rgba(59, 130, 246, 0.2); transition: all 0.15s; position: relative; z-index: 101;">👩‍⚕️ 護理師班表</button>
+    <button id="type-tab-aide" class="type-tab-btn" onclick="switchScheduleType('aide'); return false;" style="flex: 1; background: transparent; color: #6b7280; border: 2px solid transparent; padding: 10px 16px; border-radius: 8px; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: all 0.15s; position: relative; z-index: 101;">🩺 技助事員班表</button>
   </div>
+  <div style="text-align: center; margin-top: 4px; font-size: 0.78rem; color: #6b7280;">↑ 點按鈕切換班表類型</div>
 </div>
 
 <!-- === Tabs === -->
@@ -1122,35 +1123,52 @@ function enterScheduleApp() {
 
 // === 切換班表類型(護理師 / 助理員) ===
 function switchScheduleType(type) {
-  if (state.scheduleType === type) return;  // 已經在這個 type 不重複載
+  console.log('[班表切換] 切到', type);
+  if (state.scheduleType === type) {
+    console.log('[班表切換] 已經是', type, '不重複載');
+    return;
+  }
   state.scheduleType = type;
   // 更新 tab 視覺
   const tabNurse = document.getElementById('type-tab-nurse');
   const tabAide = document.getElementById('type-tab-aide');
   if (type === 'nurse') {
-    tabNurse.style.background = 'white';
-    tabNurse.style.color = '#1a1a1a';
-    tabNurse.style.fontWeight = '700';
-    tabNurse.style.boxShadow = '0 1px 3px rgba(0,0,0,0.08)';
-    tabNurse.classList.add('active');
-    tabAide.style.background = 'transparent';
-    tabAide.style.color = '#6b7280';
-    tabAide.style.fontWeight = '600';
-    tabAide.style.boxShadow = 'none';
-    tabAide.classList.remove('active');
+    if (tabNurse) {
+      tabNurse.style.background = 'white';
+      tabNurse.style.color = '#1e40af';
+      tabNurse.style.fontWeight = '800';
+      tabNurse.style.borderColor = '#3b82f6';
+      tabNurse.style.boxShadow = '0 2px 6px rgba(59, 130, 246, 0.2)';
+      tabNurse.classList.add('active');
+    }
+    if (tabAide) {
+      tabAide.style.background = 'transparent';
+      tabAide.style.color = '#6b7280';
+      tabAide.style.fontWeight = '600';
+      tabAide.style.borderColor = 'transparent';
+      tabAide.style.boxShadow = 'none';
+      tabAide.classList.remove('active');
+    }
   } else {
-    tabAide.style.background = 'white';
-    tabAide.style.color = '#1a1a1a';
-    tabAide.style.fontWeight = '700';
-    tabAide.style.boxShadow = '0 1px 3px rgba(0,0,0,0.08)';
-    tabAide.classList.add('active');
-    tabNurse.style.background = 'transparent';
-    tabNurse.style.color = '#6b7280';
-    tabNurse.style.fontWeight = '600';
-    tabNurse.style.boxShadow = 'none';
-    tabNurse.classList.remove('active');
+    if (tabAide) {
+      tabAide.style.background = 'white';
+      tabAide.style.color = '#0e7490';
+      tabAide.style.fontWeight = '800';
+      tabAide.style.borderColor = '#06b6d4';
+      tabAide.style.boxShadow = '0 2px 6px rgba(6, 182, 212, 0.2)';
+      tabAide.classList.add('active');
+    }
+    if (tabNurse) {
+      tabNurse.style.background = 'transparent';
+      tabNurse.style.color = '#6b7280';
+      tabNurse.style.fontWeight = '600';
+      tabNurse.style.borderColor = 'transparent';
+      tabNurse.style.boxShadow = 'none';
+      tabNurse.classList.remove('active');
+    }
   }
   // 重新載入資料(切換 Firebase 路徑)
+  console.log('[班表切換] 重新載入,新類型:', type);
   loadData();
 }
 
