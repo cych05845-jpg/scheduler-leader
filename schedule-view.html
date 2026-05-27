@@ -633,7 +633,16 @@ body[data-schedule-type="aide"] .month-table {
 }
 body[data-schedule-type="aide"] .month-table th,
 body[data-schedule-type="aide"] .month-table td {
-  font-size: 0.88rem;  /* 跟護理師一致(避免列印姓名截斷)*/
+  font-size: 1rem;     /* 助理員人少,字放大更清楚 */
+  padding: 7px 10px;   /* 格子也加大 */
+}
+/* 列印時稍微縮回去,姓名不會被截斷 */
+@media print {
+  body[data-schedule-type="aide"] .month-table th,
+  body[data-schedule-type="aide"] .month-table td {
+    font-size: 0.92rem;
+    padding: 5px 7px;
+  }
 }
 /* 助理員姓名欄:桌面/列印保證寬(姓名 + 員編不截斷),手機自動縮小省空間 */
 body[data-schedule-type="aide"] .month-table th.col-name,

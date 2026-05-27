@@ -5504,20 +5504,30 @@ function renderBottomTable() {
 
   let html = '<tbody>';
   TYPES.forEach(typeGroup => {
-    // 分組標題列(灰底)
+    // 分組標題列(灰底)— 拆成 3 個 meta td 對齊主班表上半的 姓名/職級/偏好
     html += `<tr style="background:#e5e7eb">`;
-    html += `<td class="col-meta" colspan="3" style="left:0;position:sticky;background:#e5e7eb;font-weight:800;font-size:13px;color:#374151;text-align:center">═══ ${typeGroup.name} ═══</td>`;
+    html += `<td class="col-meta col-name" style="background:#e5e7eb;font-weight:800;font-size:13px;color:#374151;text-align:right;padding-right:4px">═══</td>`;
+    html += `<td class="col-meta col-level" style="background:#e5e7eb;font-weight:800;font-size:13px;color:#374151;text-align:center">${typeGroup.name}</td>`;
+    html += `<td class="col-meta col-pref" style="background:#e5e7eb;font-weight:800;font-size:13px;color:#374151;text-align:left;padding-left:4px">═══</td>`;
     for (let d = 1; d <= days; d++) {
       html += `<td style="background:#e5e7eb"></td>`;
     }
-    html += `<td colspan="4" style="background:#e5e7eb"></td>`;
+    // 右側 4 個 td 對齊 休/D/E/N
+    html += `<td style="background:#e5e7eb"></td>`;
+    html += `<td style="background:#e5e7eb"></td>`;
+    html += `<td style="background:#e5e7eb"></td>`;
+    html += `<td style="background:#e5e7eb"></td>`;
     html += '</tr>';
 
     // 該類型內的每個班別
     typeGroup.shifts.forEach(st => {
       html += `<tr>`;
-      html += `<td class="col-meta" style="left:0;position:sticky;background:#f0ebe1;font-weight:700;font-size:13px">${st}</td>`;
-      html += `<td class="col-meta" style="left:80px;position:sticky;background:#f0ebe1;font-weight:700;font-size:13px" colspan="2">${typeGroup.code} 班</td>`;
+      // 對應上半的 col-name(姓名)
+      html += `<td class="col-meta col-name" style="background:#f0ebe1;font-weight:700;font-size:13px;text-align:center">${st}</td>`;
+      // 對應上半的 col-level(職級)
+      html += `<td class="col-meta col-level" style="background:#f0ebe1;font-weight:700;font-size:13px;text-align:center">${typeGroup.code}</td>`;
+      // 對應上半的 col-pref(偏好)
+      html += `<td class="col-meta col-pref" style="background:#f0ebe1;font-weight:700;font-size:13px;text-align:center">班</td>`;
       for (let d = 1; d <= days; d++) {
         const dow = getDayOfWeek(state.month, d);
         let count = 0;
@@ -5538,7 +5548,11 @@ function renderBottomTable() {
         else if (dow === 6) cls += ' dow-sat';
         html += `<td class="${cls}" style="font-weight:700;font-size:13px">${count}</td>`;
       }
-      html += `<td colspan="4" style="text-align:center;background:#f0ebe1;font-weight:700;font-size:13px">${typeGroup.code} ${st}</td>`;
+      // 右側 4 欄 — 用 4 個獨立 td 對應上半的 休/D/E/N
+      html += `<td style="text-align:center;background:#f0ebe1;font-weight:700;font-size:13px">${typeGroup.code}</td>`;
+      html += `<td style="text-align:center;background:#f0ebe1;font-weight:700;font-size:13px">${st}</td>`;
+      html += `<td style="text-align:center;background:#f0ebe1;font-weight:700;font-size:13px"></td>`;
+      html += `<td style="text-align:center;background:#f0ebe1;font-weight:700;font-size:13px"></td>`;
       html += '</tr>';
     });
   });
@@ -5555,85 +5569,30 @@ function syncColumnWidths() {
   if (!tblTop || !tblBottom) return;
 
   // 抓上半第一個「有人員資料」的 tbody tr 的每一格寬度,作為基準
-  // 注意:助理員模式時,tbody 第一列可能是分組標題列(═══ 技術員 ═══, colspan=N+7)
-  // 必須跳過,找真正有 col-name 的人員列
+  // 跳過分組標題列(type-group-row class, 只 1 個 td colspan=滿)
   let firstRow = null;
   const allRows = tblTop.querySelectorAll('tbody tr');
   for (const tr of allRows) {
-    // 真正的人員列:第一個 td 是 col-name 而且不是分組標題(colspan 通常 = 1)
-    const firstTd = tr.children[0];
-    if (!firstTd) continue;
-    if (firstTd.classList.contains('col-name') && tr.children.length > 3) {
-      firstRow = tr;
-      break;
-    }
+    if (tr.classList.contains('type-group-row')) continue;
+    if (tr.children.length < 5) continue;  // 至少要有 3 meta + 1 day + 4 right
+    firstRow = tr;
+    break;
   }
-  if (!firstRow) return;  // 沒人員列,跳過同步
+  if (!firstRow) return;
   const topCells = firstRow.children;
-  // 也需要找下半的「真正人員列」(跳過分組標題)— 我們的策略:用第一個 tr 的 cells.length > 3
-  let bottomRow = null;
-  const allBottomRows = tblBottom.querySelectorAll('tbody tr');
-  for (const tr of allBottomRows) {
-    const firstTd = tr.children[0];
-    if (!firstTd) continue;
-    // 跳過分組標題列(只有 1 個 td colspan 滿)
-    if (tr.children.length > 3) {
-      bottomRow = tr;
-      break;
+
+  // 下半:現在每一列也是 N+7 個 td,直接 1:1 抄上半的寬度
+  // (分組標題列 N+7 td 都同寬,統計列也 N+7 td 都同寬,跟上半完全一致)
+  const bottomRows = tblBottom.querySelectorAll('tbody tr');
+  bottomRows.forEach(bottomRow => {
+    const bottomCells = bottomRow.children;
+    for (let i = 0; i < topCells.length && i < bottomCells.length; i++) {
+      const w = topCells[i].getBoundingClientRect().width;
+      bottomCells[i].style.width = w + 'px';
+      bottomCells[i].style.minWidth = w + 'px';
+      bottomCells[i].style.maxWidth = w + 'px';
     }
-  }
-  if (!bottomRow) return;
-  const bottomCells = bottomRow.children;
-
-  // 上半第一格(姓名)在下半被 colspan 合併成 3 格(D 班 + 需求/實際 colspan=2)
-  // 上半的 0=姓名、1=職級、2=偏好、3..N+2=日期、N+3..N+6=右側統計
-  // 下半的 0='D 班'(對應上半 0)、1='需求/實際' colspan=2(對應上半 1+2)、2..N+1=日期、N+2='總數' colspan=4(對應右側統計)
-  // 直接逐格量、逐格寫 width 比較穩
-  // 改策略:把上半全部「日期欄」+「右側統計」的寬度抄到下半對應位置
-  // 上半:0,1,2 (meta) | 3..2+days (日期) | 2+days+1..2+days+4 (右側 4 欄)
-  // 下半:0 (D 班) | 1 (colspan=2 需求/實際) | 2..1+days (日期) | 1+days+1 (colspan=4 總數)
-
-  // 量上半 meta 三格的「合計寬度」並設給下半的兩格
-  if (topCells.length < 3 + 1) return;  // 至少要有 meta + 1 天
-  const wName = topCells[0].getBoundingClientRect().width;
-  const wLevel = topCells[1].getBoundingClientRect().width;
-  const wPref = topCells[2].getBoundingClientRect().width;
-  // 下半第一格(D 班) = 姓名寬度
-  bottomCells[0].style.width = wName + 'px';
-  bottomCells[0].style.minWidth = wName + 'px';
-  bottomCells[0].style.maxWidth = wName + 'px';
-  // 下半第二格(需求/實際 colspan=2) = 職級 + 偏好
-  bottomCells[1].style.width = (wLevel + wPref) + 'px';
-  bottomCells[1].style.minWidth = (wLevel + wPref) + 'px';
-  bottomCells[1].style.maxWidth = (wLevel + wPref) + 'px';
-
-  // 日期欄:上半 index 3 起,下半 index 2 起
-  let days = 30;
-  if (state && state.month) {
-    const parts = state.month.split('-').map(Number);
-    days = new Date(parts[0], parts[1], 0).getDate();
-  }
-  for (let d = 0; d < days; d++) {
-    const topCell = topCells[3 + d];
-    const bottomCell = bottomCells[2 + d];
-    if (!topCell || !bottomCell) continue;
-    const w = topCell.getBoundingClientRect().width;
-    bottomCell.style.width = w + 'px';
-    bottomCell.style.minWidth = w + 'px';
-    bottomCell.style.maxWidth = w + 'px';
-  }
-  // 右側 4 欄合計
-  let wRight = 0;
-  for (let i = 0; i < 4; i++) {
-    const c = topCells[3 + days + i];
-    if (c) wRight += c.getBoundingClientRect().width;
-  }
-  const lastBottom = bottomCells[bottomCells.length - 1];
-  if (lastBottom && wRight > 0) {
-    lastBottom.style.width = wRight + 'px';
-    lastBottom.style.minWidth = wRight + 'px';
-    lastBottom.style.maxWidth = wRight + 'px';
-  }
+  });
 }
 
 // 上下橫向滾動同步(垂直只有上半會滾)
