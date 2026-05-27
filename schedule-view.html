@@ -1809,6 +1809,7 @@ function printMonthAsPdf() {
 
 // 把 printMonthAsPdf 同時掛到 window(避免 module + Safari 不認 inline onclick 的問題)
 window.printMonthAsPdf = printMonthAsPdf;
+window.switchScheduleType = switchScheduleType;
 
 // addEventListener 註冊 — 用 MutationObserver 觀察按鈕出現後立即綁
 // 因為按鈕在 panel-month 裡,初始 display:none,DOMContentLoaded 時可能還在
