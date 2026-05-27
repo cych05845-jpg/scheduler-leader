@@ -69,7 +69,7 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 .panel {
   display: none;
   padding: 0.8rem;
-  max-width: 900px;
+  max-width: 1600px;  /* 從 900 改 1600,讓畫面利用空間更多 */
   margin: 0 auto;
 }
 .panel.active { display: block; }
@@ -613,14 +613,32 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   max-width: 100%;
   padding: 0.6rem;
 }
+/* 護理師月曆:73 人 × 31 天 ≈ 1500px,讓 wrap 撐滿可用空間 + 橫滾 */
+body[data-schedule-type="nurse"] .month-table-wrap,
+body:not([data-schedule-type]) .month-table-wrap {
+  width: 100%;
+  max-width: 100%;
+}
 /* 助理員模式:人少(~10 人),讓月曆寬度撐滿視窗 */
+body[data-schedule-type="aide"] .month-table-wrap {
+  width: 100%;
+  max-width: 100%;
+}
 body[data-schedule-type="aide"] .month-table {
   width: 100%;
-  min-width: 800px;  /* 月曆至少 800px,小螢幕橫向滾 */
+  min-width: 800px;
 }
 body[data-schedule-type="aide"] .month-table th,
 body[data-schedule-type="aide"] .month-table td {
-  font-size: 0.95rem;  /* 助理員模式字也大一點(因為格子更寬) */
+  font-size: 0.88rem;  /* 跟護理師一致(避免列印姓名截斷)*/
+}
+/* 助理員姓名欄保證足夠寬,列印時不截斷(3-4 字中文 + 員編 padding) */
+body[data-schedule-type="aide"] .month-table th.col-name,
+body[data-schedule-type="aide"] .month-table td.col-name {
+  min-width: 100px;
+  white-space: nowrap;
+  padding-left: 8px;
+  padding-right: 8px;
 }
 .month-cell-dept {
   font-size: 0.78rem;       /* 字體放大 */
@@ -1615,41 +1633,91 @@ function renderMonthTable() {
   // ===== 底部每日人數統計列(D / E / N)=====
   // 排除帶教/未獨立/半日時段 — 跟主班表邏輯一致
   html += '<tfoot>';
-  // DEBUG:列出第一天 D 班的計算過程
+  // 助理員模式:技/助 分開統計, 用 D / E / 12-20 (而不是 D/E/N)
+  // 護理師模式:照舊 D/E/N 整體統計
+  const isAideMode = (state.scheduleType === 'aide');
   let _debugFirstD = [];
-  ['D', 'E', 'N'].forEach(sh => {
-    const labelClass = `cell-${sh}`;
-    html += `<tr class="month-total-row"><td class="col-name total-label ${labelClass}">${sh} 班</td>`;
-    for (let d = 1; d <= state.days; d++) {
-      let count = 0;
-      state.staff.forEach(p => {
-        // 跟主班表底部 D/E/N 統計邏輯一致:只算「計入人力」的人
-        // _countAsCapacity 由 index.html buildPublishViewPayload 計算後寫入
-        if (p._countAsCapacity === false) return;
-        const v = (state.schedule[p.id] || {})[d];
-        if (v !== sh) return;
-        const flag = (state.flags[p.id] && state.flags[p.id][d]) || {};
-        if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
-        if (flag.halfdayTime) return;
-        count++;
-        if (sh === 'D' && d === 1) _debugFirstD.push(p.name);
+
+  if (isAideMode) {
+    // ===== 助理員模式:分組統計 =====
+    // 技術員(level === '技'):D / E / 12-20
+    // 助理員(level === '助' OR '工讀'):D / E / 12-20
+    // 事務員不統計
+    const TYPE_GROUPS = [
+      { code: '技', name: '技術員', match: (p) => p.level === '技', shifts: ['D', 'E', '12-20'] },
+      { code: '助', name: '助理員', match: (p) => p.level === '助' || p.level === '工讀', shifts: ['D', 'E', '12-20'] },
+    ];
+    TYPE_GROUPS.forEach(grp => {
+      // 分組標題列(灰底)
+      html += `<tr class="month-total-row" style="background: #e5e7eb"><td class="col-name" colspan="1" style="background: #e5e7eb; font-weight: 800; color: #374151; text-align: center; padding: 4px 8px; font-size: 0.82rem">═ ${grp.name} ═</td>`;
+      for (let d = 1; d <= state.days; d++) {
+        html += '<td style="background: #e5e7eb"></td>';
+      }
+      html += '<td style="background: #e5e7eb"></td></tr>';
+      // 每個班別的計數列
+      grp.shifts.forEach(sh => {
+        const labelClass = sh === '12-20' ? '' : `cell-${sh}`;
+        const shLabel = sh === '12-20' ? '12-20' : `${sh} 班`;
+        html += `<tr class="month-total-row"><td class="col-name total-label ${labelClass}">${shLabel}</td>`;
+        for (let d = 1; d <= state.days; d++) {
+          let count = 0;
+          state.staff.forEach(p => {
+            if (!grp.match(p)) return;
+            if (p._countAsCapacity === false) return;
+            const v = (state.schedule[p.id] || {})[d];
+            if (v !== sh) return;
+            const flag = (state.flags[p.id] && state.flags[p.id][d]) || {};
+            if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
+            if (flag.halfdayTime) return;
+            count++;
+          });
+          const dDate = new Date(year, monthIdx, d);
+          const dDow = dDate.getDay();
+          const dIsHol = state.holidays.includes(d);
+          let cls = '';
+          if (d === todayDay) cls += ' today-col';
+          if (dIsHol) cls += ' col-holiday';
+          else if (dDow === 0) cls += ' col-sun';
+          else if (dDow === 6) cls += ' col-sat';
+          html += `<td class="${cls} total-num">${count}</td>`;
+        }
+        html += '<td class="col-off"></td></tr>';
       });
-      // 加日期屬性 class — 六/日/國定整欄一致上色
-      const dDate = new Date(year, monthIdx, d);
-      const dDow = dDate.getDay();
-      const dIsHol = state.holidays.includes(d);
-      let cls = '';
-      if (d === todayDay) cls += ' today-col';
-      if (dIsHol) cls += ' col-holiday';
-      else if (dDow === 0) cls += ' col-sun';
-      else if (dDow === 6) cls += ' col-sat';
-      html += `<td class="${cls} total-num">${count}</td>`;
-    }
-    html += '<td class="col-off"></td></tr>';
-  });
+    });
+  } else {
+    // ===== 護理師模式:原本邏輯 D/E/N 整體統計 =====
+    ['D', 'E', 'N'].forEach(sh => {
+      const labelClass = `cell-${sh}`;
+      html += `<tr class="month-total-row"><td class="col-name total-label ${labelClass}">${sh} 班</td>`;
+      for (let d = 1; d <= state.days; d++) {
+        let count = 0;
+        state.staff.forEach(p => {
+          if (p._countAsCapacity === false) return;
+          const v = (state.schedule[p.id] || {})[d];
+          if (v !== sh) return;
+          const flag = (state.flags[p.id] && state.flags[p.id][d]) || {};
+          if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
+          if (flag.halfdayTime) return;
+          count++;
+          if (sh === 'D' && d === 1) _debugFirstD.push(p.name);
+        });
+        const dDate = new Date(year, monthIdx, d);
+        const dDow = dDate.getDay();
+        const dIsHol = state.holidays.includes(d);
+        let cls = '';
+        if (d === todayDay) cls += ' today-col';
+        if (dIsHol) cls += ' col-holiday';
+        else if (dDow === 0) cls += ' col-sun';
+        else if (dDow === 6) cls += ' col-sat';
+        html += `<td class="${cls} total-num">${count}</td>`;
+      }
+      html += '<td class="col-off"></td></tr>';
+    });
+  }
   html += '</tfoot>';
-  // DEBUG:印出第一天 D 班計算明細(對比主班表是否一致)
-  console.log('[公告 D 班統計 debug] 6/1 D 班計入人員:', _debugFirstD);
+  if (!isAideMode) {
+    console.log('[公告 D 班統計 debug] 6/1 D 班計入人員:', _debugFirstD);
+  }
 
   html += '</table>';
   document.getElementById('month-table-wrap').innerHTML = html;
