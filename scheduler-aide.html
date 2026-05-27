@@ -1617,10 +1617,14 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
     <!-- 📋 調整人員順序:預設展開,加紅字提示 -->
     <div class="section side-collapsible" id="sec-reorder" data-default="open">
       <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-reorder')">
-        <span class="side-arrow">▼</span> 📋 調整人員順序
+        <span class="side-arrow">▼</span> 📋 人員管理
         <span style="font-size: 0.78rem; color: #dc2626; font-weight: 600; margin-left: 0.4rem">← 拖 ⋮⋮ 換位置</span>
       </h3>
       <div class="side-collapsible-body">
+        <!-- 新增人員按鈕 -->
+        <button onclick="addNewStaffPrompt()" style="width: 100%; padding: 8px 12px; background: #059669; color: white; border: none; border-radius: 4px; font-weight: 700; cursor: pointer; margin-bottom: 8px; font-size: 0.92rem">
+          ➕ 新增人員
+        </button>
         <div style="font-size: 0.82rem; color: var(--ink-mute); margin-bottom: 0.5rem">
           拖曳調整人員在班表上的顯示順序。
         </div>
@@ -4975,6 +4979,56 @@ function restoreFromLeave(pid) {
 // 此處 toggleReorderSection 函式已於上方定義為相容墊片
 // ============================================================
 
+// === 新增人員(助理員系統用,簡單對話框) ===
+function addNewStaffPrompt() {
+  // 1. 員編
+  const eid = prompt('員編(數字):');
+  if (!eid || !eid.trim()) return;
+
+  // 2. 姓名
+  const name = prompt('姓名:');
+  if (!name || !name.trim()) return;
+
+  // 3. 職級
+  const levelMap = { '1': '技', '2': '助', '3': '事', '4': '工讀' };
+  const lvChoice = prompt('職級(1=技術員 / 2=助理員 / 3=事務員 / 4=工讀生):');
+  if (!lvChoice || !levelMap[lvChoice.trim()]) {
+    alert('職級必須是 1、2、3、4');
+    return;
+  }
+  const level = levelMap[lvChoice.trim()];
+
+  // 4. 建立新人員物件
+  const id = (typeof uid === 'function') ? uid() : ('p_' + Date.now());
+  const newPerson = {
+    id,
+    name: name.trim(),
+    eid: eid.trim(),
+    level,
+    note: '',
+    preferredShift: '',
+    canSwapTo: [],
+    special: '',
+    capabilities: [],
+    peakStage: '',
+    prevMonthConsec: 0,
+  };
+
+  // 5. 加進 state
+  state.staff.push(newPerson);
+  if (!state.schedule[id]) state.schedule[id] = {};
+  if (!state.scheduleFlags) state.scheduleFlags = {};
+  if (!state.scheduleFlags[id]) state.scheduleFlags[id] = {};
+
+  // 6. 儲存 + 重畫
+  if (typeof saveStaffData === 'function') saveStaffData();
+  if (typeof autoSaveScheduleLocal === 'function') autoSaveScheduleLocal();
+  if (typeof renderTable === 'function') renderTable();
+  if (typeof renderReorderList === 'function') renderReorderList();
+
+  alert(`✓ 已新增:${name}(${level})員編 ${eid}`);
+}
+
 function renderReorderList() {
   const listEl = $('reorder-staff-list');
   if (!listEl) return;
@@ -8010,13 +8064,13 @@ function handleFileSelect(e) {
       // === DEBUG:印出 Excel 前 30 列(用來查匯入只讀到 2 人的問題)===
       console.log('=== Excel DEBUG 開始 ===');
       console.log('Sheet 名稱:', wb.SheetNames);
-      const firstSheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
-      console.log('總列數:', rows.length);
+      const _dbgSheet = wb.Sheets[wb.SheetNames[0]];
+      const _dbgRows = XLSX.utils.sheet_to_json(_dbgSheet, { header: 1, defval: '' });
+      console.log('總列數:', _dbgRows.length);
       console.log('前 30 列內容:');
-      for (let i = 0; i < Math.min(30, rows.length); i++) {
+      for (let i = 0; i < Math.min(30, _dbgRows.length); i++) {
         // 只印前 10 欄(其他是日期欄,看不出來)
-        const preview = rows[i].slice(0, 10).map(c => JSON.stringify(c)).join(' | ');
+        const preview = _dbgRows[i].slice(0, 10).map(c => JSON.stringify(c)).join(' | ');
         console.log(`  列${i}: ${preview}`);
       }
       console.log('=== Excel DEBUG 結束 ===');
@@ -8028,8 +8082,8 @@ function handleFileSelect(e) {
       let allText = '';
       for (const sheetName of wb.SheetNames) {
         try {
-          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
-          for (const row of rows) {
+          const sheetRows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+          for (const row of sheetRows) {
             allText += row.map(c => String(c)).join('|') + '\n';
             if (allText.length > 50000) break;
           }
