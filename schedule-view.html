@@ -463,7 +463,7 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 .month-table tbody tr:hover td.col-name { background: #f0fdf4; }
 .month-table td.cell-D { background: #dbeafe; color: #1e40af; font-weight: 600; }
 .month-table td.cell-E { background: #fef3c7; color: #92400e; font-weight: 600; }
-.month-table td.cell-N { background: #4b5563; color: white; font-weight: 600; }
+.month-table td.cell-N { background: #6b7280; color: white; font-weight: 600; }
 .month-table td.cell-M { background: #e9d5ff; color: #6b21a8; font-weight: 600; }
 .month-table td.cell-OFF {
   background: #fce8e8;
@@ -939,7 +939,7 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   /* D/E/N/M 班別格列印保留背景色 */
   .month-table td.cell-D { background: #dbeafe !important; color: #1e40af !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   .month-table td.cell-E { background: #fef3c7 !important; color: #92400e !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  .month-table td.cell-N { background: #4b5563 !important; color: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  .month-table td.cell-N { background: #6b7280 !important; color: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   .month-table td.cell-M { background: #e9d5ff !important; color: #6b21a8 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   .month-table td.cell-V { background: #dcfce7 !important; color: #166534 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   /* 半日時段(8-12 / 10-14 等)— 青色背景,顯示時段文字 */
@@ -986,6 +986,14 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
     <span id="hdr-month" style="font-size: 0.9rem; opacity: 0.85; font-weight: 400"></span>
   </h1>
   <div class="subtitle" id="hdr-subtitle">載入中...</div>
+</div>
+
+<!-- === 班表類型切換 (護理師 / 助理員) === -->
+<div id="schedule-type-switcher" style="display: none; max-width: 1280px; margin: 8px auto 0; padding: 0 12px;">
+  <div style="display: flex; gap: 4px; background: #e5e7eb; padding: 4px; border-radius: 10px; max-width: 360px; margin: 0 auto;">
+    <button id="type-tab-nurse" class="type-tab-btn active" onclick="switchScheduleType('nurse')" style="flex: 1; background: white; color: #1a1a1a; border: none; padding: 8px 14px; border-radius: 7px; font-size: 0.92rem; font-weight: 700; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: all 0.15s">👩‍⚕️ 護理師</button>
+    <button id="type-tab-aide" class="type-tab-btn" onclick="switchScheduleType('aide')" style="flex: 1; background: transparent; color: #6b7280; border: none; padding: 8px 14px; border-radius: 7px; font-size: 0.92rem; font-weight: 600; cursor: pointer; transition: all 0.15s">🩺 技助事員</button>
+  </div>
 </div>
 
 <!-- === Tabs === -->
@@ -1100,13 +1108,49 @@ const state = {
   publishedAt: '',
   publishedBy: '',
   viewDate: null,     // Date 物件,今天視圖正在看的日期
+  scheduleType: 'nurse',  // 'nurse' = 護理師 / 'aide' = 助理員(技助事員)
 };
 
 // === 進入 App ===
 function enterScheduleApp() {
   document.getElementById('home-overlay').classList.add('hidden');
   document.getElementById('app-header').style.display = '';
+  document.getElementById('schedule-type-switcher').style.display = 'block';
   document.getElementById('tabs').style.display = '';
+  loadData();
+}
+
+// === 切換班表類型(護理師 / 助理員) ===
+function switchScheduleType(type) {
+  if (state.scheduleType === type) return;  // 已經在這個 type 不重複載
+  state.scheduleType = type;
+  // 更新 tab 視覺
+  const tabNurse = document.getElementById('type-tab-nurse');
+  const tabAide = document.getElementById('type-tab-aide');
+  if (type === 'nurse') {
+    tabNurse.style.background = 'white';
+    tabNurse.style.color = '#1a1a1a';
+    tabNurse.style.fontWeight = '700';
+    tabNurse.style.boxShadow = '0 1px 3px rgba(0,0,0,0.08)';
+    tabNurse.classList.add('active');
+    tabAide.style.background = 'transparent';
+    tabAide.style.color = '#6b7280';
+    tabAide.style.fontWeight = '600';
+    tabAide.style.boxShadow = 'none';
+    tabAide.classList.remove('active');
+  } else {
+    tabAide.style.background = 'white';
+    tabAide.style.color = '#1a1a1a';
+    tabAide.style.fontWeight = '700';
+    tabAide.style.boxShadow = '0 1px 3px rgba(0,0,0,0.08)';
+    tabAide.classList.add('active');
+    tabNurse.style.background = 'transparent';
+    tabNurse.style.color = '#6b7280';
+    tabNurse.style.fontWeight = '600';
+    tabNurse.style.boxShadow = 'none';
+    tabNurse.classList.remove('active');
+  }
+  // 重新載入資料(切換 Firebase 路徑)
   loadData();
 }
 
@@ -1123,7 +1167,14 @@ async function loadData() {
     await initFirebase();
     const { ref, onValue, off } = _fbHelpers;
     const monthKey = month.replace(/[.#$\[\]/]/g, '_');
-    const monthRef = ref(_fbDb, `schedules/${monthKey}`);
+
+    // 根據 scheduleType 決定 Firebase 路徑
+    // - 護理師: schedules/{month}
+    // - 助理員: aide-schedules/{month}(注意:Firebase 寫的是 'aide-schedules' 整個路徑就已隔離,不另加 AIDE- prefix)
+    const fbPath = state.scheduleType === 'aide'
+      ? `aide-schedules/${monthKey}`
+      : `schedules/${monthKey}`;
+    const monthRef = ref(_fbDb, fbPath);
 
     // 斷開舊監聽(避免月份切換時資料疊加)
     if (_currentListener) {
