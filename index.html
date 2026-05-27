@@ -3692,7 +3692,17 @@ async function apiCall(action, payload = {}) {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    return await response.json();
+    const result = await response.json();
+
+    // 護理師系統:過濾掉「AIDE-」prefix 的資料(那些是助理員系統的,不該顯示)
+    if (action === 'listSchedules' && result.ok && Array.isArray(result.schedules)) {
+      result.schedules = result.schedules.filter(s => !(s.month && s.month.startsWith('AIDE-')));
+    }
+    if (action === 'listAssignments' && result.ok && Array.isArray(result.assignments)) {
+      result.assignments = result.assignments.filter(a => !(a.month && a.month.startsWith('AIDE-')));
+    }
+
+    return result;
   } catch (e) {
     return { ok: false, error: '網路錯誤: ' + e.message };
   }
@@ -10810,17 +10820,23 @@ async function updateEmptyStateForCloud() {
     const btnStyle = isLatest
       ? 'background: #2563eb; color: white; border: none; padding: 8px 20px; font-size: 1rem; font-weight: 700; border-radius: 4px; cursor: pointer; min-width: 160px'
       : 'background: white; color: #2563eb; border: 1px solid #2563eb; padding: 6px 16px; font-size: 0.9rem; border-radius: 4px; cursor: pointer; min-width: 160px';
+    const icon = isLatest ? '⭐' : '📅';
+    const tag = isLatest ? '(最新)' : '';
 
     html += `<div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.7rem; ${idx < recent.length - 1 ? 'border-bottom: 1px solid #dbeafe;' : ''} gap: 1rem">
       <div style="flex: 1; min-width: 0">
-        <div style="font-weight: 700; color: #1e40af">${isLatest ? '⭐ ' : ''}${s.month}</div>
+        <div style="font-weight: 700; color: #1e40af">${icon} ${s.month}</div>
         <div style="font-size: 0.82rem; color: var(--ink-mute)">${s.savedByName} · ${d}</div>
       </div>
-      <button onclick="loadCloudScheduleDirectly('${s.month}')" style="${btnStyle}">⬇ 載入${isLatest ? '(最新)' : ''}</button>
+      <button onclick="loadCloudScheduleDirectly('${s.month}')" style="${btnStyle}">⬇ 載入${tag}</button>
     </div>`;
   });
 
-  listEl.innerHTML = html;
+  // 顯示「共 N 月」hint
+  const totalHint = schedules.length > 3
+    ? `<div style="text-align: center; margin-top: 0.5rem; font-size: 0.82rem; color: var(--ink-mute)">顯示最近 3 個月(共 ${schedules.length} 個雲端班表)</div>`
+    : '';
+  listEl.innerHTML = html + totalHint;
   cloudEl.style.display = 'block';
   if (msgEl) msgEl.textContent = '選擇下面其中一種方式開始:';
 }

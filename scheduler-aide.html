@@ -3690,20 +3690,72 @@ const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbwvr5TCo7p85eE8S7_5
 // ============================================================
 // BACKEND API HELPER
 // ============================================================
+
+// 助理員系統用 'AIDE-' prefix 隔離雲端資料
+// 例:助理員 6 月 → month = 'AIDE-2026-06'(不會跟護理師的 '2026-06' 衝突)
+const AIDE_MONTH_PREFIX = 'AIDE-';
+
+// schedule 相關 action 需要 month prefix 隔離(避免跟護理師資料混)
+// 這些 action 都是「月份綁定的班表資料」,需要 prefix
+// 其他像 login / loadStaffMaster / listUsers 是「全域資料」,不該加 prefix
+const SCHEDULE_BOUND_ACTIONS = new Set([
+  'saveSchedule', 'loadSchedule', 'listSchedules',
+  'publishSchedule', 'unpublishSchedule', 'deleteSchedule',
+  'setMonthlyStatus', 'getMonthlyStatus',
+  'setAssignment', 'deleteAssignment', 'listAssignments',
+  'loadPublishedView', 'publishView',
+]);
+
+// 把雲端的 'AIDE-2026-06' 還原成 '2026-06'(顯示給人看)
+function stripAidePrefix(month) {
+  if (typeof month !== 'string') return month;
+  return month.startsWith(AIDE_MONTH_PREFIX) ? month.slice(AIDE_MONTH_PREFIX.length) : month;
+}
+
+// 把 '2026-06' 加上 'AIDE-' prefix(送到雲端時)
+function addAidePrefix(month) {
+  if (typeof month !== 'string') return month;
+  if (month.startsWith(AIDE_MONTH_PREFIX)) return month;  // 已經有了,不重複加
+  return AIDE_MONTH_PREFIX + month;
+}
+
 async function apiCall(action, payload = {}) {
   if (!BACKEND_URL || BACKEND_URL.indexOf('PASTE_YOUR') === 0) {
     throw new Error('後端 URL 未設定,請在 BACKEND_URL 填入 Apps Script Web App URL');
   }
+
+  // 助理員系統:schedule 相關 action 自動把 month 加上 AIDE- prefix
+  const isScheduleBound = SCHEDULE_BOUND_ACTIONS.has(action);
+  if (isScheduleBound && payload.month) {
+    payload = { ...payload, month: addAidePrefix(payload.month) };
+  }
+
   try {
     const response = await fetch(BACKEND_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // text/plain 避免 CORS preflight
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action, ...payload }),
     });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    return await response.json();
+    const result = await response.json();
+
+    // listSchedules 回傳的 schedules array,每筆的 month 要還原成不含 prefix 的格式
+    // 同時過濾掉「沒有 AIDE- prefix」的(那些是護理師資料,不該顯示)
+    if (action === 'listSchedules' && result.ok && Array.isArray(result.schedules)) {
+      result.schedules = result.schedules
+        .filter(s => s.month && s.month.startsWith(AIDE_MONTH_PREFIX))
+        .map(s => ({ ...s, month: stripAidePrefix(s.month) }));
+    }
+    // listAssignments 同理
+    if (action === 'listAssignments' && result.ok && Array.isArray(result.assignments)) {
+      result.assignments = result.assignments
+        .filter(a => a.month && a.month.startsWith(AIDE_MONTH_PREFIX))
+        .map(a => ({ ...a, month: stripAidePrefix(a.month) }));
+    }
+
+    return result;
   } catch (e) {
     return { ok: false, error: '網路錯誤: ' + e.message };
   }
