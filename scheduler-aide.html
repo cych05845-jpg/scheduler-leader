@@ -8007,6 +8007,20 @@ function handleFileSelect(e) {
       const data = new Uint8Array(ev.target.result);
       const wb = XLSX.read(data, { type: 'array', cellStyles: true });
 
+      // === DEBUG:印出 Excel 前 30 列(用來查匯入只讀到 2 人的問題)===
+      console.log('=== Excel DEBUG 開始 ===');
+      console.log('Sheet 名稱:', wb.SheetNames);
+      const firstSheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+      console.log('總列數:', rows.length);
+      console.log('前 30 列內容:');
+      for (let i = 0; i < Math.min(30, rows.length); i++) {
+        // 只印前 10 欄(其他是日期欄,看不出來)
+        const preview = rows[i].slice(0, 10).map(c => JSON.stringify(c)).join(' | ');
+        console.log(`  列${i}: ${preview}`);
+      }
+      console.log('=== Excel DEBUG 結束 ===');
+
       // === 類型自動偵測(防呆)===
       // 讀整個檔案找關鍵字判斷:
       // - 含「N1/N2/N3/HN」→ 護理師 Excel
