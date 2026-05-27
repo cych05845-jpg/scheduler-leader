@@ -429,7 +429,10 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 }
 .month-table tfoot td.total-num.col-sat,
 .month-table tfoot td.total-num.col-sun,
-.month-table tfoot td.total-num.col-holiday {
+.month-table tfoot td.total-num.col-holiday,
+.month-table tbody td.total-num.col-sat,
+.month-table tbody td.total-num.col-sun,
+.month-table tbody td.total-num.col-holiday {
   background: #d9f99d !important;
   color: #365314;
   font-weight: 700;
@@ -1626,17 +1629,25 @@ function renderMonthTable() {
   }
 
   // 共用函式:渲染一組人力統計(技/助 各 3 列:D/E/12-20 or D/E/N)
-  function renderGroupStats(groupName, matchFn, shifts) {
+  // collapsed=true 時,只顯示標題列,不顯示統計內容(點下去展開)
+  function renderGroupStats(groupCode, groupName, matchFn, shifts, collapsed) {
     let h = '';
-    // 統計區「迷你標題列」(淡灰底)— 因為前面已有深色組別大標題,這裡用淡色就好
-    h += `<tr style="background: #f3f4f6"><td class="col-name" style="background: #f3f4f6; font-weight: 600; color: #6b7280; text-align: center; padding: 3px 8px; font-size: 0.75rem">▼ ${groupName} 人力 ▼</td>`;
+    const arrow = collapsed ? '▶' : '▼';
+    const tip = collapsed ? '(點開顯示人力統計)' : '';
+    // 統計區「迷你標題列」(可點切換展開/收起)
+    h += `<tr class="stats-toggle-row" data-group-code="${groupCode}" onclick="toggleStatsGroup('${groupCode}')" style="background: #f3f4f6; cursor: pointer; user-select: none">
+      <td class="col-name" style="background: #f3f4f6; font-weight: 600; color: #6b7280; text-align: center; padding: 4px 8px; font-size: 0.78rem">
+        <span class="stats-arrow">${arrow}</span> ${groupName} 人力 <span style="color: #9ca3af; font-size: 0.7rem">${tip}</span>
+      </td>`;
     for (let d = 1; d <= state.days; d++) h += '<td style="background: #f3f4f6"></td>';
     h += '<td style="background: #f3f4f6"></td></tr>';
 
+    // 統計內容列(collapsed 時用 display:none 隱藏)
+    const styleHidden = collapsed ? 'display: none' : '';
     shifts.forEach(sh => {
       const labelClass = sh === '12-20' ? '' : `cell-${sh}`;
       const shLabel = sh === '12-20' ? '12-20' : `${sh} 班`;
-      h += `<tr><td class="col-name total-label ${labelClass}" style="font-weight: 700; font-size: 0.85rem">${shLabel}</td>`;
+      h += `<tr class="stats-content-row" data-group-code="${groupCode}" style="${styleHidden}"><td class="col-name total-label ${labelClass}" style="font-weight: 700; font-size: 0.85rem">${shLabel}</td>`;
       for (let d = 1; d <= state.days; d++) {
         let count = 0;
         state.staff.forEach(p => {
@@ -1668,18 +1679,18 @@ function renderMonthTable() {
 
   if (isAideMode) {
     // ===== 助理員模式:每組人員後接統計 =====
+    // collapsed: 預設收起(技/事人少,只助理員預設展開)
     const TYPE_GROUPS = [
-      { code: '技', name: '技術員', match: (p) => p.level === '技', shifts: ['D', 'E', '12-20'] },
-      { code: '助', name: '助理員', match: (p) => p.level === '助' || p.level === '工讀', shifts: ['D', 'E', '12-20'] },
-      { code: '事', name: '事務員', match: (p) => p.level === '事', shifts: null },  // 事務員不統計
+      { code: '技', name: '技術員', match: (p) => p.level === '技', shifts: ['D', 'E', '12-20'], collapsed: true },
+      { code: '助', name: '助理員', match: (p) => p.level === '助' || p.level === '工讀', shifts: ['D', 'E', '12-20'], collapsed: false },
+      { code: '事', name: '事務員', match: (p) => p.level === '事', shifts: null, collapsed: true },  // 事務員不統計
     ];
 
     TYPE_GROUPS.forEach((grp, idx) => {
       const groupStaff = state.staff.filter(grp.match);
       if (groupStaff.length === 0) return;
-      // 第 2 組(及之後)前先插入「空白分隔列」+ 「組別標題列」 — 讓視覺有明顯切換
+      // 第 2 組(及之後)前先插入「空白分隔列」 — 讓視覺有明顯切換
       if (idx > 0) {
-        // 空白分隔列(高度大)— 拉開上一組統計 / 這一組人員的距離
         html += `<tr class="group-separator"><td class="col-name" style="background: white; border: none; height: 16px; padding: 0"></td>`;
         for (let d = 1; d <= state.days; d++) html += '<td style="background: white; border: none; padding: 0"></td>';
         html += '<td style="background: white; border: none; padding: 0"></td></tr>';
@@ -1704,7 +1715,7 @@ function renderMonthTable() {
       });
       // 渲染這組的人力統計(事務員 shifts=null → 不統計)
       if (grp.shifts) {
-        html += renderGroupStats(grp.name, grp.match, grp.shifts);
+        html += renderGroupStats(grp.code, grp.name, grp.match, grp.shifts, grp.collapsed);
       }
     });
   } else {
@@ -1927,6 +1938,20 @@ function printMonthAsPdf() {
 // 把 printMonthAsPdf 同時掛到 window(避免 module + Safari 不認 inline onclick 的問題)
 window.printMonthAsPdf = printMonthAsPdf;
 window.switchScheduleType = switchScheduleType;
+
+// === 展開/收起人力統計區(技/助/事 各自) ===
+function toggleStatsGroup(groupCode) {
+  const rows = document.querySelectorAll(`tr.stats-content-row[data-group-code="${groupCode}"]`);
+  const toggleRow = document.querySelector(`tr.stats-toggle-row[data-group-code="${groupCode}"]`);
+  if (!rows.length || !toggleRow) return;
+  const isCurrentlyHidden = rows[0].style.display === 'none';
+  // 切換顯示
+  rows.forEach(r => r.style.display = isCurrentlyHidden ? '' : 'none');
+  // 更新箭頭
+  const arrow = toggleRow.querySelector('.stats-arrow');
+  if (arrow) arrow.textContent = isCurrentlyHidden ? '▼' : '▶';
+}
+window.toggleStatsGroup = toggleStatsGroup;
 
 // addEventListener 註冊 — 用 MutationObserver 觀察按鈕出現後立即綁
 // 因為按鈕在 panel-month 裡,初始 display:none,DOMContentLoaded 時可能還在
