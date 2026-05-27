@@ -8425,10 +8425,10 @@ function parseDualRowFormat(rows, headerIdx, importMonth, worksheet) {
 
     if (!name && !level) {
       emptyRunCount++;
-      if (emptyRunCount >= 3) {
+      if (emptyRunCount >= 5) {
         // 但允許前幾位後遇到分隔,繼續往後找;先跳一列再試
         r++;
-        if (emptyRunCount >= 8) break;  // 真的太多空白就停
+        if (emptyRunCount >= 15) break;  // 真的太多空白就停(放寬到 15 列,讓「技/助/事」分組空白能跳過)
         continue;
       }
       r += 2;
@@ -8463,7 +8463,7 @@ function parseDualRowFormat(rows, headerIdx, importMonth, worksheet) {
     staff.push({
       id,
       name,
-      level: level || 'N3',
+      level: level || '助',  // 助理員系統:沒給 level 預設「助」(不要用 N3 護理師職級)
       note: '',
       preferredShift: '',
       canSwapTo: [],
