@@ -613,6 +613,15 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   max-width: 100%;
   padding: 0.6rem;
 }
+/* 助理員模式:人少(~10 人),讓月曆寬度撐滿視窗 */
+body[data-schedule-type="aide"] .month-table {
+  width: 100%;
+  min-width: 800px;  /* 月曆至少 800px,小螢幕橫向滾 */
+}
+body[data-schedule-type="aide"] .month-table th,
+body[data-schedule-type="aide"] .month-table td {
+  font-size: 0.95rem;  /* 助理員模式字也大一點(因為格子更寬) */
+}
 .month-cell-dept {
   font-size: 0.78rem;       /* 字體放大 */
   font-weight: 700;
@@ -1118,6 +1127,7 @@ function enterScheduleApp() {
   document.getElementById('app-header').style.display = '';
   document.getElementById('schedule-type-switcher').style.display = 'block';
   document.getElementById('tabs').style.display = '';
+  document.body.setAttribute('data-schedule-type', 'nurse');  // 預設護理師
   loadData();
 }
 
@@ -1129,6 +1139,8 @@ function switchScheduleType(type) {
     return;
   }
   state.scheduleType = type;
+  // 設 body 屬性 → 觸發助理員專屬 CSS(月曆撐滿、字級大)
+  document.body.setAttribute('data-schedule-type', type);
   // 更新 tab 視覺
   const tabNurse = document.getElementById('type-tab-nurse');
   const tabAide = document.getElementById('type-tab-aide');
@@ -1170,6 +1182,8 @@ function switchScheduleType(type) {
   // 重新載入資料(切換 Firebase 路徑)
   console.log('[班表切換] 重新載入,新類型:', type);
   loadData();
+  // 自動切到「月曆」tab(月曆是主要查看視圖,避免使用者還要再點一次)
+  setTimeout(() => switchTab('month'), 100);
 }
 
 // === 載入資料(Firebase 即時監聽) ===
