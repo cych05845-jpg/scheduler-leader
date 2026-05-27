@@ -1359,7 +1359,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
   <div class="topbar-actions">
     <button onclick="openHelpModal()">❓ 使用說明</button>
     <button onclick="openRulesModal()">⚙ 規則設定</button>
-    <button onclick="openImportModal()">📥 匯入 Excel</button>
+    <button onclick="openImportModal()" title="匯入「護理師」班表 Excel">📥 匯入 Excel(護理師)</button>
     <button onclick="exportXlsx()" class="primary">⬇ 匯出班表</button>
     <button onclick="exportXlsxTraditional()" style="background: #d97706; color: white; border-color: #d97706" title="2 列/人:上列備註 + 下列班別,跟院內 PDF 格式對齊">⬇ 匯出傳統格式</button>
     <button id="btn-publish-view" onclick="openPublishViewModal()" style="background: #059669; color: white; border-color: #059669; display: none" title="把班表公告給全護理師看(LINE 群分享連結)">📢 公告給同仁</button>
@@ -3612,10 +3612,14 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 <div class="modal-backdrop" id="import-modal">
   <div class="modal" style="max-width: 600px">
     <div class="modal-header">
-      <h3>📥 匯入 Excel</h3>
+      <h3>📥 匯入 Excel <span style="background: rgba(255,255,255,0.25); padding: 2px 10px; border-radius: 12px; font-size: 0.82rem; margin-left: 8px">👩‍⚕️ 護理師</span></h3>
       <button onclick="closeModal('import-modal')" style="background:transparent;color:white;border:none;font-size:1.2rem">×</button>
     </div>
     <div class="modal-body">
+      <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 10px 14px; border-radius: 4px; margin-bottom: 14px; font-size: 0.9rem">
+        ⚠️ <strong>注意:</strong>這是「<strong>護理師</strong>」班表系統的匯入功能。<br>
+        <span style="color: #92400e">如果你要匯入「技助事員」班表 → 請先點頂部「🩺 技助事員」切換系統再匯入。</span>
+      </div>
       <div class="help-tip">
         <strong>💡 提示:</strong>選擇班表 Excel 後,系統會詢問月份和用途,再決定怎麼處理。
       </div>
@@ -7946,6 +7950,38 @@ function handleFileSelect(e) {
     try {
       const data = new Uint8Array(ev.target.result);
       const wb = XLSX.read(data, { type: 'array', cellStyles: true });
+
+      // === 類型自動偵測(防呆)===
+      let allText = '';
+      for (const sheetName of wb.SheetNames) {
+        try {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+          for (const row of rows) {
+            allText += row.map(c => String(c)).join('|') + '\n';
+            if (allText.length > 50000) break;
+          }
+          if (allText.length > 50000) break;
+        } catch (err) {}
+      }
+      const hasNurseLevels = /\b(N1|N2|N3|N4|HN|護理長)\b/.test(allText);
+      const hasAideLevels = /(技術員|助理員|事務員|工讀)/.test(allText) || /\|[技助事]\|/.test(allText);
+
+      // 偵測為「助理員 Excel」但你現在在護理師系統 → 警告
+      if (hasAideLevels && !hasNurseLevels) {
+        const proceed = confirm(
+          '⚠️ 偵測到這個 Excel 看起來像「技助事員」班表\n' +
+          '(內容含 技術員/助理員/事務員 等職級)\n\n' +
+          '但你目前在「護理師」班表系統。\n\n' +
+          '繼續匯入會把技助事員資料寫入「護理師」主檔,\n' +
+          '可能造成資料錯亂。\n\n' +
+          '建議:點頂部「🩺 技助事員」切換到正確系統再匯入。\n\n' +
+          '確定要繼續嗎?(不建議)'
+        );
+        if (!proceed) {
+          e.target.value = '';
+          return;
+        }
+      }
 
       // Try to find the right sheet AND detect month from its name
       let targetSheet = null;
