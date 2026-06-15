@@ -16565,6 +16565,10 @@ function getDeptStaffForShift(day, shift) {
     const flag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][day]) || {};
     if (flag.marker === 'preceptor' || flag.marker === 'trainee') return false;
     if (flag.halfdayTime) return false;
+    // 排除「沒設任何能力」的人(peakStage 空 且 capabilities 空)— 不排科
+    const hasPeak = !!p.peakStage;
+    const hasCaps = Array.isArray(p.capabilities) && p.capabilities.length > 0;
+    if (!hasPeak && !hasCaps) return false;
     return true;
   });
 }
@@ -16776,6 +16780,7 @@ function deptSetGender(pid, gender) {
 }
 
 function renderDeptScheduler() {
+  if (deptOverviewMode) { renderDeptOverview(); return; }
   const day = deptState.day, shift = deptState.shift;
   const days = getDaysInMonth(state.month);
   const dow = getDayOfWeek(state.month, day);
@@ -16811,7 +16816,10 @@ function renderDeptScheduler() {
     html += `<button onclick="deptSetShift('${s}')" style="padding:8px 18px; font-size:1.05rem; font-weight:700; border:2px solid ${active?'#7c3aed':'#d1d5db'}; background:${active?'#7c3aed':'white'}; color:${active?'white':'#6b7280'}; border-radius:6px; cursor:pointer">${s} 班</button>`;
   });
   html += `<div style="flex:1"></div>`;
+  html += `<button onclick="deptToggleOverview()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #7c3aed; color:#7c3aed; border-radius:6px; cursor:pointer">📋 整月總覽</button>`;
   html += `<button onclick="autoAssignDept()" style="padding:9px 20px; font-size:1.05rem; font-weight:800; background:linear-gradient(135deg,#7c3aed,#6b21a8); color:white; border:none; border-radius:8px; cursor:pointer; box-shadow:0 2px 8px rgba(124,58,237,0.3)">⚡ 自動初排</button>`;
+  html += `<button onclick="deptSaveNow()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:#059669; color:white; border:none; border-radius:6px; cursor:pointer">💾 儲存</button>`;
+  html += `<button onclick="deptConfirmAndPublish()" style="padding:9px 18px; font-size:1rem; font-weight:800; background:#dc2626; color:white; border:none; border-radius:6px; cursor:pointer">✓ 確認並公告</button>`;
   html += `<button onclick="closeDeptScheduler()" style="padding:9px 16px; font-size:1rem; background:#f3f4f6; border:1px solid #d1d5db; border-radius:6px; cursor:pointer">✕ 關閉</button>`;
   html += `</div>`;
 
@@ -16819,7 +16827,7 @@ function renderDeptScheduler() {
   html += `<div style="display:flex; gap:0; height:calc(100% - 70px); overflow:hidden">`;
 
   // --- 左側:待排人員 ---
-  html += `<div style="width:200px; flex-shrink:0; border-right:2px solid #e5e7eb; overflow-y:auto; padding:10px; background:#fafafa">`;
+  html += `<div ondragover="event.preventDefault()" ondrop="deptDropToUnassigned(event)" style="width:200px; flex-shrink:0; border-right:2px solid #e5e7eb; overflow-y:auto; padding:10px; background:#fafafa">`;
   html += `<div style="font-weight:700; color:#6b21a8; margin-bottom:8px; font-size:0.95rem">待排人員 (${unassigned.length})</div>`;
   if (staff.length===0) {
     html += `<div style="color:#9ca3af; font-size:0.88rem; padding:20px 0; text-align:center">這天這班沒有人上班</div>`;
@@ -16830,7 +16838,7 @@ function renderDeptScheduler() {
     const gLabel = g||'?';
     const selected = deptSelectedPerson===p.id;
     const peakName = {basic:'基礎',P:'兒P',cpr:'CPR',tri:'檢傷',lead:'Lead'}[p.peakStage]||'—';
-    html += `<div onclick="deptSelectPerson('${p.id}')" style="padding:7px 9px; margin-bottom:5px; border-radius:6px; cursor:pointer; border:2px solid ${selected?'#7c3aed':'#e5e7eb'}; background:${selected?'#ede9fe':'white'}; transition:all 0.1s">`;
+    html += `<div draggable="true" ondragstart="deptDragStart(event,'${p.id}')" onclick="deptSelectPerson('${p.id}')" style="padding:7px 9px; margin-bottom:5px; border-radius:6px; cursor:pointer; border:2px solid ${selected?'#7c3aed':'#e5e7eb'}; background:${selected?'#ede9fe':'white'}; transition:all 0.1s">`;
     html += `<div style="display:flex; align-items:center; justify-content:space-between">`;
     html += `<span style="font-weight:600; font-size:0.95rem">${p.name}</span>`;
     html += `<span onclick="event.stopPropagation(); deptToggleGender('${p.id}','${g}')" title="點擊切換性別" style="font-size:0.75rem; padding:1px 6px; border-radius:8px; background:${gColor}; color:white; cursor:pointer">${gLabel}</span>`;
@@ -16849,7 +16857,7 @@ function renderDeptScheduler() {
     const isFull = filled >= slot.count;
     const canDrop = !!deptSelectedPerson;
 
-    html += `<div onclick="deptAssignToSlot('${slot.name}')" style="border:2px solid ${color}; border-radius:10px; overflow:hidden; cursor:${canDrop?'pointer':'default'}; ${canDrop?'box-shadow:0 0 0 2px rgba(124,58,237,0.15)':''}">`;
+    html += `<div ondragover="event.preventDefault()" ondrop="deptDrop(event,'${slot.name}')" onclick="deptAssignToSlot('${slot.name}')" style="border:2px solid ${color}; border-radius:10px; overflow:hidden; cursor:${canDrop?'pointer':'default'}; ${canDrop?'box-shadow:0 0 0 2px rgba(124,58,237,0.15)':''}">`;
     // 標題
     html += `<div style="background:${color}; color:white; padding:6px 10px; font-weight:700; font-size:0.95rem; display:flex; justify-content:space-between; align-items:center">`;
     html += `<span>${slot.name}<span style="font-size:0.72rem; opacity:0.85; margin-left:5px">${DEPT_FULLNAME[slot.name]||''}</span></span>`;
@@ -16874,7 +16882,7 @@ function renderDeptScheduler() {
       if (slot.femaleOnly && g!=='女') warn='⚠非女性';
       if ((CAP_RANK[p.peakStage]??0) < CAP_RANK[slot.requires]) warn='⚠能力不足';
       const seniorTag = slot.seniorPair ? (idx===0?'資深':'資淺') : '';
-      html += `<div style="display:flex; align-items:center; justify-content:space-between; padding:4px 6px; margin-bottom:3px; background:#f9fafb; border-radius:5px">`;
+      html += `<div draggable="true" ondragstart="event.stopPropagation(); deptDragStart(event,'${p.id}')" style="display:flex; align-items:center; justify-content:space-between; padding:4px 6px; margin-bottom:3px; background:#f9fafb; border-radius:5px; cursor:grab">`;
       html += `<span style="font-size:0.9rem"><span style="display:inline-block; width:18px; height:18px; line-height:18px; text-align:center; border-radius:50%; background:${gColor}; color:white; font-size:0.68rem; margin-right:5px">${g||'?'}</span>${p.name}${seniorTag?`<span style="font-size:0.7rem; color:#9ca3af; margin-left:4px">${seniorTag}</span>`:''}${warn?`<span style="font-size:0.7rem; color:#dc2626; margin-left:4px">${warn}</span>`:''}</span>`;
       html += `<span onclick="event.stopPropagation(); deptClearPerson('${p.id}')" style="cursor:pointer; color:#9ca3af; font-size:0.9rem; padding:0 4px" title="移除">✕</span>`;
       html += `</div>`;
@@ -16904,8 +16912,147 @@ function deptToggleGender(pid, current) {
   }
 }
 
+// ---------- 儲存 ----------
+function deptSaveNow() {
+  if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  const btn = (typeof event !== 'undefined') && event.target;
+  if (btn) {
+    const orig = btn.textContent;
+    btn.textContent = '✓ 已儲存';
+    setTimeout(() => { btn.textContent = orig; }, 1200);
+  }
+}
+
+// ---------- 確認並公告 ----------
+function deptConfirmAndPublish() {
+  if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  const ok = confirm('確認排科結果並公告給同仁?\n\n公告後同仁就能在公告網頁看到自己每天站的科別。\n(班表本身也會一起更新到雲端)');
+  if (!ok) return;
+  closeDeptScheduler();
+  if (typeof openPublishViewModal === 'function') {
+    openPublishViewModal();
+  } else {
+    alert('排科已儲存。請在主班表點「📢 公告給同仁」推送。');
+  }
+}
+
+// ---------- 整月總覽切換 ----------
+let deptOverviewMode = false;
+function deptToggleOverview() {
+  deptOverviewMode = !deptOverviewMode;
+  renderDeptScheduler();
+}
+
+// ---------- 整月總覽渲染 ----------
+function renderDeptOverview() {
+  const days = getDaysInMonth(state.month);
+  const shift = deptState.shift;
+  const mm = state.month.split('-')[1];
+
+  const staffInShift = state.staff.filter(p => {
+    for (let d=1; d<=days; d++) {
+      if ((state.schedule[p.id]||{})[d] === shift) {
+        const hasPeak = !!p.peakStage;
+        const hasCaps = Array.isArray(p.capabilities) && p.capabilities.length>0;
+        return hasPeak || hasCaps;
+      }
+    }
+    return false;
+  });
+
+  let html = '';
+  html += `<div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 16px; border-bottom:2px solid #e5e7eb; background:#faf5ff">`;
+  html += `<div style="font-size:1.2rem; font-weight:800; color:#6b21a8">📋 整月科別總覽 — ${mm}月</div>`;
+  html += `<div style="width:1px; height:28px; background:#d1d5db"></div>`;
+  ['D','E','N'].forEach(s => {
+    const active = s===shift;
+    html += `<button onclick="deptSetShift('${s}')" style="padding:7px 16px; font-weight:700; border:2px solid ${active?'#7c3aed':'#d1d5db'}; background:${active?'#7c3aed':'white'}; color:${active?'white':'#6b7280'}; border-radius:6px; cursor:pointer">${s} 班</button>`;
+  });
+  html += `<div style="flex:1"></div>`;
+  html += `<button onclick="deptToggleOverview()" style="padding:8px 16px; font-weight:700; background:white; border:2px solid #7c3aed; color:#7c3aed; border-radius:6px; cursor:pointer">↩ 回單班排科</button>`;
+  html += `<button onclick="deptConfirmAndPublish()" style="padding:8px 16px; font-weight:800; background:#dc2626; color:white; border:none; border-radius:6px; cursor:pointer">✓ 確認並公告</button>`;
+  html += `<button onclick="closeDeptScheduler()" style="padding:8px 14px; background:#f3f4f6; border:1px solid #d1d5db; border-radius:6px; cursor:pointer">✕ 關閉</button>`;
+  html += `</div>`;
+
+  html += `<div style="flex:1; overflow:auto; padding:10px">`;
+  html += `<table style="border-collapse:collapse; font-size:0.8rem; white-space:nowrap">`;
+  html += `<thead><tr><th style="position:sticky; left:0; top:0; z-index:3; background:#374151; color:white; padding:5px 8px; border:1px solid #4b5563; min-width:80px">姓名</th>`;
+  const dowNames=['日','一','二','三','四','五','六'];
+  for (let d=1; d<=days; d++){
+    const dow=getDayOfWeek(state.month,d);
+    const isHol=isHoliday(state.month,d);
+    const bg = isHol||dow===0?'#7f1d1d':dow===6?'#14532d':'#374151';
+    html += `<th style="position:sticky; top:0; z-index:2; background:${bg}; color:white; padding:4px 3px; border:1px solid #4b5563; min-width:30px">${d}<br><span style="font-size:0.7rem; opacity:0.8">${dowNames[dow]}</span></th>`;
+  }
+  html += `</tr></thead><tbody>`;
+  staffInShift.forEach(p => {
+    html += `<tr><td style="position:sticky; left:0; z-index:1; background:#f9fafb; padding:4px 8px; border:1px solid #e5e7eb; font-weight:600">${p.name}</td>`;
+    for (let d=1; d<=days; d++){
+      const onShift = (state.schedule[p.id]||{})[d]===shift;
+      const f=(state.scheduleFlags[p.id]||{})[d]||{};
+      const dept = f.dept||'';
+      let bg = '#fff';
+      if (!onShift) bg='#f3f4f6';
+      else if (dept) bg = (DEPT_COLORS[dept]||'#e5e7eb')+'22';
+      const color = dept ? (DEPT_COLORS[dept]||'#374151') : '#d1d5db';
+      const cell = !onShift ? '' : (dept || '·');
+      html += `<td style="text-align:center; padding:3px 2px; border:1px solid #e5e7eb; background:${bg}; color:${color}; font-weight:${dept?'700':'400'}; font-size:0.72rem">${cell}</td>`;
+    }
+    html += `</tr>`;
+  });
+  if (staffInShift.length===0){
+    html += `<tr><td colspan="${days+1}" style="padding:30px; text-align:center; color:#9ca3af">這個班別本月沒有排班資料</td></tr>`;
+  }
+  html += `</tbody></table>`;
+  html += `<div style="margin-top:10px; font-size:0.8rem; color:#6b7280">灰底=當天非此班 · 「·」=當天上班但未排科 · 顏色=已排科別</div>`;
+  html += `</div>`;
+
+  $('dept-scheduler-body').innerHTML = html;
+}
+
+// ---------- 拖曳支援 ----------
+let deptDraggedId = null;
+function deptDragStart(e, pid) {
+  deptDraggedId = pid;
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+}
+function deptDrop(e, slotName) {
+  e.preventDefault();
+  if (!deptDraggedId) return;
+  const day = deptState.day;
+  const p = state.staff.find(x => x.id === deptDraggedId);
+  deptDraggedId = null;
+  if (!p) return;
+  if (!state.scheduleFlags[p.id]) state.scheduleFlags[p.id] = {};
+  if (!state.scheduleFlags[p.id][day]) state.scheduleFlags[p.id][day] = {};
+  state.scheduleFlags[p.id][day].dept = slotName;
+  deptSelectedPerson = null;
+  if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  renderDeptScheduler();
+}
+
+function deptDropToUnassigned(e) {
+  e.preventDefault();
+  if (!deptDraggedId) return;
+  const day = deptState.day;
+  const p = state.staff.find(x => x.id === deptDraggedId);
+  deptDraggedId = null;
+  if (!p) return;
+  if (state.scheduleFlags[p.id] && state.scheduleFlags[p.id][day]) {
+    delete state.scheduleFlags[p.id][day].dept;
+  }
+  if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  renderDeptScheduler();
+}
+
 // 暴露到全域
 window.openDeptScheduler = openDeptScheduler;
+window.deptSaveNow = deptSaveNow;
+window.deptConfirmAndPublish = deptConfirmAndPublish;
+window.deptToggleOverview = deptToggleOverview;
+window.deptDragStart = deptDragStart;
+window.deptDrop = deptDrop;
+window.deptDropToUnassigned = deptDropToUnassigned;
 window.closeDeptScheduler = closeDeptScheduler;
 window.deptChangeDay = deptChangeDay;
 window.deptSetShift = deptSetShift;
