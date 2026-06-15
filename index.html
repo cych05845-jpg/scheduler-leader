@@ -16526,6 +16526,11 @@ const DEPT_FULLNAME = {
 
 const CAP_RANK = { basic:0, P:1, cpr:2, tri:3, lead:4 };
 
+// 模組專用 HTML escape(避免依賴主程式)
+function deptEsc(s) {
+  return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 // 科別顯示色
 const DEPT_COLORS = {
   'L':'#7c3aed', 'T':'#0891b2', 'PT':'#06b6d4',
@@ -16602,13 +16607,32 @@ function deptScarcity(staff) {
 }
 
 // ---------- 取得當前班別要排的站位(含條件站位) ----------
-function getActiveSlots(day, shift, staffCount) {
-  return DEPT_SLOTS.filter(slot => {
-    if (!slot.condition) return true;
-    if (slot.condition === 'count15') return staffCount >= 15;  // P+OB:可排科≥15
-    if (slot.condition === 'count16') return staffCount >= 16;  // RX:可排科≥16
-    return true;
+// staff: 當班可排科人員(用來算 P 能力是否足夠)
+function getActiveSlots(day, shift, staffCount, staff) {
+  // 算會兒科 P 的人數(P+OB 需要 ≥2:1給兒科、1給P+OB)
+  let pCount = 0;
+  if (staff) {
+    pCount = staff.filter(p => (CAP_RANK[p.peakStage] ?? -1) >= CAP_RANK['P']).length;
+  }
+  const result = [];
+  DEPT_SLOTS.forEach(slot => {
+    if (!slot.condition) { result.push(slot); return; }
+    if (slot.condition === 'count15') {
+      // ≥15 人才有 P+OB,但需要「多餘的 P 能力者」(≥2 個會 P)
+      if (staffCount >= 15) {
+        if (pCount >= 2) {
+          result.push(slot);            // P 夠 → 出 P+OB
+        } else {
+          // P 不夠 → 改出 RX 取代(只需 basic)
+          result.push({ id:'R', name:'R', count:1, countN:1, requires:'basic', repeatOK:false, _replacedPOB:true });
+        }
+      }
+    } else if (slot.condition === 'count16') {
+      // ≥16 人才有 RX(若上面已因 P 不足放了 RX,這裡避免重複)
+      if (staffCount >= 16 && !result.some(s => s.id==='R')) result.push(slot);
+    }
   });
+  return result;
 }
 
 // ============================================================
@@ -16629,7 +16653,7 @@ function autoAssignDept() {
     }
   });
 
-  const slots = getActiveSlots(day, shift, staff.length);
+  const slots = getActiveSlots(day, shift, staff.length, staff);
   const sc = deptScarcity(staff);
   // 站位按需求能力稀缺度排序(會的人越少越先排)
   const orderedSlots = [...slots].sort((a,b) => sc[a.requires] - sc[b.requires]);
@@ -16650,19 +16674,40 @@ function autoAssignDept() {
       });
       if (cands.length === 0) continue;
 
-      // 排序:① 最近沒站過此科優先(留觀除外)② 資深配對 ③ 性別搭配
+      // 判斷某人是否「盡量不排此科」(長期 deptAvoid 或 當天 deptAvoidToday)
+      const avoidsSlot = (p) => {
+        const longTerm = (p.deptAvoid || []).includes(slot.name);
+        const today = (((state.scheduleFlags[p.id]||{})[day]||{}).deptAvoidToday || []).includes(slot.name);
+        return longTerm || today;
+      };
+      // L / O+ST 連續性:昨天排同科且今天也上班 → 優先續任
+      const continuedYesterday = (p) => {
+        if (slot.id !== 'L' && slot.id !== 'O+ST') return false;
+        const yf = (state.scheduleFlags[p.id]||{})[day-1]||{};
+        return yf.dept === slot.name;
+      };
+
+      // 排序:① 連續性(L/O+ST)② 避開不想排的 ③ 最近沒站過 ④ 資深配對
       cands.sort((a,b) => {
-        // ① 最近 3 天站過此科 → 往後排
+        // ① L/O+ST 連續性:昨天當此科者優先
+        const ac = continuedYesterday(a) ? 0 : 1;
+        const bc = continuedYesterday(b) ? 0 : 1;
+        if (ac !== bc) return ac - bc;
+        // ② 避開「盡量不排」的人(往後排)
+        const aav = avoidsSlot(a) ? 1 : 0;
+        const bav = avoidsSlot(b) ? 1 : 0;
+        if (aav !== bav) return aav - bav;
+        // ③ 最近 3 天站過此科 → 往後排(留觀除外)
         if (!slot.repeatOK) {
           const ar = getRecentDepts(a, day)[slot.name] ? 1 : 0;
           const br = getRecentDepts(b, day)[slot.name] ? 1 : 0;
           if (ar !== br) return ar - br;
         }
-        // ② 資深配對:第一位放資深(idx小),其餘放資淺(idx大)
+        // ④ 資深配對
         if (slot.seniorPair) {
           const ai = staffIdx.get(a.id), bi = staffIdx.get(b.id);
-          if (i===0) return ai - bi;       // 資深優先
-          else return bi - ai;             // 資淺優先
+          if (i===0) return ai - bi;
+          else return bi - ai;
         }
         return (staffIdx.get(a.id)) - (staffIdx.get(b.id));
       });
@@ -16793,7 +16838,7 @@ function renderDeptScheduler() {
   const isHol = isHoliday(state.month, day);
 
   const staff = getDeptStaffForShift(day, shift);
-  const slots = getActiveSlots(day, shift, staff.length);
+  const slots = getActiveSlots(day, shift, staff.length, staff);
 
   // 已排科 / 未排科
   const assignedMap = {};  // slotName -> [person]
@@ -16844,12 +16889,24 @@ function renderDeptScheduler() {
     const gLabel = g||'?';
     const selected = deptSelectedPerson===p.id;
     const peakName = {basic:'基礎',P:'兒P',cpr:'CPR',tri:'檢傷',lead:'Lead'}[p.peakStage]||'—';
-    html += `<div draggable="true" ondragstart="deptDragStart(event,'${p.id}')" onclick="deptSelectPerson('${p.id}')" style="padding:7px 9px; margin-bottom:5px; border-radius:6px; cursor:pointer; border:2px solid ${selected?'#7c3aed':'#e5e7eb'}; background:${selected?'#ede9fe':'white'}; transition:all 0.1s">`;
+    // 顯示「不排」標記
+    const longAvoid = p.deptAvoid || [];
+    const todayAvoid = (((state.scheduleFlags[p.id]||{})[day]||{}).deptAvoidToday) || [];
+    const allAvoid = [...new Set([...longAvoid, ...todayAvoid])];
+    html += `<div draggable="true" ondragstart="deptDragStart(event,'${p.id}')" oncontextmenu="event.preventDefault(); deptEditNote('${p.id}')" onclick="deptSelectPerson('${p.id}')" style="padding:7px 9px; margin-bottom:5px; border-radius:6px; cursor:pointer; border:2px solid ${selected?'#7c3aed':'#e5e7eb'}; background:${selected?'#ede9fe':'white'}; transition:all 0.1s">`;
     html += `<div style="display:flex; align-items:center; justify-content:space-between">`;
     html += `<span style="font-weight:600; font-size:0.95rem">${p.name}</span>`;
+    html += `<span style="display:flex; gap:4px; align-items:center">`;
     html += `<span onclick="event.stopPropagation(); deptToggleGender('${p.id}','${g}')" title="點擊切換性別" style="font-size:0.75rem; padding:1px 6px; border-radius:8px; background:${gColor}; color:white; cursor:pointer">${gLabel}</span>`;
+    html += `<span onclick="event.stopPropagation(); deptOpenAvoid('${p.id}')" title="設定盡量不排的科別" style="font-size:0.8rem; cursor:pointer; color:#9ca3af">⚙</span>`;
+    html += `</span>`;
     html += `</div>`;
-    html += `<div style="font-size:0.75rem; color:#9ca3af; margin-top:2px">${peakName}</div>`;
+    html += `<div style="font-size:0.75rem; color:#9ca3af; margin-top:2px">${peakName}`;
+    if (allAvoid.length) html += ` <span style="color:#dc2626">· 避:${allAvoid.join('/')}</span>`;
+    html += `</div>`;
+    // 排科備註(只在介面看,不公告)
+    const deptNote = (((state.scheduleFlags[p.id]||{})[day]||{}).deptNote) || '';
+    if (deptNote) html += `<div style="font-size:0.72rem; color:#7c3aed; background:#f5f3ff; border-radius:4px; padding:2px 5px; margin-top:3px">📝 ${deptEsc(deptNote)}</div>`;
     html += `</div>`;
   });
   html += `</div>`;
@@ -17070,8 +17127,54 @@ function deptClearShift() {
   renderDeptScheduler();
 }
 
+// ---------- 右鍵編輯排科備註(只在介面看,不公告)----------
+function deptEditNote(pid) {
+  const day = deptState.day;
+  const p = state.staff.find(x => x.id === pid);
+  if (!p) return;
+  const cur = (((state.scheduleFlags[pid]||{})[day]||{}).deptNote) || '';
+  const txt = prompt(`${p.name} 的排科備註(只有 leader 在排科介面看得到,不會公告):`, cur);
+  if (txt === null) return;  // 取消
+  if (!state.scheduleFlags[pid]) state.scheduleFlags[pid] = {};
+  if (!state.scheduleFlags[pid][day]) state.scheduleFlags[pid][day] = {};
+  if (txt.trim()) state.scheduleFlags[pid][day].deptNote = txt.trim();
+  else delete state.scheduleFlags[pid][day].deptNote;
+  if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  renderDeptScheduler();
+}
+
+// ---------- 設定盡量不排的科別 ----------
+function deptOpenAvoid(pid) {
+  const day = deptState.day;
+  const p = state.staff.find(x => x.id === pid);
+  if (!p) return;
+  const allDepts = DEPT_SLOTS.map(s => s.name).filter((v,i,a)=>a.indexOf(v)===i);
+  const longCur = (p.deptAvoid || []).join('、');
+  const todayCur = ((((state.scheduleFlags[pid]||{})[day]||{}).deptAvoidToday) || []).join('、');
+  const msg = `設定「${p.name}」盡量不排的科別\n可選代碼:${allDepts.join(' ')}\n\n` +
+    `① 長期不排(每天都避,留空=清除)\n目前:${longCur||'無'}`;
+  const longInput = prompt(msg, longCur);
+  if (longInput === null) return;
+  const parseList = (s) => s.split(/[、,，\s]+/).map(x=>x.trim()).filter(x=>allDepts.includes(x));
+  p.deptAvoid = parseList(longInput);
+
+  const todayInput = prompt(`② 只有今天(${state.month.split('-')[1]}/${day})不排(留空=清除)\n目前:${todayCur||'無'}`, todayCur);
+  if (todayInput !== null) {
+    if (!state.scheduleFlags[pid]) state.scheduleFlags[pid] = {};
+    if (!state.scheduleFlags[pid][day]) state.scheduleFlags[pid][day] = {};
+    const td = parseList(todayInput);
+    if (td.length) state.scheduleFlags[pid][day].deptAvoidToday = td;
+    else delete state.scheduleFlags[pid][day].deptAvoidToday;
+  }
+  if (typeof saveStaffData === 'function') saveStaffData();
+  if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  renderDeptScheduler();
+}
+
 // 暴露到全域
 window.openDeptScheduler = openDeptScheduler;
+window.deptEditNote = deptEditNote;
+window.deptOpenAvoid = deptOpenAvoid;
 window.deptSaveNow = deptSaveNow;
 window.deptConfirmAndPublish = deptConfirmAndPublish;
 window.deptToggleOverview = deptToggleOverview;
