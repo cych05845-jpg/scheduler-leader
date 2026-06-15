@@ -465,7 +465,7 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 .month-table tbody tr:hover td { background: #f9fafb; }
 .month-table tbody tr:hover td.col-name { background: #f0fdf4; }
 .month-table td.cell-D { background: #dbeafe; color: #1e40af; font-weight: 600; }
-.month-table td.cell-E { background: #ffedd5; color: #9a3412; font-weight: 600; }
+.month-table td.cell-E { background: #fef3c7; color: #92400e; font-weight: 600; }
 .month-table td.cell-N { background: #6b7280; color: white; font-weight: 600; }
 .month-table td.cell-M { background: #e9d5ff; color: #6b21a8; font-weight: 600; }
 .month-table td.cell-OFF {
@@ -633,16 +633,7 @@ body[data-schedule-type="aide"] .month-table {
 }
 body[data-schedule-type="aide"] .month-table th,
 body[data-schedule-type="aide"] .month-table td {
-  font-size: 1rem;     /* 助理員人少,字放大更清楚 */
-  padding: 7px 10px;   /* 格子也加大 */
-}
-/* 列印時稍微縮回去,姓名不會被截斷 */
-@media print {
-  body[data-schedule-type="aide"] .month-table th,
-  body[data-schedule-type="aide"] .month-table td {
-    font-size: 0.92rem;
-    padding: 5px 7px;
-  }
+  font-size: 0.88rem;  /* 跟護理師一致(避免列印姓名截斷)*/
 }
 /* 助理員姓名欄:桌面/列印保證寬(姓名 + 員編不截斷),手機自動縮小省空間 */
 body[data-schedule-type="aide"] .month-table th.col-name,
@@ -1043,9 +1034,9 @@ body[data-schedule-type="aide"] .month-table td.col-name {
       <div class="title">📅 班表公告</div>
       <div class="desc">查詢本月班表、個人班、今天誰上什麼班</div>
     </button>
-    <button class="app-btn disabled" onclick="alert('「科別排班」功能正在開發中,敬請期待。\\n\\n預計功能:每天 D/E/N 班人員分配到 12+ 個科別(檢傷 T / 兒童檢傷 PT / 急救區 CPR / 留觀區 O+ST / 治療區 R1/R2/R3 / Leader+OB / 8-5\\' 等)\\n\\n目前 leader 可在主排班工具的格子上「右鍵 → 科別」,或用浮動畫筆🏥 科別按鈕設定。同仁透過此公告網頁就能看到每天自己的科別。')">
-      <div class="title">🏥 科別排班<span class="badge">開發中</span></div>
-      <div class="desc">每天班別人員分配到 12+ 個科別(檢傷/CPR/治療區/Leader 等)</div>
+    <button class="app-btn disabled" onclick="alert('「換班申請」功能正在開發中,敬請期待。\\n\\n預計功能:同仁線上提出換班需求,系統媒合可換班的對象,leader 審核後自動更新班表。\\n\\n目前換班請依照原本流程處理。')">
+      <div class="title">🔄 換班申請<span class="badge">開發中</span></div>
+      <div class="desc">線上提出換班需求,系統媒合對象,leader 審核</div>
     </button>
   </div>
 </div>
@@ -1312,29 +1303,25 @@ async function loadData() {
         state.publishedAt = meta.publishedAt || '';
         state.publishedBy = meta.publishedBy || '';
 
-        // === 排序保險:護理師模式 HN 最上 → D/E/N → 半日墊底 ===
-        // 助理員模式跳過 — 信任 leader 在主班表編好的順序(技/助/事 + 組內順序)
-        if (state.scheduleType !== 'aide') {
-          const isHalftime = (p) => {
-            const f = state.flags[p.id] || {};
-            return Object.values(f).some(x => x && x.halfdayTime);
-          };
-          const getGroup = (p) => {
-            if (p.level === 'HN' || (p.name && /護理長/.test(p.name))) return 0;
-            if (isHalftime(p)) return 2;
-            return 1;
-          };
-          const origIdx = new Map(state.staff.map((p, i) => [p.id, i]));
-          state.staff.sort((a, b) => {
-            const ga = getGroup(a), gb = getGroup(b);
-            if (ga !== gb) return ga - gb;
-            return (origIdx.get(a.id) || 0) - (origIdx.get(b.id) || 0);
-          });
-          console.log('[公告 schedule-view 排序] HN 位置:', state.staff.findIndex(p => p.level === 'HN' || (p.name && /護理長/.test(p.name))) + 1);
-          console.log('[公告 schedule-view 排序] 前 3 位:', state.staff.slice(0, 3).map(p => `${p.name}(${p.level})`));
-        } else {
-          console.log('[公告 schedule-view 排序] 助理員模式 — 維持主班表原順序');
-        }
+        // === 排序保險:HN 最上 → D/E/N → 半日墊底 ===
+        // 即使 index.html 端忘了排,這裡也能保證順序對
+        const isHalftime = (p) => {
+          const f = state.flags[p.id] || {};
+          return Object.values(f).some(x => x && x.halfdayTime);
+        };
+        const getGroup = (p) => {
+          if (p.level === 'HN' || (p.name && /護理長/.test(p.name))) return 0;
+          if (isHalftime(p)) return 2;
+          return 1;
+        };
+        const origIdx = new Map(state.staff.map((p, i) => [p.id, i]));
+        state.staff.sort((a, b) => {
+          const ga = getGroup(a), gb = getGroup(b);
+          if (ga !== gb) return ga - gb;
+          return (origIdx.get(a.id) || 0) - (origIdx.get(b.id) || 0);
+        });
+        console.log('[公告 schedule-view 排序] HN 位置:', state.staff.findIndex(p => p.level === 'HN' || (p.name && /護理長/.test(p.name))) + 1);
+        console.log('[公告 schedule-view 排序] 前 3 位:', state.staff.slice(0, 3).map(p => `${p.name}(${p.level})`));
 
         hideStatus();
         const syncTag = meta.lastSyncedAt && meta.lastSyncedAt !== meta.publishedAt
@@ -1662,8 +1649,15 @@ function renderMonthTable() {
       const display = isHalftime
         ? esc(flag.halfdayTime)
         : (sh === 'o' ? 'off' : (sh || '·'));
+      // 科別:存的是代碼(T/PT/CPR/R1...),夠短直接顯示,全名放 title
+      const DEPT_FULLNAME = {
+        'L':'Leader', 'T':'成人檢傷', 'PT':'兒童檢傷', 'CPR':'急救區', 'P':'兒科',
+        'R1':'治療區1', 'R2':'治療區2', 'R3':'治療區3', 'O+ST':'留觀區',
+        'L+OB':'Leader+OB', 'P+OB':'P+OB', 'R':'RX流動',
+      };
+      const deptFull = flag.dept ? (DEPT_FULLNAME[flag.dept] || flag.dept) : '';
       const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
-        ? `<div class="month-cell-dept">${esc(flag.dept)}</div>` : '';
+        ? `<div class="month-cell-dept" title="${esc(deptFull)}">${esc(flag.dept)}</div>` : '';
       const noteDot = personNote ? `<div class="month-cell-pnote" title="${esc(personNote)}">${esc(personNote.length > 4 ? personNote.slice(0,3) + '⋯' : personNote)}</div>` : '';
       h += `<td class="${cls}" title="${personNote ? esc(personNote) : ''}">${deptSmall}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
     }
