@@ -4206,6 +4206,8 @@ async function copyCloudScheduleToCurrent(fromMonth) {
         level: d.level || '',
         capabilities: d.capabilities || [],
         peakStage: d.peakStage || '',
+        gender: d.gender || '',
+        deptAvoid: d.deptAvoid || [],
         hireDate: d.hireDate || '',
         mentor: d.mentor || '',
         preferredShift: d.preferredShift || '',
@@ -4322,6 +4324,8 @@ state.scheduleFlags = {};  // 同步重置底線旗標
             existingPerson.level = cloud.level || existingPerson.level;
             existingPerson.capabilities = cloud.capabilities || [];
             existingPerson.peakStage = cloud.peakStage || '';
+            existingPerson.gender = cloud.gender || existingPerson.gender || '';
+            existingPerson.deptAvoid = (cloud.deptAvoid && cloud.deptAvoid.length) ? cloud.deptAvoid : (existingPerson.deptAvoid || []);
             existingPerson.preferredShift = cloud.preferredShift || '';
             existingPerson.canSwapTo = cloud.canSwapTo || [];
             existingPerson.status = cloud.status || 'active';
@@ -4336,6 +4340,8 @@ state.scheduleFlags = {};  // 同步重置底線旗標
               level: cloud.level || '',
               capabilities: cloud.capabilities || [],
               peakStage: cloud.peakStage || '',
+              gender: cloud.gender || '',
+              deptAvoid: cloud.deptAvoid || [],
               hireDate: cloud.hireDate || '',
               mentor: cloud.mentor || '',
               preferredShift: cloud.preferredShift || '',
@@ -9885,6 +9891,8 @@ function saveStaffData() {
         level: p.level,
         capabilities: p.capabilities || [],
         peakStage: p.peakStage || '',  // highest cap stage ever reached
+        gender: p.gender || '',  // 排科用:手動設定的性別(空=用名字猜)
+        deptAvoid: p.deptAvoid || [],  // 排科用:長期盡量不排的科別
         hireDate: p.hireDate || '',
         mentor: p.mentor || '',  // 輔導員 (for new staff)
         preferredShift: p.preferredShift || '',
@@ -9957,6 +9965,8 @@ async function saveStaffToCloud(silent) {
       level: p.level,
       capabilities: p.capabilities || [],
       peakStage: p.peakStage || '',
+      gender: p.gender || '',
+      deptAvoid: p.deptAvoid || [],
       hireDate: p.hireDate || '',
       mentor: p.mentor || '',
       preferredShift: p.preferredShift || '',
@@ -10047,6 +10057,8 @@ async function loadStaffFromCloud(showConfirm) {
           level: d.level || '',
           capabilities: d.capabilities || [],
           peakStage: d.peakStage || '',
+          gender: d.gender || '',
+          deptAvoid: d.deptAvoid || [],
           hireDate: d.hireDate || '',
           mentor: d.mentor || '',
           preferredShift: d.preferredShift || '',
@@ -10085,6 +10097,8 @@ async function loadStaffFromCloud(showConfirm) {
             level: d.level || '',
             capabilities: d.capabilities || [],
             peakStage: d.peakStage || '',
+            gender: d.gender || '',
+            deptAvoid: d.deptAvoid || [],
             hireDate: d.hireDate || '',
             mentor: d.mentor || '',
             preferredShift: d.preferredShift || '',
@@ -11087,6 +11101,8 @@ function executeNewMonth() {
         canSwapTo: d.canSwapTo || [],
         capabilities: d.capabilities || [],
         peakStage: d.peakStage || '',
+        gender: d.gender || '',
+        deptAvoid: d.deptAvoid || [],
         status: status,
         statusDate: d.statusDate || '',
         prevMonthConsec: d.prevMonthConsec || 0,
@@ -11223,6 +11239,8 @@ function exportBlankMonthTemplate() {
         level: d.level || 'N1',
         preferredShift: d.preferredShift || '',
         peakStage: d.peakStage || '',
+        gender: d.gender || '',
+        deptAvoid: d.deptAvoid || [],
         note: d.note || '',
       });
     }
@@ -11467,6 +11485,8 @@ state.scheduleFlags = {};  // 同步重置底線旗標
           canSwapTo: d.canSwapTo || [],
           capabilities: d.capabilities || [],
           peakStage: d.peakStage || '',
+          gender: d.gender || '',
+          deptAvoid: d.deptAvoid || [],
           status: status,
           statusDate: d.statusDate || '',
           prevMonthConsec: d.prevMonthConsec || 0,
@@ -16662,9 +16682,32 @@ function autoAssignDept() {
   // staff 在 state.staff 的 index = 年資(小=資深)
   const staffIdx = new Map(state.staff.map((p,i)=>[p.id,i]));
 
+  // ===== 第 0 步:L 最優先硬續任 =====
+  // 昨天當 L 的人,今天若有上班(在 staff 名單)且能力足 → 直接續任,不參與其他排序
+  const lSlot = orderedSlots.find(s => s.id === 'L');
+  if (lSlot) {
+    const lCount = slotCount(lSlot, shift);
+    let lFilled = 0;
+    for (const p of staff) {
+      if (lFilled >= lCount) break;
+      const yf = (state.scheduleFlags[p.id]||{})[day-1]||{};
+      if (yf.dept === 'L' && (CAP_RANK[p.peakStage]??0) >= CAP_RANK['lead']) {
+        // 昨天當 L + 今天上班 + 能力足 → 續任
+        if (!state.scheduleFlags[p.id]) state.scheduleFlags[p.id] = {};
+        if (!state.scheduleFlags[p.id][day]) state.scheduleFlags[p.id][day] = {};
+        state.scheduleFlags[p.id][day].dept = 'L';
+        used.add(p.id);
+        lFilled++;
+      }
+    }
+  }
+
   orderedSlots.forEach(slot => {
     const cnt = slotCount(slot, shift);
     for (let i=0; i<cnt; i++) {
+      // 此站位已被「硬續任」填滿的部分要跳過
+      const alreadyFilled = staff.filter(p => used.has(p.id) && ((state.scheduleFlags[p.id]||{})[day]||{}).dept === slot.name).length;
+      if (alreadyFilled > i) continue;
       // 候選:有能力 + 沒被排 + 性別符合
       let cands = staff.filter(p => {
         if (used.has(p.id)) return false;
@@ -16680,16 +16723,16 @@ function autoAssignDept() {
         const today = (((state.scheduleFlags[p.id]||{})[day]||{}).deptAvoidToday || []).includes(slot.name);
         return longTerm || today;
       };
-      // L / O+ST 連續性:昨天排同科且今天也上班 → 優先續任
+      // O+ST 連續性:昨天排同科且今天也上班 → 優先續任(強軟優先,L 已在上面硬處理)
       const continuedYesterday = (p) => {
-        if (slot.id !== 'L' && slot.id !== 'O+ST') return false;
+        if (slot.id !== 'O+ST') return false;
         const yf = (state.scheduleFlags[p.id]||{})[day-1]||{};
         return yf.dept === slot.name;
       };
 
-      // 排序:① 連續性(L/O+ST)② 避開不想排的 ③ 最近沒站過 ④ 資深配對
+      // 排序:① O+ST 連續性 ② 避開不想排的 ③ 最近沒站過 ④ 資深配對
       cands.sort((a,b) => {
-        // ① L/O+ST 連續性:昨天當此科者優先
+        // ① O+ST 連續性:昨天當此科者優先(比避開重複更優先)
         const ac = continuedYesterday(a) ? 0 : 1;
         const bc = continuedYesterday(b) ? 0 : 1;
         if (ac !== bc) return ac - bc;
@@ -16866,6 +16909,7 @@ function renderDeptScheduler() {
     html += `<button onclick="deptSetShift('${s}')" style="padding:8px 18px; font-size:1.05rem; font-weight:700; border:2px solid ${active?'#7c3aed':'#d1d5db'}; background:${active?'#7c3aed':'white'}; color:${active?'white':'#6b7280'}; border-radius:6px; cursor:pointer">${s} 班</button>`;
   });
   html += `<div style="flex:1"></div>`;
+  html += `<button onclick="deptToggleAI()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #7c3aed; color:#7c3aed; border-radius:6px; cursor:pointer">🤖 AI</button>`;
   html += `<button onclick="deptToggleOverview()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #7c3aed; color:#7c3aed; border-radius:6px; cursor:pointer">📋 整月總覽</button>`;
   html += `<button onclick="deptClearShift()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #dc2626; color:#dc2626; border-radius:6px; cursor:pointer">🗑 清除本班</button>`;
   html += `<button onclick="autoAssignDept()" style="padding:9px 20px; font-size:1.05rem; font-weight:800; background:linear-gradient(135deg,#7c3aed,#6b21a8); color:white; border:none; border-radius:8px; cursor:pointer; box-shadow:0 2px 8px rgba(124,58,237,0.3)">⚡ 自動初排</button>`;
@@ -17171,6 +17215,240 @@ function deptOpenAvoid(pid) {
   renderDeptScheduler();
 }
 
+// ============================================================
+// 🤖 排科 AI 助手(自然語言調整 + 檢查抓錯)
+// ============================================================
+// 定位:聽指令調整為主。AI 把指令翻成結構化動作 → 規則檢查 → 護理長確認才執行
+// 不讓 AI 自己亂排(那是 autoAssignDept 演算法的工作)
+
+const deptAIState = {
+  messages: [],      // {role, content, actions?}
+  pendingActions: [],// 待確認的動作
+};
+
+// 沿用主程式的 Gemini key 讀取邏輯(不依賴 IIFE 內函式)
+async function deptCallGemini(prompt) {
+  // leader edition 走 token
+  if (typeof IS_LEADER_EDITION !== 'undefined' && IS_LEADER_EDITION && typeof getAuthToken === 'function') {
+    const token = getAuthToken();
+    if (token && typeof apiCall === 'function') {
+      const modelChoice = (typeof getGeminiModelChoice === 'function') ? getGeminiModelChoice() : 'auto';
+      const result = await apiCall('ai', { token, prompt, model: modelChoice });
+      if (!result.ok) throw new Error(result.error || 'AI 呼叫失敗');
+      return result.text;
+    }
+  }
+  // 一般版走 localStorage key
+  const key = localStorage.getItem('geminiApiKey') || localStorage.getItem('aiApiKey');
+  if (!key) throw new Error('請先在主畫面設定 Gemini API Key(AI 助理區)');
+  const modelChoice = (typeof getGeminiModelChoice === 'function') ? getGeminiModelChoice() : 'auto';
+  const model = (modelChoice && modelChoice !== 'auto') ? `gemini-2.5-${modelChoice}` : 'gemini-2.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 2000, temperature: 0.3, thinkingConfig: { thinkingBudget: 0 } },
+    }),
+  });
+  if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0,150)}`);
+  const d = await r.json();
+  return d.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
+// 組當天排科現況給 AI
+function deptBuildContext() {
+  const day = deptState.day, shift = deptState.shift;
+  const staff = getDeptStaffForShift(day, shift);
+  const slots = getActiveSlots(day, shift, staff.length, staff);
+
+  let ctx = `# 今天排科現況\n日期:${state.month}/${day} ${shift}班,可排科 ${staff.length} 人\n\n`;
+  ctx += `# 站位需求\n`;
+  slots.forEach(s => {
+    const tags = [];
+    if (s.femaleOnly) tags.push('限女性');
+    if (s.seniorPair) tags.push('資深+資淺');
+    if (s.requires!=='basic') tags.push('需'+s.requires);
+    ctx += `- ${s.name}(${DEPT_FULLNAME[s.name]||s.name}):${slotCount(s,shift)}人 ${tags.join(' ')}\n`;
+  });
+  ctx += `\n# 目前分配\n`;
+  slots.forEach(s => {
+    const ppl = staff.filter(p => ((state.scheduleFlags[p.id]||{})[day]||{}).dept === s.name);
+    ctx += `- ${s.name}:${ppl.map(p=>p.name).join('、')||'(空)'}\n`;
+  });
+  const un = staff.filter(p => !((state.scheduleFlags[p.id]||{})[day]||{}).dept);
+  ctx += `- 未排:${un.map(p=>p.name).join('、')||'無'}\n`;
+  ctx += `\n# 人員能力與性別\n`;
+  staff.forEach(p => {
+    const peakName = {basic:'基礎',P:'兒P',cpr:'CPR',tri:'檢傷',lead:'Lead'}[p.peakStage]||'?';
+    ctx += `- ${p.name}:能力${peakName} 性別${getGender(p)||'?'}\n`;
+  });
+  return ctx;
+}
+
+// 主對話
+async function deptAISend() {
+  const input = $('dept-ai-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  deptAIState.messages.push({ role:'user', content: msg });
+  deptAIRender();
+
+  const allDepts = DEPT_SLOTS.map(s=>s.name).filter((v,i,a)=>a.indexOf(v)===i);
+  const prompt = `你是急診排科助理。護理長會用中文下指令調整科別,或問當天排科問題。
+
+${deptBuildContext()}
+
+# 科別代碼
+${allDepts.join('、')}
+
+# 你的任務
+1. 若護理長要「調整」(移人、換人、對調)→ 輸出 JSON 動作
+2. 若護理長要「檢查」→ 找出能力不足/性別不符/同科重複,用文字說明
+3. 若護理長「問問題」→ 用文字簡短回答
+
+# 輸出格式(嚴格遵守)
+先用 1-2 句中文說明你的判斷,然後若有動作,附上 JSON 區塊:
+\`\`\`json
+{"actions":[{"type":"move","person":"姓名","to":"科別代碼"},{"type":"swap","person1":"姓名","person2":"姓名"}]}
+\`\`\`
+- move=把某人移到某科;swap=兩人對調科別
+- 只輸出確定的動作,不確定就用文字問清楚
+- 不要自己重排整天(那是系統的工作)
+- 姓名必須完全符合上面名單
+
+# 護理長的指令
+${msg}`;
+
+  // loading
+  deptAIState.messages.push({ role:'assistant', content:'⏳ 思考中...', loading:true });
+  deptAIRender();
+
+  try {
+    const resp = await deptCallGemini(prompt);
+    // 移除 loading
+    deptAIState.messages = deptAIState.messages.filter(m => !m.loading);
+    // 解析 JSON 動作
+    let actions = [];
+    const jsonMatch = resp.match(/```json\s*([\s\S]*?)```/);
+    let textPart = resp;
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[1].trim());
+        actions = parsed.actions || [];
+      } catch(e) {}
+      textPart = resp.replace(/```json[\s\S]*?```/, '').trim();
+    }
+    // 驗證動作(姓名、科別要存在)
+    const validActions = deptValidateActions(actions);
+    deptAIState.messages.push({ role:'assistant', content: textPart || '(無說明)', actions: validActions });
+    deptAIState.pendingActions = validActions;
+  } catch(e) {
+    deptAIState.messages = deptAIState.messages.filter(m => !m.loading);
+    deptAIState.messages.push({ role:'assistant', content: '⚠ '+e.message });
+  }
+  deptAIRender();
+}
+
+// 驗證 AI 動作(姓名/科別要真的存在,能力要夠)
+function deptValidateActions(actions) {
+  const day = deptState.day, shift = deptState.shift;
+  const staff = getDeptStaffForShift(day, shift);
+  const findP = (name) => staff.find(p => p.name === name);
+  const slotNames = DEPT_SLOTS.map(s=>s.name);
+  const valid = [];
+  (actions||[]).forEach(a => {
+    if (a.type === 'move') {
+      const p = findP(a.person);
+      if (!p || !slotNames.includes(a.to)) return;
+      // 能力檢查
+      const slot = DEPT_SLOTS.find(s=>s.name===a.to);
+      let warn = '';
+      if (slot && (CAP_RANK[p.peakStage]??0) < CAP_RANK[slot.requires]) warn = '能力可能不足';
+      if (slot && slot.femaleOnly && getGender(p)!=='女') warn = '非女性';
+      valid.push({ ...a, warn });
+    } else if (a.type === 'swap') {
+      const p1 = findP(a.person1), p2 = findP(a.person2);
+      if (!p1 || !p2) return;
+      valid.push(a);
+    }
+  });
+  return valid;
+}
+
+// 執行動作
+function deptApplyActions() {
+  const day = deptState.day;
+  if (typeof snapshotState === 'function') snapshotState('AI 調整科別');
+  deptAIState.pendingActions.forEach(a => {
+    if (a.type === 'move') {
+      const p = state.staff.find(x => x.name === a.person);
+      if (p) {
+        if (!state.scheduleFlags[p.id]) state.scheduleFlags[p.id] = {};
+        if (!state.scheduleFlags[p.id][day]) state.scheduleFlags[p.id][day] = {};
+        state.scheduleFlags[p.id][day].dept = a.to;
+      }
+    } else if (a.type === 'swap') {
+      const p1 = state.staff.find(x => x.name === a.person1);
+      const p2 = state.staff.find(x => x.name === a.person2);
+      if (p1 && p2) {
+        const d1 = ((state.scheduleFlags[p1.id]||{})[day]||{}).dept;
+        const d2 = ((state.scheduleFlags[p2.id]||{})[day]||{}).dept;
+        if (!state.scheduleFlags[p1.id][day]) state.scheduleFlags[p1.id][day]={};
+        if (!state.scheduleFlags[p2.id][day]) state.scheduleFlags[p2.id][day]={};
+        state.scheduleFlags[p1.id][day].dept = d2;
+        state.scheduleFlags[p2.id][day].dept = d1;
+      }
+    }
+  });
+  deptAIState.pendingActions = [];
+  deptAIState.messages.push({ role:'assistant', content:'✓ 已套用調整' });
+  if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  renderDeptScheduler();
+  deptAIRender();
+}
+
+// 切換 AI 視窗
+let deptAIOpen = false;
+function deptToggleAI() {
+  deptAIOpen = !deptAIOpen;
+  $('dept-ai-panel').style.display = deptAIOpen ? 'flex' : 'none';
+  if (deptAIOpen) deptAIRender();
+}
+
+function deptAIRender() {
+  const box = $('dept-ai-messages');
+  if (!box) return;
+  let html = '';
+  if (deptAIState.messages.length === 0) {
+    html += `<div style="color:#9ca3af; font-size:0.85rem; padding:12px; text-align:center">試試:「把康家瑜換到 CPR」「R2 都男生,換個女生」「檢查今天有沒有問題」</div>`;
+  }
+  deptAIState.messages.forEach(m => {
+    if (m.role === 'user') {
+      html += `<div style="text-align:right; margin:6px 0"><span style="display:inline-block; background:#7c3aed; color:white; padding:6px 11px; border-radius:12px 12px 3px 12px; font-size:0.88rem; max-width:80%">${deptEsc(m.content)}</span></div>`;
+    } else {
+      html += `<div style="margin:6px 0"><span style="display:inline-block; background:#f3f4f6; color:#111; padding:6px 11px; border-radius:12px 12px 12px 3px; font-size:0.88rem; max-width:85%">${deptEsc(m.content)}</span></div>`;
+      // 動作確認
+      if (m.actions && m.actions.length > 0) {
+        html += `<div style="background:#faf5ff; border:1px solid #c4b5fd; border-radius:8px; padding:8px; margin:4px 0">`;
+        html += `<div style="font-size:0.8rem; font-weight:700; color:#6b21a8; margin-bottom:5px">AI 建議的調整:</div>`;
+        m.actions.forEach(a => {
+          if (a.type==='move') html += `<div style="font-size:0.82rem">• ${a.person} → ${a.to}${a.warn?`<span style="color:#dc2626"> ⚠${a.warn}</span>`:''}</div>`;
+          else if (a.type==='swap') html += `<div style="font-size:0.82rem">• ${a.person1} ↔ ${a.person2} 對調</div>`;
+        });
+        if (m === deptAIState.messages[deptAIState.messages.length-1] && deptAIState.pendingActions.length>0) {
+          html += `<div style="margin-top:8px; display:flex; gap:6px"><button onclick="deptApplyActions()" style="flex:1; padding:6px; background:#059669; color:white; border:none; border-radius:5px; font-weight:700; cursor:pointer; font-size:0.85rem">✓ 套用</button><button onclick="deptAIState.pendingActions=[]; deptAIRender()" style="padding:6px 12px; background:#f3f4f6; border:1px solid #d1d5db; border-radius:5px; cursor:pointer; font-size:0.85rem">略過</button></div>`;
+        }
+        html += `</div>`;
+      }
+    }
+  });
+  box.innerHTML = html;
+  box.scrollTop = box.scrollHeight;
+}
+
 // 暴露到全域
 window.openDeptScheduler = openDeptScheduler;
 window.deptEditNote = deptEditNote;
@@ -17182,6 +17460,11 @@ window.deptDragStart = deptDragStart;
 window.deptDrop = deptDrop;
 window.deptDropToUnassigned = deptDropToUnassigned;
 window.deptClearShift = deptClearShift;
+window.deptToggleAI = deptToggleAI;
+window.deptAISend = deptAISend;
+window.deptApplyActions = deptApplyActions;
+window.deptAIState = deptAIState;
+window.deptAIRender = deptAIRender;
 window.closeDeptScheduler = closeDeptScheduler;
 window.deptChangeDay = deptChangeDay;
 window.deptSetShift = deptSetShift;
@@ -17404,6 +17687,19 @@ window.autoAssignDept = autoAssignDept;
       <div style="font-size:0.85rem; opacity:0.9">點人員 → 點科別格放入 · 或按「⚡ 自動初排」</div>
     </div>
     <div id="dept-scheduler-body" style="flex:1; overflow:hidden; display:flex; flex-direction:column"></div>
+  </div>
+
+  <!-- 排科 AI 浮動視窗 -->
+  <div id="dept-ai-panel" style="display:none; position:absolute; right:30px; bottom:30px; width:340px; height:460px; background:white; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.25); flex-direction:column; overflow:hidden; z-index:9100; border:2px solid #7c3aed">
+    <div style="padding:10px 14px; background:linear-gradient(135deg,#7c3aed,#6b21a8); color:white; display:flex; justify-content:space-between; align-items:center">
+      <span style="font-weight:700">🤖 排科 AI 助手</span>
+      <span onclick="deptToggleAI()" style="cursor:pointer; font-size:1.1rem">✕</span>
+    </div>
+    <div id="dept-ai-messages" style="flex:1; overflow-y:auto; padding:10px"></div>
+    <div style="padding:10px; border-top:1px solid #e5e7eb; display:flex; gap:6px">
+      <input id="dept-ai-input" type="text" placeholder="下指令或問問題..." onkeydown="if(event.key==='Enter')deptAISend()" style="flex:1; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:0.88rem">
+      <button onclick="deptAISend()" style="padding:8px 14px; background:#7c3aed; color:white; border:none; border-radius:6px; font-weight:700; cursor:pointer">送出</button>
+    </div>
   </div>
 </div>
 
