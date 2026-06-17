@@ -16911,6 +16911,7 @@ function renderDeptScheduler() {
   html += `<div style="flex:1"></div>`;
   html += `<button onclick="deptToggleAI()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #7c3aed; color:#7c3aed; border-radius:6px; cursor:pointer">🤖 AI</button>`;
   html += `<button onclick="deptToggleOverview()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #7c3aed; color:#7c3aed; border-radius:6px; cursor:pointer">📋 整月總覽</button>`;
+  html += `<button onclick="deptOpenBatchPanel()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #ea580c; color:#ea580c; border-radius:6px; cursor:pointer">📅 連續排</button>`;
   html += `<button onclick="deptClearShift()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #dc2626; color:#dc2626; border-radius:6px; cursor:pointer">🗑 清除本班</button>`;
   html += `<button onclick="autoAssignDept()" style="padding:9px 20px; font-size:1.05rem; font-weight:800; background:linear-gradient(135deg,#7c3aed,#6b21a8); color:white; border:none; border-radius:8px; cursor:pointer; box-shadow:0 2px 8px rgba(124,58,237,0.3)">⚡ 自動初排</button>`;
   html += `<button onclick="deptSaveNow()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:#059669; color:white; border:none; border-radius:6px; cursor:pointer">💾 儲存</button>`;
@@ -17480,6 +17481,175 @@ function deptAIRender() {
   box.scrollTop = box.scrollHeight;
 }
 
+// ============================================================
+// 📅 批次排多天(連續排,每天接續前一天)
+// ============================================================
+// 從 startDay 排到 endDay,三班(D/E/N)全排,按日期順序 → 連續性正確接續
+function autoAssignDateRange(startDay, endDay, shifts) {
+  const days = getDaysInMonth(state.month);
+  startDay = Math.max(1, startDay);
+  endDay = Math.min(days, endDay);
+  shifts = shifts || ['D','E','N'];
+  if (typeof snapshotState === 'function') snapshotState(`批次排科 ${startDay}-${endDay}日`);
+
+  const savedDay = deptState.day, savedShift = deptState.shift;
+  let totalAssigned = 0, dayCount = 0;
+  const shortages = [];
+
+  // 必須按日期由小到大排(讓連續性能讀到前一天)
+  for (let d = startDay; d <= endDay; d++) {
+    let dayHasStaff = false;
+    shifts.forEach(sh => {
+      deptState.day = d;
+      deptState.shift = sh;
+      const staff = getDeptStaffForShift(d, sh);
+      if (staff.length === 0) return;
+      dayHasStaff = true;
+      // 呼叫單天排科的核心(不彈 alert、不重繪)
+      const n = autoAssignDeptCore(d, sh);
+      totalAssigned += n.assigned;
+      if (n.unfilled > 0) shortages.push(`${d}日${sh}班缺${n.unfilled}`);
+    });
+    if (dayHasStaff) dayCount++;
+  }
+
+  deptState.day = savedDay; deptState.shift = savedShift;
+  if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  renderDeptScheduler();
+  return { dayCount, totalAssigned, shortages };
+}
+
+// 單天單班排科核心(抽出來給批次用,不含 UI)
+function autoAssignDeptCore(day, shift) {
+  const staff = getDeptStaffForShift(day, shift);
+  if (staff.length === 0) return { assigned:0, unfilled:0 };
+
+  // 清掉當天當班舊科別
+  staff.forEach(p => {
+    if (state.scheduleFlags[p.id] && state.scheduleFlags[p.id][day]) {
+      delete state.scheduleFlags[p.id][day].dept;
+    }
+  });
+
+  const slots = getActiveSlots(day, shift, staff.length, staff);
+  const sc = deptScarcity(staff);
+  const orderedSlots = [...slots].sort((a,b) => sc[a.requires] - sc[b.requires]);
+  const used = new Set();
+  const staffIdx = new Map(state.staff.map((p,i)=>[p.id,i]));
+  let totalSlots = 0;
+
+  // L 硬續任
+  const lSlot = orderedSlots.find(s => s.id === 'L');
+  if (lSlot) {
+    const lCount = slotCount(lSlot, shift);
+    let lFilled = 0;
+    for (const p of staff) {
+      if (lFilled >= lCount) break;
+      const yf = (state.scheduleFlags[p.id]||{})[day-1]||{};
+      if (yf.dept === 'L' && (CAP_RANK[p.peakStage]??0) >= CAP_RANK['lead']) {
+        if (!state.scheduleFlags[p.id]) state.scheduleFlags[p.id] = {};
+        if (!state.scheduleFlags[p.id][day]) state.scheduleFlags[p.id][day] = {};
+        state.scheduleFlags[p.id][day].dept = 'L';
+        used.add(p.id); lFilled++;
+      }
+    }
+  }
+
+  orderedSlots.forEach(slot => {
+    const cnt = slotCount(slot, shift);
+    totalSlots += cnt;
+    for (let i=0; i<cnt; i++) {
+      const alreadyFilled = staff.filter(p => used.has(p.id) && ((state.scheduleFlags[p.id]||{})[day]||{}).dept === slot.name).length;
+      if (alreadyFilled > i) continue;
+      let cands = staff.filter(p => {
+        if (used.has(p.id)) return false;
+        if ((CAP_RANK[p.peakStage]??0) < CAP_RANK[slot.requires]) return false;
+        if (slot.femaleOnly && getGender(p)!=='女') return false;
+        return true;
+      });
+      if (cands.length === 0) continue;
+      const avoidsSlot = (p) => {
+        const longTerm = (p.deptAvoid || []).includes(slot.name);
+        const today = (((state.scheduleFlags[p.id]||{})[day]||{}).deptAvoidToday || []).includes(slot.name);
+        return longTerm || today;
+      };
+      const continuedYesterday = (p) => {
+        if (slot.id !== 'O+ST') return false;
+        const yf = (state.scheduleFlags[p.id]||{})[day-1]||{};
+        return yf.dept === slot.name;
+      };
+      cands.sort((a,b) => {
+        const ac = continuedYesterday(a) ? 0 : 1;
+        const bc = continuedYesterday(b) ? 0 : 1;
+        if (ac !== bc) return ac - bc;
+        const aav = avoidsSlot(a) ? 1 : 0;
+        const bav = avoidsSlot(b) ? 1 : 0;
+        if (aav !== bav) return aav - bav;
+        if (!slot.repeatOK) {
+          const ar = getRecentDepts(a, day)[slot.name] ? 1 : 0;
+          const br = getRecentDepts(b, day)[slot.name] ? 1 : 0;
+          if (ar !== br) return ar - br;
+        }
+        if (slot.seniorPair) {
+          const ai = staffIdx.get(a.id), bi = staffIdx.get(b.id);
+          if (i===0) return ai - bi;
+          else return bi - ai;
+        }
+        return (staffIdx.get(a.id)) - (staffIdx.get(b.id));
+      });
+      let pick = cands[0];
+      if (!state.scheduleFlags[pick.id]) state.scheduleFlags[pick.id] = {};
+      if (!state.scheduleFlags[pick.id][day]) state.scheduleFlags[pick.id][day] = {};
+      state.scheduleFlags[pick.id][day].dept = slot.name;
+      used.add(pick.id);
+    }
+  });
+
+  applyGenderMix(day, slots, staff);
+  const assigned = staff.filter(p => ((state.scheduleFlags[p.id]||{})[day]||{}).dept).length;
+  return { assigned, unfilled: Math.max(0, totalSlots - assigned) };
+}
+
+// ---------- 批次排面板控制 ----------
+function deptOpenBatchPanel() {
+  $('dept-batch-start').value = deptState.day;
+  $('dept-batch-end').value = Math.min(getDaysInMonth(state.month), deptState.day + 4);
+  $('dept-batch-result').style.display = 'none';
+  $('dept-batch-panel').style.display = 'flex';
+}
+function deptCloseBatchPanel() {
+  $('dept-batch-panel').style.display = 'none';
+}
+function deptBatchQuick(n) {
+  $('dept-batch-start').value = deptState.day;
+  $('dept-batch-end').value = Math.min(getDaysInMonth(state.month), deptState.day + n - 1);
+}
+function deptBatchHalf() {
+  $('dept-batch-start').value = deptState.day;
+  $('dept-batch-end').value = Math.min(getDaysInMonth(state.month), deptState.day + 14);
+}
+function deptBatchWhole() {
+  $('dept-batch-start').value = 1;
+  $('dept-batch-end').value = getDaysInMonth(state.month);
+}
+function deptRunBatch() {
+  const s = parseInt($('dept-batch-start').value, 10);
+  const e = parseInt($('dept-batch-end').value, 10);
+  if (!s || !e || s > e) { alert('日期範圍不對'); return; }
+  const span = e - s + 1;
+  if (!confirm(`連續排 ${s}~${e}日(共${span}天),三班全排?\n\n這會覆蓋這些天既有的科別,並依序套用連續性規則。`)) return;
+  const result = autoAssignDateRange(s, e, ['D','E','N']);
+  const box = $('dept-batch-result');
+  box.style.display = 'block';
+  let msg = `✓ 排完 ${result.dayCount} 天 · 共填入 ${result.totalAssigned} 個科別`;
+  if (result.shortages.length > 0) {
+    msg += `<div style="color:#dc2626; margin-top:5px">⚠ 人力不足:${result.shortages.slice(0,8).join('、')}${result.shortages.length>8?'…':''}</div>`;
+  } else {
+    msg += `<div style="color:#16a34a; margin-top:5px">無人力短缺</div>`;
+  }
+  box.innerHTML = msg;
+}
+
 // 暴露到全域
 window.openDeptScheduler = openDeptScheduler;
 window.deptEditNote = deptEditNote;
@@ -17504,6 +17674,13 @@ window.deptAssignToSlot = deptAssignToSlot;
 window.deptClearPerson = deptClearPerson;
 window.deptToggleGender = deptToggleGender;
 window.deptSetGender = deptSetGender;
+window.deptOpenBatchPanel = deptOpenBatchPanel;
+window.deptCloseBatchPanel = deptCloseBatchPanel;
+window.deptBatchQuick = deptBatchQuick;
+window.deptBatchHalf = deptBatchHalf;
+window.deptBatchWhole = deptBatchWhole;
+window.deptRunBatch = deptRunBatch;
+window.autoAssignDateRange = autoAssignDateRange;
 window.autoAssignDept = autoAssignDept;
 
 </script>
@@ -17731,6 +17908,41 @@ window.autoAssignDept = autoAssignDept;
     <div style="padding:10px; border-top:1px solid #e5e7eb; display:flex; gap:6px">
       <input id="dept-ai-input" type="text" placeholder="下指令或問問題..." onkeydown="if(event.key==='Enter')deptAISend()" style="flex:1; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:0.88rem">
       <button onclick="deptAISend()" style="padding:8px 14px; background:#7c3aed; color:white; border:none; border-radius:6px; font-weight:700; cursor:pointer">送出</button>
+    </div>
+  </div>
+
+  <!-- 連續排多天 面板 -->
+  <div id="dept-batch-panel" style="display:none; position:absolute; inset:0; background:rgba(0,0,0,0.35); z-index:9200; align-items:center; justify-content:center">
+    <div style="background:white; border-radius:12px; width:380px; max-width:90%; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,0.3)">
+      <div style="padding:14px 18px; background:linear-gradient(135deg,#ea580c,#c2410c); color:white; font-weight:800; font-size:1.1rem">📅 連續排多天</div>
+      <div style="padding:18px">
+        <div style="font-size:0.85rem; color:#6b7280; margin-bottom:14px">一次排多天,三班(D/E/N)全排。每天自動接續前一天(L 續任、避開最近3天)。</div>
+        <div style="margin-bottom:14px">
+          <label style="font-weight:700; font-size:0.9rem; display:block; margin-bottom:6px">排哪幾天?</label>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <span style="font-size:0.88rem">從</span>
+            <input id="dept-batch-start" type="number" min="1" max="31" style="width:60px; padding:6px; border:1px solid #d1d5db; border-radius:5px; text-align:center">
+            <span style="font-size:0.88rem">日 到</span>
+            <input id="dept-batch-end" type="number" min="1" max="31" style="width:60px; padding:6px; border:1px solid #d1d5db; border-radius:5px; text-align:center">
+            <span style="font-size:0.88rem">日</span>
+          </div>
+        </div>
+        <div style="margin-bottom:16px">
+          <label style="font-weight:700; font-size:0.9rem; display:block; margin-bottom:6px">快速選</label>
+          <div style="display:flex; gap:6px; flex-wrap:wrap">
+            <button onclick="deptBatchQuick(2)" style="padding:5px 10px; background:#fff7ed; border:1px solid #fed7aa; color:#c2410c; border-radius:5px; cursor:pointer; font-size:0.82rem">接著排2天</button>
+            <button onclick="deptBatchQuick(5)" style="padding:5px 10px; background:#fff7ed; border:1px solid #fed7aa; color:#c2410c; border-radius:5px; cursor:pointer; font-size:0.82rem">接著排5天</button>
+            <button onclick="deptBatchQuick(7)" style="padding:5px 10px; background:#fff7ed; border:1px solid #fed7aa; color:#c2410c; border-radius:5px; cursor:pointer; font-size:0.82rem">接著排7天</button>
+            <button onclick="deptBatchHalf()" style="padding:5px 10px; background:#fff7ed; border:1px solid #fed7aa; color:#c2410c; border-radius:5px; cursor:pointer; font-size:0.82rem">半個月</button>
+            <button onclick="deptBatchWhole()" style="padding:5px 10px; background:#fff7ed; border:1px solid #fed7aa; color:#c2410c; border-radius:5px; cursor:pointer; font-size:0.82rem">整月</button>
+          </div>
+        </div>
+        <div id="dept-batch-result" style="display:none; font-size:0.85rem; padding:10px; background:#f0fdf4; border-radius:6px; margin-bottom:12px"></div>
+        <div style="display:flex; gap:8px">
+          <button onclick="deptRunBatch()" style="flex:1; padding:10px; background:#ea580c; color:white; border:none; border-radius:6px; font-weight:800; cursor:pointer">▶ 開始連續排</button>
+          <button onclick="deptCloseBatchPanel()" style="padding:10px 16px; background:#f3f4f6; border:1px solid #d1d5db; border-radius:6px; cursor:pointer">關閉</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
