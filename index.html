@@ -16919,8 +16919,32 @@ function renderDeptScheduler() {
   html += `<button onclick="closeDeptScheduler()" style="padding:9px 16px; font-size:1rem; background:#f3f4f6; border:1px solid #d1d5db; border-radius:6px; cursor:pointer">✕ 關閉</button>`;
   html += `</div>`;
 
+  // === 防呆摘要橫幅 ===
+  let probOver=[], probUnder=[], probViol=[];
+  slots.forEach(slot => {
+    const ppl = assignedMap[slot.name]||[];
+    const cnt = slotCount(slot, shift);
+    if (ppl.length > cnt) probOver.push(`${slot.name}多${ppl.length-cnt}`);
+    if (ppl.length < cnt) probUnder.push(`${slot.name}缺${cnt-ppl.length}`);
+    ppl.forEach(p => {
+      if (slot.femaleOnly && getGender(p)!=='女') probViol.push(`${p.name}非女排${slot.name}`);
+      if ((CAP_RANK[p.peakStage]??0) < CAP_RANK[slot.requires]) probViol.push(`${p.name}能力不足排${slot.name}`);
+    });
+  });
+  const totalProb = probOver.length + probUnder.length + probViol.length;
+  if (totalProb > 0) {
+    html += `<div style="padding:8px 16px; background:#fef2f2; border-bottom:2px solid #fecaca; font-size:0.85rem; color:#991b1b; display:flex; gap:14px; flex-wrap:wrap; align-items:center; flex-shrink:0">`;
+    html += `<span style="font-weight:800">⚠ ${totalProb} 個提醒:</span>`;
+    if (probOver.length) html += `<span>🔴 超過:${probOver.join('、')}</span>`;
+    if (probUnder.length) html += `<span style="color:#b45309">🟡 不足:${probUnder.join('、')}</span>`;
+    if (probViol.length) html += `<span>🔴 違規:${probViol.join('、')}</span>`;
+    html += `</div>`;
+  } else {
+    html += `<div style="padding:6px 16px; background:#f0fdf4; border-bottom:1px solid #bbf7d0; font-size:0.82rem; color:#15803d; flex-shrink:0">✓ 這班科別配置正常,無超過/不足/違規</div>`;
+  }
+
   // === 主體:左(待排人員) + 右(科別欄位) ===
-  html += `<div style="display:flex; gap:0; height:calc(100% - 70px); overflow:hidden">`;
+  html += `<div style="display:flex; gap:0; flex:1; overflow:hidden">`;
 
   // --- 左側:待排人員 ---
   html += `<div id="dept-unassigned-list" ondragover="event.preventDefault()" ondrop="deptDropToUnassigned(event)" style="width:200px; flex-shrink:0; border-right:2px solid #e5e7eb; overflow-y:auto; padding:10px; background:#fafafa">`;
@@ -16968,11 +16992,30 @@ function renderDeptScheduler() {
     const isFull = filled >= slotCnt;
     const canDrop = !!deptSelectedPerson;
 
-    html += `<div ondragover="event.preventDefault()" ondrop="deptDrop(event,'${slot.name}')" onclick="deptAssignToSlot('${slot.name}')" style="border:2px solid ${color}; border-radius:10px; overflow:hidden; cursor:${canDrop?'pointer':'default'}; ${canDrop?'box-shadow:0 0 0 2px rgba(124,58,237,0.15)':''}">`;
+    // 防呆:判斷卡片狀態
+    const over = filled > slotCnt;          // 超過
+    const under = filled < slotCnt;         // 不足
+    // 該卡內有沒有人違規(能力/性別)
+    let hasViolation = false;
+    ppl.forEach(p => {
+      if (slot.femaleOnly && getGender(p)!=='女') hasViolation = true;
+      if ((CAP_RANK[p.peakStage]??0) < CAP_RANK[slot.requires]) hasViolation = true;
+    });
+    // 外框顏色:超過或違規=紅、不足=黃、正常=原色
+    let borderColor = color, borderWidth = '2px', warnBadge = '';
+    if (over || hasViolation) {
+      borderColor = '#dc2626'; borderWidth = '3px';
+      warnBadge = `<span style="background:#dc2626; color:white; font-size:0.68rem; padding:1px 6px; border-radius:8px; margin-left:6px">${over?`超過!${filled}/${slotCnt}`:'⚠違規'}</span>`;
+    } else if (under) {
+      borderColor = '#f59e0b'; borderWidth = '3px';
+      warnBadge = `<span style="background:#f59e0b; color:white; font-size:0.68rem; padding:1px 6px; border-radius:8px; margin-left:6px">缺${slotCnt-filled}</span>`;
+    }
+
+    html += `<div ondragover="event.preventDefault()" ondrop="deptDrop(event,'${slot.name}')" onclick="deptAssignToSlot('${slot.name}')" style="border:${borderWidth} solid ${borderColor}; border-radius:10px; overflow:hidden; cursor:${canDrop?'pointer':'default'}; ${canDrop?'box-shadow:0 0 0 2px rgba(124,58,237,0.15)':''}${(over||hasViolation)?'; box-shadow:0 0 0 3px rgba(220,38,38,0.15)':under?'; box-shadow:0 0 0 3px rgba(245,158,11,0.12)':''}">`;
     // 標題
     html += `<div style="background:${color}; color:white; padding:6px 10px; font-weight:700; font-size:0.95rem; display:flex; justify-content:space-between; align-items:center">`;
-    html += `<span>${slot.name}<span style="font-size:0.72rem; opacity:0.85; margin-left:5px">${DEPT_FULLNAME[slot.name]||''}</span></span>`;
-    html += `<span style="font-size:0.8rem; opacity:0.9">${filled}/${slotCnt}</span>`;
+    html += `<span>${slot.name}<span style="font-size:0.72rem; opacity:0.85; margin-left:5px">${DEPT_FULLNAME[slot.name]||''}</span>${warnBadge}</span>`;
+    html += `<span style="font-size:0.8rem; opacity:0.9; ${over?'font-weight:800':''}">${filled}/${slotCnt}</span>`;
     html += `</div>`;
     // 標籤(規則提示)
     const tags = [];
@@ -17080,8 +17123,22 @@ function renderDeptOverview() {
   const shift = deptState.shift;
   const mm = state.month.split('-')[1];
 
+  // 檢視範圍:week(預設,7天) 或 month(整月)
+  if (!deptState.ovMode) deptState.ovMode = 'week';
+  if (!deptState.ovWeekStart) {
+    // 預設從目前選的日期所在週開始(以該日為週起點往後7天較直覺)
+    deptState.ovWeekStart = Math.max(1, Math.min(deptState.day || 1, days));
+  }
+  let rangeStart, rangeEnd;
+  if (deptState.ovMode === 'month') {
+    rangeStart = 1; rangeEnd = days;
+  } else {
+    rangeStart = Math.max(1, Math.min(deptState.ovWeekStart, days));
+    rangeEnd = Math.min(days, rangeStart + 6);
+  }
+
   const staffInShift = state.staff.filter(p => {
-    for (let d=1; d<=days; d++) {
+    for (let d=rangeStart; d<=rangeEnd; d++) {
       if ((state.schedule[p.id]||{})[d] === shift) {
         const hasPeak = !!p.peakStage;
         const hasCaps = Array.isArray(p.capabilities) && p.capabilities.length>0;
@@ -17092,53 +17149,145 @@ function renderDeptOverview() {
   });
 
   let html = '';
-  html += `<div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 16px; border-bottom:2px solid #e5e7eb; background:#faf5ff">`;
-  html += `<div style="font-size:1.2rem; font-weight:800; color:#6b21a8">📋 整月科別總覽 — ${mm}月</div>`;
-  html += `<div style="width:1px; height:28px; background:#d1d5db"></div>`;
+  html += `<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:12px 16px; border-bottom:2px solid #e5e7eb; background:#faf5ff">`;
+  html += `<div style="font-size:1.15rem; font-weight:800; color:#6b21a8">📋 ${shift}班科別總覽</div>`;
+  html += `<div style="width:1px; height:26px; background:#d1d5db"></div>`;
+  // 班別切換
   ['D','E','N'].forEach(s => {
     const active = s===shift;
-    html += `<button onclick="deptSetShift('${s}')" style="padding:7px 16px; font-weight:700; border:2px solid ${active?'#7c3aed':'#d1d5db'}; background:${active?'#7c3aed':'white'}; color:${active?'white':'#6b7280'}; border-radius:6px; cursor:pointer">${s} 班</button>`;
+    html += `<button onclick="deptSetShift('${s}')" style="padding:6px 14px; font-weight:700; border:2px solid ${active?'#7c3aed':'#d1d5db'}; background:${active?'#7c3aed':'white'}; color:${active?'white':'#6b7280'}; border-radius:6px; cursor:pointer">${s}</button>`;
   });
+  html += `<div style="width:1px; height:26px; background:#d1d5db"></div>`;
+  // 週/月切換
+  html += `<button onclick="deptOvSetMode('week')" style="padding:6px 12px; font-weight:700; border:2px solid ${deptState.ovMode==='week'?'#ea580c':'#d1d5db'}; background:${deptState.ovMode==='week'?'#ea580c':'white'}; color:${deptState.ovMode==='week'?'white':'#6b7280'}; border-radius:6px; cursor:pointer">週</button>`;
+  html += `<button onclick="deptOvSetMode('month')" style="padding:6px 12px; font-weight:700; border:2px solid ${deptState.ovMode==='month'?'#ea580c':'#d1d5db'}; background:${deptState.ovMode==='month'?'#ea580c':'white'}; color:${deptState.ovMode==='month'?'white':'#6b7280'}; border-radius:6px; cursor:pointer">整月</button>`;
+  // 週導覽(只在週模式顯示)
+  if (deptState.ovMode === 'week') {
+    html += `<button onclick="deptOvWeekShift(-7)" style="padding:6px 10px; border:1px solid #d1d5db; background:white; border-radius:5px; cursor:pointer">◀ 前一週</button>`;
+    html += `<span style="font-weight:700; color:#6b21a8; font-size:0.9rem">${mm}/${rangeStart}–${mm}/${rangeEnd}</span>`;
+    html += `<button onclick="deptOvWeekShift(7)" style="padding:6px 10px; border:1px solid #d1d5db; background:white; border-radius:5px; cursor:pointer">後一週 ▶</button>`;
+  }
   html += `<div style="flex:1"></div>`;
-  html += `<button onclick="deptToggleOverview()" style="padding:8px 16px; font-weight:700; background:white; border:2px solid #7c3aed; color:#7c3aed; border-radius:6px; cursor:pointer">↩ 回單班排科</button>`;
-  html += `<button onclick="deptConfirmAndPublish()" style="padding:8px 16px; font-weight:800; background:#dc2626; color:white; border:none; border-radius:6px; cursor:pointer">✓ 確認並公告</button>`;
-  html += `<button onclick="closeDeptScheduler()" style="padding:8px 14px; background:#f3f4f6; border:1px solid #d1d5db; border-radius:6px; cursor:pointer">✕ 關閉</button>`;
+  html += `<button onclick="deptToggleOverview()" style="padding:7px 14px; font-weight:700; background:white; border:2px solid #7c3aed; color:#7c3aed; border-radius:6px; cursor:pointer">↩ 回單班</button>`;
+  html += `<button onclick="deptConfirmAndPublish()" style="padding:7px 14px; font-weight:800; background:#dc2626; color:white; border:none; border-radius:6px; cursor:pointer">✓ 確認並公告</button>`;
+  html += `<button onclick="closeDeptScheduler()" style="padding:7px 12px; background:#f3f4f6; border:1px solid #d1d5db; border-radius:6px; cursor:pointer">✕</button>`;
   html += `</div>`;
 
   html += `<div style="flex:1; overflow:auto; padding:10px">`;
-  html += `<table style="border-collapse:collapse; font-size:0.8rem; white-space:nowrap">`;
-  html += `<thead><tr><th style="position:sticky; left:0; top:0; z-index:3; background:#374151; color:white; padding:5px 8px; border:1px solid #4b5563; min-width:80px">姓名</th>`;
+  html += `<table style="border-collapse:collapse; font-size:0.82rem; white-space:nowrap">`;
+  // 預先算每天的問題(超過/不足/違規)
+  const dayProblems = {};
+  for (let d=rangeStart; d<=rangeEnd; d++){
+    const dayStaff = state.staff.filter(p => (state.schedule[p.id]||{})[d]===shift);
+    const slotsD = getActiveSlots(d, shift, dayStaff.length, dayStaff);
+    let probs = 0;
+    slotsD.forEach(slot => {
+      const cnt = slotCount(slot, shift);
+      const inSlot = dayStaff.filter(p => ((state.scheduleFlags[p.id]||{})[d]||{}).dept === slot.name);
+      if (inSlot.length !== cnt) probs++;
+      inSlot.forEach(p => {
+        if (slot.femaleOnly && getGender(p)!=='女') probs++;
+        if ((CAP_RANK[p.peakStage]??0) < CAP_RANK[slot.requires]) probs++;
+      });
+    });
+    dayProblems[d] = probs;
+  }
+
+  html += `<thead><tr><th style="position:sticky; left:0; top:0; z-index:3; background:#374151; color:white; padding:5px 8px; border:1px solid #4b5563; min-width:78px">姓名</th>`;
   const dowNames=['日','一','二','三','四','五','六'];
-  for (let d=1; d<=days; d++){
+  for (let d=rangeStart; d<=rangeEnd; d++){
     const dow=getDayOfWeek(state.month,d);
     const isHol=isHoliday(state.month,d);
     const bg = isHol||dow===0?'#7f1d1d':dow===6?'#14532d':'#374151';
-    html += `<th style="position:sticky; top:0; z-index:2; background:${bg}; color:white; padding:4px 3px; border:1px solid #4b5563; min-width:30px">${d}<br><span style="font-size:0.7rem; opacity:0.8">${dowNames[dow]}</span></th>`;
+    const cellW = deptState.ovMode==='week' ? '52px' : '32px';
+    const prob = dayProblems[d] || 0;
+    const probDot = prob > 0 ? `<span title="${prob}個問題" style="display:inline-block; background:#ef4444; color:white; font-size:0.6rem; border-radius:7px; padding:0 4px; margin-left:2px">${prob}</span>` : '';
+    html += `<th style="position:sticky; top:0; z-index:2; background:${bg}; color:white; padding:4px 3px; border:1px solid #4b5563; min-width:${cellW}">${d}${probDot}<br><span style="font-size:0.7rem; opacity:0.8">${dowNames[dow]}</span></th>`;
   }
   html += `</tr></thead><tbody>`;
   staffInShift.forEach(p => {
     html += `<tr><td style="position:sticky; left:0; z-index:1; background:#f9fafb; padding:4px 8px; border:1px solid #e5e7eb; font-weight:600">${p.name}</td>`;
-    for (let d=1; d<=days; d++){
+    for (let d=rangeStart; d<=rangeEnd; d++){
       const onShift = (state.schedule[p.id]||{})[d]===shift;
       const f=(state.scheduleFlags[p.id]||{})[d]||{};
       const dept = f.dept||'';
       let bg = '#fff';
       if (!onShift) bg='#f3f4f6';
       else if (dept) bg = (DEPT_COLORS[dept]||'#e5e7eb')+'22';
-      const color = dept ? (DEPT_COLORS[dept]||'#374151') : '#d1d5db';
-      const cell = !onShift ? '' : (dept || '·');
-      html += `<td style="text-align:center; padding:3px 2px; border:1px solid #e5e7eb; background:${bg}; color:${color}; font-weight:${dept?'700':'400'}; font-size:0.72rem">${cell}</td>`;
+      const color = dept ? (DEPT_COLORS[dept]||'#374151') : '#c4b5fd';
+      const cell = !onShift ? '' : (dept || '+');
+      // 可點(只有當天上班的格子可改)
+      const clickable = onShift ? `onclick="deptOvCellClick(event,'${p.id}',${d})" style="cursor:pointer;` : `style="`;
+      html += `<td ${clickable} text-align:center; padding:4px 2px; border:1px solid #e5e7eb; background:${bg}; color:${color}; font-weight:${dept?'700':'400'}; font-size:0.78rem">${cell}</td>`;
     }
     html += `</tr>`;
   });
   if (staffInShift.length===0){
-    html += `<tr><td colspan="${days+1}" style="padding:30px; text-align:center; color:#9ca3af">這個班別本月沒有排班資料</td></tr>`;
+    html += `<tr><td colspan="${rangeEnd-rangeStart+2}" style="padding:30px; text-align:center; color:#9ca3af">這個範圍內 ${shift}班 沒有排班資料</td></tr>`;
   }
   html += `</tbody></table>`;
-  html += `<div style="margin-top:10px; font-size:0.8rem; color:#6b7280">灰底=當天非此班 · 「·」=當天上班但未排科 · 顏色=已排科別</div>`;
+  html += `<div style="margin-top:10px; font-size:0.8rem; color:#6b7280">點格子可改科別 · 灰底=當天非此班 · 「+」=上班未排科</div>`;
   html += `</div>`;
 
   $('dept-scheduler-body').innerHTML = html;
+}
+
+// 週/月模式切換
+function deptOvSetMode(mode) {
+  deptState.ovMode = mode;
+  renderDeptScheduler();
+}
+function deptOvWeekShift(delta) {
+  const days = getDaysInMonth(state.month);
+  deptState.ovWeekStart = Math.max(1, Math.min(days, (deptState.ovWeekStart||1) + delta));
+  renderDeptScheduler();
+}
+
+// 點總覽格子 → 彈出科別按鈕列
+function deptOvCellClick(e, pid, day) {
+  e.stopPropagation();
+  // 移除舊的彈出
+  const old = document.getElementById('dept-ov-popup');
+  if (old) old.remove();
+
+  const cur = ((state.scheduleFlags[pid]||{})[day]||{}).dept || '';
+  const allSlots = DEPT_SLOTS.map(s=>s.name).filter((v,i,a)=>a.indexOf(v)===i);
+  const pop = document.createElement('div');
+  pop.id = 'dept-ov-popup';
+  pop.style.cssText = `position:fixed; z-index:9500; background:white; border:2px solid #7c3aed; border-radius:8px; box-shadow:0 6px 24px rgba(0,0,0,0.25); padding:8px; display:flex; flex-wrap:wrap; gap:4px; max-width:230px`;
+  let inner = '';
+  allSlots.forEach(name => {
+    const c = DEPT_COLORS[name]||'#6b7280';
+    const sel = name===cur;
+    inner += `<button onclick="deptOvSetCell('${pid}',${day},'${name}')" style="padding:5px 9px; border:2px solid ${c}; background:${sel?c:'white'}; color:${sel?'white':c}; border-radius:5px; font-weight:700; font-size:0.82rem; cursor:pointer">${name}</button>`;
+  });
+  inner += `<button onclick="deptOvSetCell('${pid}',${day},'')" style="padding:5px 9px; border:1px solid #d1d5db; background:#f9fafb; color:#6b7280; border-radius:5px; font-size:0.82rem; cursor:pointer">清除</button>`;
+  pop.innerHTML = inner;
+  document.body.appendChild(pop);
+  // 定位在點擊處附近
+  const rect = e.target.getBoundingClientRect();
+  let left = rect.left, top = rect.bottom + 4;
+  if (left + 240 > window.innerWidth) left = window.innerWidth - 245;
+  if (top + 120 > window.innerHeight) top = rect.top - 125;
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+  // 點別處關閉
+  setTimeout(() => {
+    const close = (ev) => { if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener('click', close); } };
+    document.addEventListener('click', close);
+  }, 10);
+}
+
+// 設定總覽格子的科別
+function deptOvSetCell(pid, day, name) {
+  if (!state.scheduleFlags[pid]) state.scheduleFlags[pid] = {};
+  if (!state.scheduleFlags[pid][day]) state.scheduleFlags[pid][day] = {};
+  if (name) state.scheduleFlags[pid][day].dept = name;
+  else delete state.scheduleFlags[pid][day].dept;
+  const pop = document.getElementById('dept-ov-popup');
+  if (pop) pop.remove();
+  if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  renderDeptScheduler();
 }
 
 // ---------- 拖曳支援 ----------
@@ -17681,6 +17830,10 @@ window.deptBatchHalf = deptBatchHalf;
 window.deptBatchWhole = deptBatchWhole;
 window.deptRunBatch = deptRunBatch;
 window.autoAssignDateRange = autoAssignDateRange;
+window.deptOvSetMode = deptOvSetMode;
+window.deptOvWeekShift = deptOvWeekShift;
+window.deptOvCellClick = deptOvCellClick;
+window.deptOvSetCell = deptOvSetCell;
 window.autoAssignDept = autoAssignDept;
 
 </script>
