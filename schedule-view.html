@@ -485,6 +485,17 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 .month-table tbody tr.row-locked td.cell-D,
 .month-table tbody tr.row-locked td.cell-E,
 .month-table tbody tr.row-locked td.cell-N { color: #422006 !important; }
+/* 鎖定列的科別標籤:改深色底白字,避免白字在黃底上消失 */
+.month-table tbody tr.row-locked td .month-cell-dept {
+  background: #1f2937 !important;
+  color: white !important;
+  border-bottom-color: #fde047 !important;
+}
+/* 鎖定列的個人備註標籤(紫條)也確保看得見 */
+.month-table tbody tr.row-locked td .month-cell-pnote {
+  background: #6d28d9 !important;
+  color: white !important;
+}
 .month-table td.cell-D { background: #dbeafe; color: #1e40af; font-weight: 600; }
 .month-table td.cell-E { background: #fef3c7; color: #92400e; font-weight: 600; }
 .month-table td.cell-N { background: #6b7280; color: white; font-weight: 600; }
@@ -1697,7 +1708,7 @@ function renderMonthTable() {
       const DEPT_FULLNAME = {
         'L':'Leader', 'T':'成人檢傷', 'PT':'兒童檢傷', 'CPR':'急救區', 'P':'兒科',
         'R1':'治療區1', 'R2':'治療區2', 'R3':'治療區3', 'O+ST':'留觀區',
-        'L+OB':'Leader+OB', 'P+OB':'P+OB', 'R':'RX流動',
+        'L+OB':'Leader+OB', 'P+OB':'P+OB', 'RX':'RX流動',
       };
       const deptFull = flag.dept ? (DEPT_FULLNAME[flag.dept] || flag.dept) : '';
       const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))

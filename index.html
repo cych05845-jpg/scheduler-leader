@@ -4649,7 +4649,7 @@ const NOTE_PRESETS = ['ACLS', '中油', '友善', '標準', 'LM', 'ER M', '教�
 
 // 科別(站位)預設 — 對齊 leader 紙本班表的 12 個科別
 // 也可在右鍵選單自由輸入新科別,不限於這 12 個
-const DEPT_PRESETS = ['T', 'PT', 'CPR', 'O+ST', 'P', 'R1', 'R2', 'R3', 'L', 'L+OB', 'P+OB', 'R'];
+const DEPT_PRESETS = ['T', 'PT', 'CPR', 'O+ST', 'P', 'R1', 'R2', 'R3', 'L', 'L+OB', 'P+OB', 'RX'];
 
 // 半日時段預設 — 半日職同仁依課表安排的時段
 // 標記後該格自動不算 D/E/N 人力(畫筆顯示時段文字蓋掉原班別)
@@ -15583,7 +15583,7 @@ function toggleSidePanelCollapse() {
     if (deptToggle && deptDropdown) {
       // 把預設科別填入下拉 grid
       const grid = $('fb-dept-grid');
-      const presets = (typeof DEPT_PRESETS !== 'undefined') ? DEPT_PRESETS : ['T','PT','CPR','O+ST','P','R1','R2','R3','L+OB','8-5\'','P+OB','R'];
+      const presets = (typeof DEPT_PRESETS !== 'undefined') ? DEPT_PRESETS : ['T','PT','CPR','O+ST','P','R1','R2','R3','L+OB','8-5\'','P+OB','RX'];
       grid.innerHTML = presets.map(d =>
         `<button onclick="useDeptBrush('${d.replace(/'/g, "\\'")}')" style="padding:6px 4px; background:#f0fdf4; border:1px solid #bbf7d0; color:#047857; border-radius:3px; cursor:pointer; font-size:0.82rem; font-weight:600">${d}</button>`
       ).join('');
@@ -16528,7 +16528,7 @@ const DEPT_SLOTS = [
   { id:'O+ST',  name:'O+ST',  count:2, countN:1, requires:'basic',repeatOK:true },
   // 條件站位:依當班「可排科人數」動態加入
   { id:'P+OB',  name:'P+OB',  count:1, countN:1, requires:'P',    repeatOK:false, condition:'count15' },
-  { id:'R',     name:'R',     count:1, countN:1, requires:'basic',repeatOK:false, condition:'count16' },
+  { id:'RX',    name:'RX',    count:1, countN:1, requires:'basic',repeatOK:false, condition:'count16' },
 ];
 
 // 取得站位在當前班別的線數
@@ -16541,7 +16541,7 @@ function slotCount(slot, shift) {
 const DEPT_FULLNAME = {
   'L':'Leader', 'T':'成人檢傷', 'PT':'兒童檢傷', 'CPR':'急救區', 'P':'兒科',
   'R1':'治療區1', 'R2':'治療區2', 'R3':'治療區3', 'O+ST':'留觀區',
-  'P+OB':'P+OB', 'R':'RX流動',
+  'P+OB':'P+OB', 'RX':'RX流動',
 };
 
 const CAP_RANK = { basic:0, P:1, cpr:2, tri:3, lead:4 };
@@ -16556,7 +16556,7 @@ const DEPT_COLORS = {
   'L':'#7c3aed', 'T':'#0891b2', 'PT':'#06b6d4',
   'CPR':'#dc2626', 'P':'#db2777', 'R1':'#16a34a',
   'R2':'#15803d', 'R3':'#166534', 'O+ST':'#ca8a04',
-  'P+OB':'#9333ea', 'R':'#ea580c',
+  'P+OB':'#9333ea', 'RX':'#ea580c',
 };
 
 // 排科狀態
@@ -16644,12 +16644,12 @@ function getActiveSlots(day, shift, staffCount, staff) {
           result.push(slot);            // P 夠 → 出 P+OB
         } else {
           // P 不夠 → 改出 RX 取代(只需 basic)
-          result.push({ id:'R', name:'R', count:1, countN:1, requires:'basic', repeatOK:false, _replacedPOB:true });
+          result.push({ id:'RX', name:'RX', count:1, countN:1, requires:'basic', repeatOK:false, _replacedPOB:true });
         }
       }
     } else if (slot.condition === 'count16') {
       // ≥16 人才有 RX(若上面已因 P 不足放了 RX,這裡避免重複)
-      if (staffCount >= 16 && !result.some(s => s.id==='R')) result.push(slot);
+      if (staffCount >= 16 && !result.some(s => s.id==='RX')) result.push(slot);
     }
   });
   return result;
@@ -16922,7 +16922,7 @@ function renderDeptScheduler() {
   html += `<div style="display:flex; gap:0; height:calc(100% - 70px); overflow:hidden">`;
 
   // --- 左側:待排人員 ---
-  html += `<div ondragover="event.preventDefault()" ondrop="deptDropToUnassigned(event)" style="width:200px; flex-shrink:0; border-right:2px solid #e5e7eb; overflow-y:auto; padding:10px; background:#fafafa">`;
+  html += `<div id="dept-unassigned-list" ondragover="event.preventDefault()" ondrop="deptDropToUnassigned(event)" style="width:200px; flex-shrink:0; border-right:2px solid #e5e7eb; overflow-y:auto; padding:10px; background:#fafafa">`;
   html += `<div style="font-weight:700; color:#6b21a8; margin-bottom:8px; font-size:0.95rem">待排人員 (${unassigned.length})</div>`;
   if (staff.length===0) {
     html += `<div style="color:#9ca3af; font-size:0.88rem; padding:20px 0; text-align:center">這天這班沒有人上班</div>`;
@@ -16940,9 +16940,11 @@ function renderDeptScheduler() {
     html += `<div draggable="true" ondragstart="deptDragStart(event,'${p.id}')" oncontextmenu="event.preventDefault(); deptEditNote('${p.id}')" onclick="deptSelectPerson('${p.id}')" style="padding:7px 9px; margin-bottom:5px; border-radius:6px; cursor:pointer; border:2px solid ${selected?'#7c3aed':'#e5e7eb'}; background:${selected?'#ede9fe':'white'}; transition:all 0.1s">`;
     html += `<div style="display:flex; align-items:center; justify-content:space-between">`;
     html += `<span style="font-weight:600; font-size:0.95rem">${p.name}</span>`;
-    html += `<span style="display:flex; gap:4px; align-items:center">`;
-    html += `<span onclick="event.stopPropagation(); deptToggleGender('${p.id}','${g}')" title="點擊切換性別" style="font-size:0.75rem; padding:1px 6px; border-radius:8px; background:${gColor}; color:white; cursor:pointer">${gLabel}</span>`;
-    html += `<span onclick="event.stopPropagation(); deptOpenAvoid('${p.id}')" title="設定盡量不排的科別" style="font-size:0.8rem; cursor:pointer; color:#9ca3af">⚙</span>`;
+    html += `<span style="display:flex; gap:3px; align-items:center">`;
+    // 性別:女/男 兩按鈕,點哪個直接設定(不用循環點兩下)。目前性別那顆會highlight
+    html += `<span onclick="event.stopPropagation(); deptSetGender('${p.id}','女')" title="設為女" style="font-size:0.72rem; padding:1px 6px; border-radius:8px; background:${g==='女'?'#db2777':'#f3f4f6'}; color:${g==='女'?'white':'#9ca3af'}; cursor:pointer; font-weight:${g==='女'?'700':'400'}">女</span>`;
+    html += `<span onclick="event.stopPropagation(); deptSetGender('${p.id}','男')" title="設為男" style="font-size:0.72rem; padding:1px 6px; border-radius:8px; background:${g==='男'?'#2563eb':'#f3f4f6'}; color:${g==='男'?'white':'#9ca3af'}; cursor:pointer; font-weight:${g==='男'?'700':'400'}">男</span>`;
+    html += `<span onclick="event.stopPropagation(); deptOpenAvoid('${p.id}')" title="設定盡量不排的科別" style="font-size:0.8rem; cursor:pointer; color:#9ca3af; margin-left:2px">⚙</span>`;
     html += `</span>`;
     html += `</div>`;
     html += `<div style="font-size:0.75rem; color:#9ca3af; margin-top:2px">${peakName}`;
@@ -17005,15 +17007,35 @@ function renderDeptScheduler() {
   html += `</div>`;  // 右側 grid
   html += `</div>`;  // 主體 flex
 
+  // 還原左側待排清單捲動位置(避免改性別後跳回頂端)
+  const prevScroll = deptState._listScroll || 0;
   $('dept-scheduler-body').innerHTML = html;
+  const listEl = $('dept-unassigned-list');
+  if (listEl && prevScroll) listEl.scrollTop = prevScroll;
 }
 
-// 性別切換(? → 女 → 男 → ?)
+// 直接設定性別(一鍵到位,不循環)。保留捲動位置
+function deptSetGender(pid, gender) {
+  const p = state.staff.find(x => x.id === pid);
+  if (!p) return;
+  // 若再次點同性別 → 取消(設回未知)
+  p.gender = (p.gender === gender) ? '' : gender;
+  // 記住捲動位置
+  const listEl = $('dept-unassigned-list');
+  deptState._listScroll = listEl ? listEl.scrollTop : 0;
+  if (typeof saveStaffData === 'function') saveStaffData();
+  if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  renderDeptScheduler();
+}
+
+// 性別切換(? → 女 → 男 → ?)— 保留給舊呼叫,但改用 deptSetGender
 function deptToggleGender(pid, current) {
   const next = current==='女' ? '男' : current==='男' ? '' : '女';
   const p = state.staff.find(x => x.id === pid);
   if (p) {
     p.gender = next;
+    const listEl = $('dept-unassigned-list');
+    deptState._listScroll = listEl ? listEl.scrollTop : 0;
     if (typeof saveStaffData === 'function') saveStaffData();
     else if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
     renderDeptScheduler();
@@ -17249,7 +17271,7 @@ async function deptCallGemini(prompt) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { maxOutputTokens: 2000, temperature: 0.3, thinkingConfig: { thinkingBudget: 0 } },
+      generationConfig: { maxOutputTokens: 600, temperature: 0.3, thinkingConfig: { thinkingBudget: 0 } },
     }),
   });
   if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0,150)}`);
@@ -17309,13 +17331,17 @@ ${allDepts.join('、')}
 2. 若護理長要「檢查」→ 找出能力不足/性別不符/同科重複,用文字說明
 3. 若護理長「問問題」→ 用文字簡短回答
 
-# 輸出格式(嚴格遵守)
-先用 1-2 句中文說明你的判斷,然後若有動作,附上 JSON 區塊:
+# 輸出格式(嚴格遵守,違反會讓護理長很困擾)
+**說明最多一句話(20字內),不要解釋理由、不要列清單、不要客套。**
+然後若有動作,附 JSON:
 \`\`\`json
 {"actions":[{"type":"move","person":"姓名","to":"科別代碼"},{"type":"swap","person1":"姓名","person2":"姓名"}]}
 \`\`\`
 - move=把某人移到某科;swap=兩人對調科別
-- 只輸出確定的動作,不確定就用文字問清楚
+- 範例好的回答:「好,蘇美玲移到 CPR」+ JSON
+- 範例壞的回答:長篇解釋為什麼、列出多個方案讓護理長選
+- 只輸出最直接的一組動作,不要給多選項
+- 不確定才用一句話問清楚(例:「要換哪一位?」)
 - 不要自己重排整天(那是系統的工作)
 - 姓名必須完全符合上面名單
 
@@ -17340,6 +17366,11 @@ ${msg}`;
         actions = parsed.actions || [];
       } catch(e) {}
       textPart = resp.replace(/```json[\s\S]*?```/, '').trim();
+    }
+    // 說明只保留第一行(避免 AI 還是長篇大論)
+    if (textPart) {
+      textPart = textPart.split('\n').map(s=>s.trim()).filter(s=>s)[0] || textPart;
+      if (textPart.length > 40) textPart = textPart.slice(0,40) + '…';
     }
     // 驗證動作(姓名、科別要存在)
     const validActions = deptValidateActions(actions);
@@ -17472,6 +17503,7 @@ window.deptSelectPerson = deptSelectPerson;
 window.deptAssignToSlot = deptAssignToSlot;
 window.deptClearPerson = deptClearPerson;
 window.deptToggleGender = deptToggleGender;
+window.deptSetGender = deptSetGender;
 window.autoAssignDept = autoAssignDept;
 
 </script>
