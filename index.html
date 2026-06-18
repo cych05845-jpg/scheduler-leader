@@ -7875,6 +7875,50 @@ function onMonthChange() {
   syncTargetDaysInput();
   renderTable();
   updateEmptyStateForMaster();
+  // 自動從上個月班表算「月底連續上班天數」帶進本月(跨月接續,不需匯入)
+  computePrevMonthConsecFromCloud(state.month);
+}
+
+// 從雲端讀上一個月班表,計算每人月底連續上班天數 → 寫入 prevMonthConsec
+// 讓「直接啟動下個月」也能正確接續跨月連續天數(不需匯入流程)
+async function computePrevMonthConsecFromCloud(currentMonth) {
+  try {
+    const [y, m] = currentMonth.split('-').map(Number);
+    let py = y, pm = m - 1;
+    if (pm < 1) { pm = 12; py = y - 1; }
+    const prevMonth = `${py}-${String(pm).padStart(2,'0')}`;
+
+    const data = await loadScheduleFromCloud(prevMonth);
+    if (!data || !data.schedule) {
+      console.log('[跨月連續] 上月', prevMonth, '無雲端資料,prevMonthConsec 維持原值');
+      return;
+    }
+    const prevSched = data.schedule;
+    const lastDay = new Date(py, pm, 0).getDate();
+    const isWorkChar = (v) => v === 'D' || v === 'E' || v === 'N' || v === 'M';
+    const isOffChar = (v) => v === 'O' || v === 'OFF' || v === 'off' || v === 'o' || v === 'V';
+
+    const debug = [];
+    state.staff.forEach(p => {
+      const sched = prevSched[p.id] || {};
+      let consec = 0;
+      for (let d = lastDay; d >= 1; d--) {
+        const v = sched[d];
+        if (isWorkChar(v)) consec++;
+        else if (isOffChar(v)) break;
+        else break;
+      }
+      consec = Math.min(consec, 6);
+      p.prevMonthConsec = consec;
+      if (consec > 0) debug.push({ name: p.name, consec });
+    });
+    debug.sort((a,b)=>b.consec-a.consec);
+    console.log(`[跨月連續] 從 ${prevMonth} 月底計算(前10):`, debug.slice(0,10));
+    if (typeof saveStaffData === 'function') saveStaffData();
+    if (typeof renderTable === 'function') renderTable();
+  } catch (e) {
+    console.warn('[跨月連續] 計算失敗:', e);
+  }
 }
 
 function syncTargetDaysInput() {

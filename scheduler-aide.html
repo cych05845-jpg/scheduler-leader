@@ -7762,6 +7762,53 @@ function onMonthChange() {
   syncTargetDaysInput();
   renderTable();
   updateEmptyStateForMaster();
+  // 自動從上個月班表算「月底連續上班天數」帶進本月(跨月接續)
+  computePrevMonthConsecFromCloud(state.month);
+}
+
+// 從雲端讀上一個月班表,計算每人月底連續上班天數 → 寫入 prevMonthConsec
+// 讓「直接切到下個月手動排」也能正確接續跨月連續天數
+async function computePrevMonthConsecFromCloud(currentMonth) {
+  try {
+    const [y, m] = currentMonth.split('-').map(Number);
+    // 算上一個月
+    let py = y, pm = m - 1;
+    if (pm < 1) { pm = 12; py = y - 1; }
+    const prevMonth = `${py}-${String(pm).padStart(2,'0')}`;
+
+    const data = await loadScheduleFromCloud(prevMonth);
+    if (!data || !data.schedule) {
+      console.log('[跨月連續] 上月', prevMonth, '無雲端資料,prevMonthConsec 維持原值');
+      return;
+    }
+    const prevSched = data.schedule;
+    const lastDay = new Date(py, pm, 0).getDate();
+    // 含 12-20(助理員時段班)都算上班
+    const isWorkChar = (v) => v === 'D' || v === 'E' || v === 'N' || v === 'M' || v === '12-20';
+    const isOffChar = (v) => v === 'O' || v === 'OFF' || v === 'off' || v === 'o' || v === 'V';
+
+    const debug = [];
+    state.staff.forEach(p => {
+      const sched = prevSched[p.id] || {};
+      let consec = 0;
+      for (let d = lastDay; d >= 1; d--) {
+        const v = sched[d];
+        if (isWorkChar(v)) consec++;
+        else if (isOffChar(v)) break;
+        else break;  // 空白也視為斷點
+      }
+      consec = Math.min(consec, 6);
+      p.prevMonthConsec = consec;
+      if (consec > 0) debug.push({ name: p.name, consec });
+    });
+    debug.sort((a,b)=>b.consec-a.consec);
+    console.log(`[跨月連續] 從 ${prevMonth} 月底計算(前10):`, debug.slice(0,10));
+    if (typeof saveStaffData === 'function') saveStaffData();
+    // 重繪底部統計(連續天數可能影響顯示)
+    if (typeof renderTable === 'function') renderTable();
+  } catch (e) {
+    console.warn('[跨月連續] 計算失敗:', e);
+  }
 }
 
 function syncTargetDaysInput() {
@@ -8460,7 +8507,7 @@ function referenceModeAfterImport(refMonth) {
   // 2. Compute prevMonthConsec for each person from end of refMonth
   const [y, m] = refMonth.split('-').map(Number);
   const lastDay = new Date(y, m, 0).getDate();
-  const isWorkChar = (v) => v === 'D' || v === 'E' || v === 'N' || v === 'M';
+  const isWorkChar = (v) => v === 'D' || v === 'E' || v === 'N' || v === 'M' || v === '12-20';
   const isOffChar = (v) => v === 'O' || v === 'OFF' || v === 'off' || v === 'o' || v === 'V';
 
   let consecStored = 0;
@@ -10921,7 +10968,7 @@ function executeNewMonth() {
     const [py, pm] = prevMonth.split('-').map(Number);
     const prevLastDay = new Date(py, pm, 0).getDate();
 
-    const isWorkChar = (v) => v === 'D' || v === 'E' || v === 'N' || v === 'M';
+    const isWorkChar = (v) => v === 'D' || v === 'E' || v === 'N' || v === 'M' || v === '12-20';
     const isOffChar = (v) => v === 'O' || v === 'OFF' || v === 'off' || v === 'o' || v === 'V';
 
     // Load existing stored data to update
@@ -11814,7 +11861,7 @@ function runFairnessFix() {
 function doFairnessFix(target) {
   const days = getDaysInMonth(state.month);
   const isOffChar = v => v === 'OFF' || v === 'off' || v === 'o' || v === 'O' || v === 'V';
-  const isWorkChar = v => v === 'D' || v === 'E' || v === 'N' || v === 'M';
+  const isWorkChar = v => v === 'D' || v === 'E' || v === 'N' || v === 'M' || v === '12-20';
 
   function getDailyCount(d, shift) {
     let count = 0;
