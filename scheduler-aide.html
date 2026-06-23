@@ -4995,14 +4995,24 @@ function addNewStaffPrompt() {
   const name = prompt('姓名:');
   if (!name || !name.trim()) return;
 
-  // 3. 職級
-  const levelMap = { '1': '技', '2': '助', '3': '事', '4': '工讀' };
-  const lvChoice = prompt('職級(1=技術員 / 2=助理員 / 3=事務員 / 4=工讀生):');
-  if (!lvChoice || !levelMap[lvChoice.trim()]) {
-    alert('職級必須是 1、2、3、4');
+  // 3. 職級 / 身份
+  const lvChoice = prompt(
+    '職級 / 身份(輸入數字):\n\n' +
+    '1 = 技術員\n' +
+    '2 = 助理員\n' +
+    '3 = 事務員\n' +
+    '4 = 工讀生\n' +
+    '5 = 實習生(跟著帶教,不算人力)',
+    '2'
+  );
+  if (lvChoice === null) return;
+  const lvMap = { '1': '技', '2': '助', '3': '事', '4': '工讀', '5': '實習' };
+  const level = lvMap[(lvChoice || '').trim()];
+  if (!level) {
+    alert('職級必須是 1、2、3、4、5');
     return;
   }
-  const level = levelMap[lvChoice.trim()];
+  const isIntern = (level === '實習');
 
   // 4. 建立新人員物件
   const id = (typeof uid === 'function') ? uid() : ('p_' + Date.now());
@@ -5011,12 +5021,13 @@ function addNewStaffPrompt() {
     name: name.trim(),
     eid: eid.trim(),
     level,
-    note: '',
+    note: isIntern ? '實習生' : '',
     preferredShift: '',
     canSwapTo: [],
     special: '',
     capabilities: [],
     peakStage: '',
+    status: 'active',
     prevMonthConsec: 0,
   };
 
@@ -5032,7 +5043,8 @@ function addNewStaffPrompt() {
   if (typeof renderTable === 'function') renderTable();
   if (typeof renderReorderList === 'function') renderReorderList();
 
-  alert(`✓ 已新增:${name}(${level})員編 ${eid}`);
+  const noteMsg = isIntern ? '\n\n⚠ 實習生「不算人力」,不會被自動排正式班。' : '';
+  alert(`✓ 已新增:${name.trim()}(${level})員編 ${eid.trim()}${noteMsg}`);
 }
 
 function renderReorderList() {
@@ -13447,26 +13459,23 @@ function renderAutoOverview() {
     }
   });
 
-  // Count daily demand totals
-  const D = state.rules.demand;
+  // 技助事員:不用滿員需求。改算「助理員每天最低需求」= D1+E1 = 2 班/天
+  // 技術員不設硬需求,所以總需求只看助理員最低線
+  const aideStaff = state.staff.filter(p => (p.level === '助' || p.level === '工讀'));
+  const techStaff = state.staff.filter(p => p.level === '技');
   let totalDemand = 0;
   for (let d = 1; d <= days; d++) {
-    const dow = getDayOfWeek(state.month, d);
-    const isHol = isHoliday(state.month, d);
-    if (isHol && D.holidaySameAsSunday) totalDemand += D.sunday.D + D.sunday.E + D.sunday.N;
-    else if (dow === 0) totalDemand += D.sunday.D + D.sunday.E + D.sunday.N;
-    else if (dow === 1) totalDemand += D.monday.D + D.monday.E + D.monday.N;
-    else totalDemand += D.weekday.D + D.weekday.E + D.weekday.N;
+    totalDemand += 2;  // 助理員每天最低 D≥1 + E≥1
   }
 
-  // Total work capacity = eligible × (days - target)
-  const workCapacity = eligible * (days - t.targetDays);
-  const slack = workCapacity - totalDemand;
+  // 可提供工時:助理員人數 × (天數 - 目標休假天數)
+  const aideWork = aideStaff.length * (days - t.targetDays);
+  const slack = aideWork - totalDemand;
   const slackPercent = totalDemand > 0 ? (slack / totalDemand * 100) : 0;
 
   let capacityClass = 'ok', capacityNote = '人力充足';
-  if (slack < 0) { capacityClass = 'err'; capacityNote = '人力不足!'; }
-  else if (slackPercent < 5) { capacityClass = 'warn'; capacityNote = '人力勉強'; }
+  if (slack < 0) { capacityClass = 'err'; capacityNote = '助理員人力不足!'; }
+  else if (slackPercent < 10) { capacityClass = 'warn'; capacityNote = '人力勉強'; }
 
   $('auto-overview-content').innerHTML = `
     <div class="auto-stat-grid">
@@ -13477,37 +13486,40 @@ function renderAutoOverview() {
       <div class="auto-stat-card accent">
         <div class="label">可排班人員</div>
         <div class="value">${eligible}</div>
-        ${specialCount > 0 ? `<div style="font-size:0.7rem;color:var(--ink-mute)">+${specialCount} 特殊狀態</div>` : ''}
+        <div style="font-size:0.7rem;color:var(--ink-mute)">技${techStaff.length} 助${aideStaff.length}</div>
       </div>
       <div class="auto-stat-card ok">
-        <div class="label">基本天數</div>
+        <div class="label">可放假天數</div>
         <div class="value">${t.floorDays}</div>
-        <div style="font-size:0.7rem;color:var(--ink-mute)">每人至少</div>
+        <div style="font-size:0.7rem;color:var(--ink-mute)">週末+國定假日</div>
       </div>
       <div class="auto-stat-card accent">
         <div class="label">目標天數</div>
-        <div class="value">${t.targetDays.toFixed(1)}</div>
+        <div class="value">${t.targetDays.toFixed(0)}</div>
         <div style="font-size:0.7rem;color:var(--ink-mute)">每人應休</div>
       </div>
     </div>
 
-    <h4 style="margin-top: 1rem">本月需求 vs 可用</h4>
+    <h4 style="margin-top: 1rem">助理員人力檢視<span style="font-size:0.75rem;color:var(--ink-mute);font-weight:normal">(技術員彈性、不列需求)</span></h4>
     <div class="auto-stat-grid">
       <div class="auto-stat-card">
-        <div class="label">總班次需求</div>
+        <div class="label">助理員最低需求</div>
         <div class="value">${totalDemand}</div>
-        <div style="font-size:0.7rem;color:var(--ink-mute)">D+E+N 總和</div>
+        <div style="font-size:0.7rem;color:var(--ink-mute)">每天 D≥1+E≥1</div>
       </div>
       <div class="auto-stat-card">
-        <div class="label">可提供工時</div>
-        <div class="value">${workCapacity}</div>
-        <div style="font-size:0.7rem;color:var(--ink-mute)">人員 × 工作日</div>
+        <div class="label">助理員可提供</div>
+        <div class="value">${aideWork}</div>
+        <div style="font-size:0.7rem;color:var(--ink-mute)">${aideStaff.length}人 × 工作日</div>
       </div>
       <div class="auto-stat-card ${capacityClass}">
         <div class="label">餘裕</div>
         <div class="value">${slack >= 0 ? '+' : ''}${slack}</div>
         <div style="font-size:0.7rem;color:var(--ink-mute)">${capacityNote}</div>
       </div>
+    </div>
+    <div style="margin-top:8px; padding:8px 12px; background:#f0f9ff; border-radius:6px; font-size:0.82rem; color:#0369a1">
+      💡 技術員不設滿員需求(同一天有 D 或 E 即可),所以不列入上方需求計算。
     </div>
 
     <h4 style="margin-top: 1rem">已預設假日</h4>
@@ -13810,10 +13822,34 @@ function aideAutoSchedule(clearMode) {
     }
   }
 
+  // ===== 事務員組排班 =====
+  // 事務員(事):自動排 M 班(行政),週一到五上班、週末+國定假日休
+  const adminStaff = state.staff.filter(p => p.level === '事' && isEligible(p));
+  for (const p of adminStaff) {
+    const s = state.schedule[p.id];
+    for (let d = 1; d <= days; d++) {
+      if (isHardLocked(s[d])) continue;   // 使用者預設的 OFF/V 不動
+      if (isWork(s[d])) continue;          // 已有班不動
+      if (s[d] === 'o' || s[d] === 'O') continue;
+      if (typeof isPersonAvailable === 'function') {
+        const av = isPersonAvailable(p, state.month, d);
+        if (av && !av.available) continue;
+      }
+      const dow = getDayOfWeek(state.month, d);
+      const isHol = isHoliday(state.month, d);
+      if (dow === 0 || dow === 6 || isHol) {
+        s[d] = 'off';   // 週末/國定假日休(軟休,算進可放假天數)
+      } else {
+        s[d] = 'M';     // 平日上行政班
+        filled++;
+      }
+    }
+  }
+
   // ===== 休假填補 =====
   // 剩下沒排班的格子 → 填 off(軟休)
   let offFilled = 0;
-  [...techStaff, ...aideStaff].forEach(p => {
+  [...techStaff, ...aideStaff, ...adminStaff].forEach(p => {
     const s = state.schedule[p.id];
     for (let d = 1; d <= days; d++) {
       if (!s[d]) { s[d] = 'off'; offFilled++; }
@@ -13868,7 +13904,7 @@ function stage1FakeAlgorithm(clearMode) {
 
   // Helpers
   const isOff = (v) => v === 'OFF' || v === 'off' || v === 'o' || v === 'O' || v === 'V';
-  const isWork = (v) => v === 'D' || v === 'E' || v === 'N' || v === 'M';
+  const isWork = (v) => v === 'D' || v === 'E' || v === 'N' || v === 'M' || v === '12-20';
   const isHardLocked = (v) => v === 'OFF' || v === 'off' || v === 'V';  // user-set, don't touch
 
   // Step 1: Apply clear mode
@@ -13896,6 +13932,15 @@ function stage1FakeAlgorithm(clearMode) {
     if (p.level === '半日') return false;
     if (p.status === 'leave' || p.status === 'resigned') return false;
     return true;
+  });
+
+  // 事務員(事):若沒設偏好班,自動視為 M 班(行政,週一到五)
+  // 在這裡統一設定,讓後續所有 PHASE(偏好填班、強制休息跳過)都認得
+  eligible.forEach(p => {
+    if (p.level === '事' && (!p.preferredShift || !['D','E','N','M'].includes(p.preferredShift))) {
+      p.preferredShift = 'M';
+      p._autoM = true;  // 標記:這是自動設的,非使用者手動
+    }
   });
 
   // Compute target rest days
@@ -13993,7 +14038,11 @@ function stage1FakeAlgorithm(clearMode) {
 
   let prefFilled = 0;
   eligible.forEach(p => {
-    const pref = p.preferredShift;
+    // 事務員(事):自動排 M 班(週一到五),不需設 preferredShift
+    let pref = p.preferredShift;
+    if (p.level === '事' && (!pref || !['D','E','N','M'].includes(pref))) {
+      pref = 'M';
+    }
     if (!pref || !['D', 'E', 'N', 'M'].includes(pref)) return;
 
     const s = state.schedule[p.id];
@@ -14041,23 +14090,20 @@ function stage1FakeAlgorithm(clearMode) {
 
   let forcedRests = 0;
 
-  // Helper: Check if marking person p as 'o' on day d would cause daily shortage
+  // Helper: Check if marking person p as 'o' on day d would cause shortage
+  // 技助事員邏輯:只保護「助理員每天 D≥1 E≥1」,不用護理師 demand
   function wouldCauseShortage(p, d, currentShift) {
     if (!isWork(currentShift)) return false;
-    const dow = getDayOfWeek(state.month, d);
-    const isHol = isHoliday(state.month, d);
-    const Dm = state.rules.demand;
-    let need;
-    if (isHol && Dm.holidaySameAsSunday) need = Dm.sunday;
-    else if (dow === 0) need = Dm.sunday;
-    else if (dow === 1) need = Dm.monday;
-    else need = Dm.weekday;
-
+    // 只有助理員的 D/E 班需要保護(技術員彈性、M班不在此限)
+    if ((p.level !== '助' && p.level !== '工讀')) return false;
+    if (currentShift !== 'D' && currentShift !== 'E') return false;
+    // 算這天這個班別,助理員還有幾個人(扣掉 p 自己)
     const onDuty = eligible.filter(other => {
+      if (other.level !== '助' && other.level !== '工讀') return false;
       const ov = (state.schedule[other.id] || {})[d];
       return ov === currentShift;
     }).length;
-    return (onDuty - 1) < need[currentShift];
+    return (onDuty - 1) < 1;  // 助理員每班至少留 1 人
   }
 
   // Helper: count neighbors (±3 in list) already resting on day d

@@ -1144,6 +1144,13 @@ body[data-schedule-type="aide"] .month-table td.col-name {
     <div class="person-stats" id="pd-stats"></div>
     <div id="pd-dow-head" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 4px"></div>
     <div class="person-calendar" id="pd-calendar"></div>
+    <!-- 下個月(跨月接續)-->
+    <div id="pd-next-wrap" style="display:none; margin-top:18px">
+      <div id="pd-next-title" style="font-weight:700; color:#6b21a8; margin-bottom:8px; padding-top:14px; border-top:2px dashed #d8b4fe"></div>
+      <div id="pd-next-dow-head" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 4px"></div>
+      <div class="person-calendar" id="pd-next-calendar"></div>
+    </div>
+    <div id="pd-next-hint" style="display:none; margin-top:14px; padding:10px; background:#f9fafb; border-radius:8px; font-size:0.85rem; color:#9ca3af; text-align:center"></div>
   </div>
   <div class="person-list" id="person-list"></div>
 </div>
@@ -1201,6 +1208,7 @@ async function initFirebase() {
     ref: dbMod.ref,
     onValue: dbMod.onValue,
     off: dbMod.off,
+    get: dbMod.get,
   };
   return _fbDb;
 }
@@ -1585,38 +1593,98 @@ function openPersonDetail(pid) {
     <div class="person-stat" title="本月公休(不含特休 V)"><div class="label">本月休假</div><div class="value">${off}</div></div>
   `;
 
-  // 月曆網格
-  const ym = state.month.split('-');
+  // 月曆網格(本月)
+  renderPersonCalendar('pd-calendar', 'pd-dow-head', state.month, state.days, sched, pFlags, state.holidays);
+
+  // 嘗試載入「下個月」該人的班,做跨月接續顯示
+  loadPersonNextMonth(p);
+}
+
+// 共用:畫一個月的個人月曆到指定容器
+function renderPersonCalendar(calId, dowId, month, days, sched, pFlags, holidays) {
+  const ym = month.split('-');
   const year = parseInt(ym[0]);
   const monthIdx = parseInt(ym[1]) - 1;
   const firstDow = new Date(year, monthIdx, 1).getDay();
   const today = new Date();
   const isCurrentMonth = (today.getFullYear() === year && today.getMonth() === monthIdx);
+  holidays = holidays || [];
 
-  // DOW header
-  document.getElementById('pd-dow-head').innerHTML = ['日','一','二','三','四','五','六'].map(d => `<div class="cal-dow-head">${d}</div>`).join('');
+  document.getElementById(dowId).innerHTML = ['日','一','二','三','四','五','六'].map(d => `<div class="cal-dow-head">${d}</div>`).join('');
 
   let html = '';
   for (let i = 0; i < firstDow; i++) html += '<div class="cal-cell empty"></div>';
-  for (let d = 1; d <= state.days; d++) {
-    const sh = sched[d] || '';
-    const flag = pFlags[d] || {};
+  for (let d = 1; d <= days; d++) {
+    const sh = (sched||{})[d] || '';
+    const flag = (pFlags||{})[d] || {};
     let cls = 'cal-cell';
     if (sh) cls += ` shift-${sh}`;
-    if (state.holidays.includes(d)) cls += ' holiday';
+    if (holidays.includes(d)) cls += ' holiday';
     if (isCurrentMonth && today.getDate() === d) cls += ' today';
     if (flag.underline) cls += ' cell-underline';
     if (flag.marker === 'preceptor') cls += ' marker-preceptor';
     if (flag.marker === 'trainee') cls += ' marker-trainee';
-    const dn = (state.dateNotes || {})[d];
-    if (dn) cls += ' has-date-note';
     const display = sh === 'o' ? 'off' : (sh || '');
     const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
       ? `<div class="cal-cell-dept">${esc(flag.dept)}</div>` : '';
-    const dnIcon = dn ? '<div class="cal-cell-note-icon" title="' + esc(dn) + '">📝</div>' : '';
-    html += `<div class="${cls}" title="${dn ? esc(dn) : ''}"><div class="day-num">${d}</div>${dnIcon}<div class="shift-mark">${esc(display)}</div>${deptSmall}</div>`;
+    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}</div>`;
   }
-  document.getElementById('pd-calendar').innerHTML = html;
+  document.getElementById(calId).innerHTML = html;
+}
+
+// 載入下個月該人的班(從 Firebase),做跨月接續
+async function loadPersonNextMonth(p) {
+  const wrap = document.getElementById('pd-next-wrap');
+  const hint = document.getElementById('pd-next-hint');
+  wrap.style.display = 'none';
+  hint.style.display = 'none';
+  try {
+    // 算下個月
+    const [y, m] = state.month.split('-').map(Number);
+    let ny = y, nm = m + 1;
+    if (nm > 12) { nm = 1; ny = y + 1; }
+    const nextMonth = `${ny}-${String(nm).padStart(2,'0')}`;
+
+    const { ref, get } = _fbHelpers;
+    const monthKey = nextMonth.replace(/[.#$\[\]/]/g, '_');
+    const fbPath = state.scheduleType === 'aide' ? `aide-schedules/${monthKey}` : `schedules/${monthKey}`;
+    let snap;
+    if (get) {
+      snap = await get(ref(_fbDb, fbPath));
+    } else {
+      return; // 沒有 get 就略過
+    }
+    if (!snap || !snap.exists()) {
+      hint.textContent = `下個月(${nm}月)班表尚未公告`;
+      hint.style.display = 'block';
+      return;
+    }
+    const node = snap.val();
+    const meta = node.meta || {};
+    const data = node.data;
+    if (meta.status === 'withdrawn' || !data) {
+      hint.textContent = `下個月(${nm}月)班表調整中`;
+      hint.style.display = 'block';
+      return;
+    }
+    // 找同一個人(用 id,fallback 用姓名)
+    let nextSched = (data.schedule || {})[p.id];
+    let nextFlags = (data.flags || {})[p.id] || {};
+    if (!nextSched && Array.isArray(data.staff)) {
+      const np = data.staff.find(x => x.name === p.name);
+      if (np) { nextSched = (data.schedule || {})[np.id]; nextFlags = (data.flags || {})[np.id] || {}; }
+    }
+    if (!nextSched) {
+      hint.textContent = `下個月(${nm}月)班表中找不到此人`;
+      hint.style.display = 'block';
+      return;
+    }
+    document.getElementById('pd-next-title').textContent = `📅 ${nm}月(下個月)`;
+    renderPersonCalendar('pd-next-calendar', 'pd-next-dow-head', nextMonth, data.days || 30, nextSched, nextFlags, data.holidays || []);
+    wrap.style.display = 'block';
+  } catch (e) {
+    console.warn('載入下月失敗:', e);
+  }
 }
 
 function closePersonDetail() {

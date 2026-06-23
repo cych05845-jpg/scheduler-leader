@@ -1616,6 +1616,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
         <span style="font-size: 0.78rem; color: #dc2626; font-weight: 600; margin-left: 0.4rem">← 拖 ⋮⋮ 換位置</span>
       </h3>
       <div class="side-collapsible-body">
+        <button onclick="addNewNursePrompt()" style="width:100%; margin-bottom:0.6rem; padding:8px; font-size:0.95rem; font-weight:700; background:#16a34a; color:white; border:none; border-radius:6px; cursor:pointer">➕ 新增人員</button>
         <div style="font-size: 0.82rem; color: var(--ink-mute); margin-bottom: 0.5rem">
           拖曳調整人員在班表上的顯示順序。
         </div>
@@ -4944,6 +4945,67 @@ function restoreFromLeave(pid) {
 // 註:舊 toggleReorderSection 已由 toggleSidePanelSection('sec-reorder') 取代
 // 此處 toggleReorderSection 函式已於上方定義為相容墊片
 // ============================================================
+
+// === 新增人員(護理師系統)===
+// 新進試用 / 實習生 預設不設 peakStage → 自動「不算人力」(沒上就不當人力)
+function addNewNursePrompt() {
+  const name = prompt('姓名:');
+  if (!name || !name.trim()) return;
+
+  const idChoice = prompt(
+    '身份(輸入數字):\n\n' +
+    '1 = 新進試用(3個月內,暫不算人力)\n' +
+    '2 = 實習生(跟著帶教,不算人力)\n' +
+    '3 = 正式 N1\n' +
+    '4 = 正式 N2\n' +
+    '5 = 正式 N3\n' +
+    '6 = 正式 N4',
+    '1'
+  );
+  if (idChoice === null) return;
+  const c = (idChoice || '').trim();
+  const map = {
+    '1': { level: 'N1', peakStage: '',   note: '新進試用', isNew: true },
+    '2': { level: '實習', peakStage: '', note: '實習生',   isNew: true },
+    '3': { level: 'N1', peakStage: 'basic', note: '' },
+    '4': { level: 'N2', peakStage: 'basic', note: '' },
+    '5': { level: 'N3', peakStage: 'basic', note: '' },
+    '6': { level: 'N4', peakStage: 'basic', note: '' },
+  };
+  if (!map[c]) { alert('請輸入 1~6'); return; }
+  const cfg = map[c];
+
+  const id = uid();
+  const newPerson = {
+    id,
+    name: name.trim(),
+    level: cfg.level,
+    peakStage: cfg.peakStage,   // 空 = 不算 D/E/N 人力
+    capabilities: [],
+    note: cfg.note,
+    hireDate: cfg.isNew ? new Date().toISOString().slice(0,10) : '',
+    preferredShift: '',
+    canSwapTo: [],
+    special: '',
+    status: 'active',
+    statusDate: '',
+    prevMonthConsec: 0,
+    gender: '',
+    deptAvoid: [],
+  };
+  state.staff.push(newPerson);
+  if (!state.schedule[id]) state.schedule[id] = {};
+  if (!state.scheduleFlags) state.scheduleFlags = {};
+  if (!state.scheduleFlags[id]) state.scheduleFlags[id] = {};
+
+  if (typeof saveStaffData === 'function') saveStaffData();
+  if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  if (typeof renderTable === 'function') renderTable();
+  if (typeof renderReorderList === 'function') renderReorderList();
+
+  const noteMsg = cfg.isNew ? '\n\n⚠ 此人目前「不算人力」(不會被自動排正式班)。\n試用通過/可獨立後,到「調整人員順序」清單點此人設定能力階段,即納入人力。' : '';
+  alert(`✓ 已新增:${name.trim()}(${cfg.level}${cfg.note ? '・'+cfg.note : ''})${noteMsg}`);
+}
 
 function renderReorderList() {
   const listEl = $('reorder-staff-list');
