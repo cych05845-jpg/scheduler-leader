@@ -1094,6 +1094,15 @@ body[data-schedule-type="aide"] .month-table td.col-name {
   <div class="subtitle" id="hdr-subtitle">載入中...</div>
 </div>
 
+<!-- === 月份切換 === -->
+<div id="month-nav" style="display: none; max-width: 480px; margin: 10px auto 0; padding: 0 12px">
+  <div style="display: flex; align-items: center; justify-content: center; gap: 8px; background: white; padding: 8px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08)">
+    <button onclick="changeViewMonth(-1)" style="padding: 8px 14px; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 0.9rem">◀ 上個月</button>
+    <span id="month-nav-label" style="flex: 1; text-align: center; font-weight: 800; color: #6b21a8; font-size: 1.05rem"></span>
+    <button onclick="changeViewMonth(1)" style="padding: 8px 14px; background: #ede9fe; border: 1px solid #c4b5fd; border-radius: 8px; font-weight: 700; cursor: pointer; color: #6b21a8; font-size: 0.9rem">下個月 ▶</button>
+  </div>
+</div>
+
 <!-- === 班表類型切換 (護理師 / 助理員) === -->
 <div id="schedule-type-switcher" style="display: none; max-width: 1280px; margin: 12px auto 0; padding: 0 12px; position: relative; z-index: 100">
   <div style="display: flex; gap: 6px; background: linear-gradient(135deg, #f0f9ff 0%, #dbeafe 100%); padding: 6px; border-radius: 12px; max-width: 480px; margin: 0 auto; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15); border: 2px solid #93c5fd;">
@@ -1232,6 +1241,7 @@ function enterScheduleApp() {
   document.getElementById('app-header').style.display = '';
   document.getElementById('schedule-type-switcher').style.display = 'block';
   document.getElementById('tabs').style.display = '';
+  document.getElementById('month-nav').style.display = 'block';
   document.body.setAttribute('data-schedule-type', 'nurse');  // 預設護理師
   loadData();
 }
@@ -1292,14 +1302,34 @@ function switchScheduleType(type) {
 }
 
 // === 載入資料(Firebase 即時監聽) ===
-async function loadData() {
+// === 月份切換 ===
+function changeViewMonth(delta) {
+  const [y, m] = state.month.split('-').map(Number);
+  let ny = y, nm = m + delta;
+  while (nm < 1) { nm += 12; ny -= 1; }
+  while (nm > 12) { nm -= 12; ny += 1; }
+  const target = `${ny}-${String(nm).padStart(2,'0')}`;
+  // 斷開舊的 Firebase 監聽,改載新月份
+  if (_currentListener && _fbHelpers && _fbHelpers.off) {
+    try { _fbHelpers.off(_currentListener); } catch (e) {}
+  }
+  loadData(target);
+}
+
+function updateMonthNav(month) {
+  const label = document.getElementById('month-nav-label');
+  if (label) label.textContent = formatMonthLabel(month);
+}
+
+async function loadData(forceMonth) {
   showStatus('loading');
   try {
     const params = new URLSearchParams(window.location.search);
-    const month = params.get('m') || guessCurrentMonth();
+    const month = forceMonth || params.get('m') || guessCurrentMonth();
     state.month = month;
     state.viewDate = new Date();
     document.getElementById('hdr-month').textContent = formatMonthLabel(month);
+    updateMonthNav(month);
 
     await initFirebase();
     const { ref, onValue, off } = _fbHelpers;
@@ -2147,6 +2177,7 @@ window.changeViewDate = changeViewDate;
 window.openPersonDetail = openPersonDetail;
 window.openPersonByName = openPersonByName;
 window.toggleRowLock = toggleRowLock;
+window.changeViewMonth = changeViewMonth;
 window.closePersonDetail = closePersonDetail;
 window.onPersonSearchInput = onPersonSearchInput;
 window.printMonthAsPdf = printMonthAsPdf;
