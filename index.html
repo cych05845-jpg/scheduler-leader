@@ -16669,7 +16669,27 @@ const DEPT_COLORS = {
 const deptState = {
   day: null,       // 當前排科日期
   shift: 'D',      // 當前班別
+  dirty: false,    // 有未存雲端的變更?(避免離開時遺失手動調整)
 };
+
+// 標記排科有變更(未存雲端)
+function deptMarkDirty() {
+  deptState.dirty = true;
+  // 更新💾儲存按鈕外觀提示(若存在)
+  const btn = document.getElementById('dept-save-btn');
+  if (btn) { btn.style.background = '#f59e0b'; btn.textContent = '💾 儲存*(未存雲端)'; }
+}
+
+// 排科視窗攔截:beforeunload(關頁/重整/跳走)時,若有未存變更 → 瀏覽器攔截
+window.addEventListener('beforeunload', (e) => {
+  const overlay = document.getElementById('dept-scheduler-overlay');
+  const isOpen = overlay && overlay.style.display !== 'none';
+  if (isOpen && deptState.dirty) {
+    e.preventDefault();
+    e.returnValue = '排科有未儲存的變更,離開前請先按「💾儲存」存到雲端,否則會遺失。';
+    return e.returnValue;
+  }
+});
 
 // ---------- 性別判斷(名字猜 + 手動修正) ----------
 const GENDER_FEMALE = '美麗淑芬芳玲珍琴雯婷雅惠君慧娟娥媛妮姿娜莉莎婭嫻嬌妍婉媚娉妙姍嫣瑄瑜瑤瑩璇琪琳瑛琬瑋珊珮瑀筠綺綾縈茜荷菁萍蓉蘭蕙蕊薇霜霞露韻馨鳳凰嬪妃姬婧嫚孅娣婕媜嬅鈺鈴錡妏姈婌嬛蓁蕓憶環琇月秀盈利家瑩涵怡心如盼柔靜宜青蕾蘋';
@@ -16884,6 +16904,7 @@ function autoAssignDept() {
   applyGenderMix(day, slots, staff);
 
   if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  deptMarkDirty();
   renderDeptScheduler();
 }
 
@@ -16933,6 +16954,11 @@ function openDeptScheduler() {
 }
 
 function closeDeptScheduler() {
+  if (deptState.dirty) {
+    const ok = confirm('⚠ 排科有未儲存到雲端的變更(手動調整可能遺失)。\n\n按「確定」= 放棄變更直接關閉\n按「取消」= 留下來,先按💾儲存');
+    if (!ok) return;  // 使用者選擇留下
+  }
+  deptState.dirty = false;
   $('dept-scheduler-overlay').style.display = 'none';
 }
 
@@ -16965,6 +16991,7 @@ function deptAssignToSlot(slotName) {
   state.scheduleFlags[p.id][day].dept = slotName;
   deptSelectedPerson = null;
   if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  deptMarkDirty();
   renderDeptScheduler();
 }
 
@@ -16975,6 +17002,7 @@ function deptClearPerson(pid) {
     delete state.scheduleFlags[pid][day].dept;
   }
   if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  deptMarkDirty();
   renderDeptScheduler();
 }
 
@@ -17030,7 +17058,7 @@ function renderDeptScheduler() {
   html += `<button onclick="deptOpenBatchPanel()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #ea580c; color:#ea580c; border-radius:6px; cursor:pointer">📅 連續排</button>`;
   html += `<button onclick="deptClearShift()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #dc2626; color:#dc2626; border-radius:6px; cursor:pointer">🗑 清除本班</button>`;
   html += `<button onclick="autoAssignDept()" style="padding:9px 20px; font-size:1.05rem; font-weight:800; background:linear-gradient(135deg,#7c3aed,#6b21a8); color:white; border:none; border-radius:8px; cursor:pointer; box-shadow:0 2px 8px rgba(124,58,237,0.3)">⚡ 自動初排</button>`;
-  html += `<button onclick="deptSaveNow()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:#059669; color:white; border:none; border-radius:6px; cursor:pointer">💾 儲存</button>`;
+  html += `<button id="dept-save-btn" onclick="deptSaveNow()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:#059669; color:white; border:none; border-radius:6px; cursor:pointer">💾 儲存</button>`;
   html += `<button onclick="deptConfirmAndPublish()" style="padding:9px 18px; font-size:1rem; font-weight:800; background:#dc2626; color:white; border:none; border-radius:6px; cursor:pointer">✓ 確認並公告</button>`;
   html += `<button onclick="closeDeptScheduler()" style="padding:9px 16px; font-size:1rem; background:#f3f4f6; border:1px solid #d1d5db; border-radius:6px; cursor:pointer">✕ 關閉</button>`;
   html += `</div>`;
@@ -17206,28 +17234,29 @@ function deptToggleGender(pid, current) {
 function deptSaveNow() {
   // 先存本機
   if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
-  const btn = (typeof event !== 'undefined') && event.target;
-  if (btn) {
-    const orig = btn.textContent;
-    btn.textContent = '⏳ 儲存中...';
-    // 同時存雲端(關鍵:科別 scheduleFlags 要進雲端,否則登出/重載就消失)
-    if (typeof saveScheduleToCloud === 'function' && typeof getAuthToken === 'function' && getAuthToken()) {
-      saveScheduleToCloud(state.month, true /* silent */).then(ok => {
-        btn.textContent = ok ? '✓ 已存雲端' : '⚠ 僅存本機';
-        setTimeout(() => { btn.textContent = orig; }, 1800);
-      }).catch(() => {
-        btn.textContent = '⚠ 僅存本機';
-        setTimeout(() => { btn.textContent = orig; }, 1800);
-      });
-    } else {
-      btn.textContent = '✓ 已儲存(本機)';
-      setTimeout(() => { btn.textContent = orig; }, 1500);
-    }
+  const btn = document.getElementById('dept-save-btn') || ((typeof event !== 'undefined') && event.target);
+  const restoreBtn = () => {
+    if (btn) { btn.style.background = '#059669'; btn.textContent = '💾 儲存'; }
+  };
+  if (typeof saveScheduleToCloud === 'function' && typeof getAuthToken === 'function' && getAuthToken()) {
+    if (btn) btn.textContent = '⏳ 儲存中...';
+    saveScheduleToCloud(state.month, true /* silent */).then(ok => {
+      if (ok) {
+        deptState.dirty = false;   // 存雲端成功 → 清除未存標記
+        if (btn) { btn.style.background = '#059669'; btn.textContent = '✓ 已存雲端'; setTimeout(restoreBtn, 1800); }
+      } else {
+        if (btn) { btn.style.background = '#dc2626'; btn.textContent = '⚠ 雲端失敗!再按一次'; }
+        alert('⚠ 存到雲端失敗!你的手動調整目前只在本機,離開就會遺失。\n請檢查網路/登入後,再按一次💾儲存。');
+      }
+    }).catch(() => {
+      if (btn) { btn.style.background = '#dc2626'; btn.textContent = '⚠ 雲端失敗!再按一次'; }
+      alert('⚠ 存到雲端失敗!你的手動調整目前只在本機,離開就會遺失。\n請檢查網路/登入後,再按一次💾儲存。');
+    });
   } else {
-    // 沒有按鈕物件(程式呼叫),也要存雲端
-    if (typeof saveScheduleToCloud === 'function' && typeof getAuthToken === 'function' && getAuthToken()) {
-      saveScheduleToCloud(state.month, true).catch(() => {});
-    }
+    // 未登入雲端
+    deptState.dirty = false;
+    if (btn) { btn.textContent = '✓ 已存本機'; setTimeout(restoreBtn, 1500); }
+    alert('⚠ 目前未登入雲端,科別只存本機。\n登入後請再按💾儲存,否則換裝置/重載會看不到。');
   }
 }
 
@@ -17429,6 +17458,7 @@ function deptOvSetCell(pid, day, name) {
   const pop = document.getElementById('dept-ov-popup');
   if (pop) pop.remove();
   if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  deptMarkDirty();
   renderDeptScheduler();
 }
 
@@ -17450,6 +17480,7 @@ function deptDrop(e, slotName) {
   state.scheduleFlags[p.id][day].dept = slotName;
   deptSelectedPerson = null;
   if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
+  deptMarkDirty();
   renderDeptScheduler();
 }
 
@@ -17965,6 +17996,7 @@ window.openDeptScheduler = openDeptScheduler;
 window.deptEditNote = deptEditNote;
 window.deptOpenAvoid = deptOpenAvoid;
 window.deptSaveNow = deptSaveNow;
+window.deptMarkDirty = deptMarkDirty;
 window.deptConfirmAndPublish = deptConfirmAndPublish;
 window.deptToggleOverview = deptToggleOverview;
 window.deptDragStart = deptDragStart;
