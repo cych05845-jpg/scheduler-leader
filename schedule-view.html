@@ -719,6 +719,12 @@ body[data-schedule-type="aide"] .month-table td.col-name {
   text-align: center;
   border-radius: 3px 3px 0 0;
 }
+/* 臨時調整的科別:橘底白字 + 🔧,跟正常公告科別區分 */
+.month-cell-dept.dept-temp {
+  background: #ea580c !important;
+  color: white !important;
+  border-bottom-color: #fed7aa !important;
+}
 /* 科別標籤跟班別同色系(深一階),深色實心+白字跟淺色班別格子形成界限 */
 .month-table td.cell-D .month-cell-dept {
   color: white;
@@ -1809,8 +1815,9 @@ function renderMonthTable() {
         'L+OB':'Leader+OB', 'P+OB':'P+OB', 'RX':'RX流動',
       };
       const deptFull = flag.dept ? (DEPT_FULLNAME[flag.dept] || flag.dept) : '';
+      const isTemp = flag.tempAdjust === true;
       const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
-        ? `<div class="month-cell-dept" title="${esc(deptFull)}">${esc(flag.dept)}</div>` : '';
+        ? `<div class="month-cell-dept${isTemp?' dept-temp':''}" title="${esc(deptFull)}${isTemp?' (臨時調整)':''}">${isTemp?'🔧':''}${esc(flag.dept)}</div>` : '';
       const noteDot = personNote ? `<div class="month-cell-pnote" title="${esc(personNote)}">${esc(personNote.length > 4 ? personNote.slice(0,3) + '⋯' : personNote)}</div>` : '';
       h += `<td class="${cls}" onclick="toggleRowLock('${escAttr(p.id)}')" style="cursor:pointer" title="${personNote ? esc(personNote) : '點一下鎖定整行,方便對齊'}">${deptSmall}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
     }

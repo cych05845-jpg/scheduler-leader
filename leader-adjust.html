@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>現場排科調整 — Leader</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: #f3f4f6; color: #1f2937; line-height: 1.5;
+    padding: 0; min-height: 100vh;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 12px; }
+
+  /* PIN 登入 */
+  .pin-gate {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .pin-card {
+    background: white; border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+    padding: 32px 28px; max-width: 360px; width: 100%; text-align: center;
+  }
+  .pin-card h1 { font-size: 1.25rem; color: #b45309; margin-bottom: 6px; }
+  .pin-card .sub { color: #6b7280; font-size: 0.88rem; margin-bottom: 22px; }
+  .pin-input {
+    width: 100%; padding: 12px; font-size: 1.4rem; text-align: center; letter-spacing: 6px;
+    border: 2px solid #d1d5db; border-radius: 10px; margin-bottom: 14px;
+  }
+  .btn-primary {
+    width: 100%; padding: 12px; background: #ea580c; color: white; border: none;
+    border-radius: 10px; font-weight: 800; font-size: 1rem; cursor: pointer;
+  }
+  .pin-err { color: #dc2626; font-size: 0.85rem; margin-top: 10px; min-height: 20px; }
+
+  /* 主介面 */
+  .app { display: none; }
+  .topbar {
+    background: linear-gradient(135deg,#ea580c,#b45309); color: white;
+    padding: 14px 16px; border-radius: 0 0 14px 14px; margin-bottom: 12px;
+  }
+  .topbar h1 { font-size: 1.15rem; margin-bottom: 3px; }
+  .topbar .desc { font-size: 0.8rem; opacity: 0.9; }
+
+  .controls {
+    background: white; border-radius: 12px; padding: 12px; margin-bottom: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .ctrl-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .ctrl-row:last-child { margin-bottom: 0; }
+  .ctrl-label { font-size: 0.82rem; font-weight: 700; color: #6b7280; min-width: 44px; }
+  .seg-btn {
+    padding: 7px 13px; border: 1.5px solid #d1d5db; background: white; border-radius: 7px;
+    font-weight: 700; cursor: pointer; font-size: 0.9rem; color: #6b7280;
+  }
+  .seg-btn.active { background: #ea580c; border-color: #ea580c; color: white; }
+  .seg-btn.sys.active { background: #7c3aed; border-color: #7c3aed; }
+
+  .status-line { font-size: 0.82rem; color: #6b7280; padding: 6px 2px; }
+  .status-line.err { color: #dc2626; }
+  .status-line.ok { color: #16a34a; }
+
+  /* 人員列表 */
+  .person {
+    background: white; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06); display: flex; align-items: center;
+    justify-content: space-between; gap: 8px;
+  }
+  .person.on-leave { background: #fef2f2; border-left: 3px solid #dc2626; }
+  .person.temp-adj { background: #fff7ed; border-left: 3px solid #ea580c; }
+  .p-info { flex: 1; min-width: 0; }
+  .p-name { font-weight: 700; font-size: 0.98rem; }
+  .p-sub { font-size: 0.78rem; color: #9ca3af; margin-top: 1px; }
+  .p-dept {
+    display: inline-block; padding: 2px 9px; border-radius: 8px; font-weight: 700;
+    font-size: 0.85rem; background: #ede9fe; color: #6b21a8; cursor: pointer;
+  }
+  .p-dept.temp { background: #ea580c; color: white; }
+  .p-dept.empty { background: #f3f4f6; color: #9ca3af; }
+  .p-leave-tag { font-size: 0.75rem; color: #dc2626; font-weight: 700; }
+  .p-actions { display: flex; gap: 5px; flex-shrink: 0; }
+  .act-btn {
+    padding: 5px 9px; border: none; border-radius: 6px; font-size: 0.8rem;
+    font-weight: 700; cursor: pointer;
+  }
+  .act-leave { background: #fee2e2; color: #dc2626; }
+  .act-restore { background: #dcfce7; color: #16a34a; }
+
+  /* 底部動作 */
+  .bottom-bar {
+    position: sticky; bottom: 0; background: white; padding: 12px;
+    border-radius: 12px 12px 0 0; box-shadow: 0 -4px 16px rgba(0,0,0,0.1);
+    display: flex; gap: 8px; margin-top: 12px;
+  }
+  .save-btn {
+    flex: 1; padding: 13px; background: #16a34a; color: white; border: none;
+    border-radius: 10px; font-weight: 800; font-size: 1rem; cursor: pointer;
+  }
+  .save-btn:disabled { background: #9ca3af; }
+  .log-btn {
+    padding: 13px 16px; background: white; border: 2px solid #b45309; color: #b45309;
+    border-radius: 10px; font-weight: 700; cursor: pointer;
+  }
+
+  /* 彈窗 */
+  .modal {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    align-items: center; justify-content: center; z-index: 100; padding: 20px;
+  }
+  .modal-card {
+    background: white; border-radius: 14px; max-width: 380px; width: 100%;
+    max-height: 80vh; overflow-y: auto;
+  }
+  .modal-head {
+    padding: 14px 16px; font-weight: 800; font-size: 1.05rem; color: white;
+    display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0;
+  }
+  .modal-body { padding: 16px; }
+  .dept-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  .dept-opt {
+    padding: 8px 12px; border: 2px solid; border-radius: 8px; font-weight: 700;
+    cursor: pointer; font-size: 0.9rem;
+  }
+  .reason-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
+  .reason-opt {
+    padding: 12px; border: 2px solid #fecaca; background: #fef2f2; color: #b91c1c;
+    border-radius: 8px; font-weight: 700; cursor: pointer; text-align: center;
+  }
+  .reason-opt:hover { background: #fee2e2; }
+  .log-entry {
+    padding: 9px 11px; margin-bottom: 7px; border-radius: 0 7px 7px 0; font-size: 0.85rem;
+  }
+  .log-leave { border-left: 3px solid #dc2626; background: #fef2f2; }
+  .log-cover { border-left: 3px solid #ea580c; background: #fff7ed; }
+  .log-time { color: #9ca3af; font-size: 0.75rem; }
+</style>
+</head>
+<body>
+
+<!-- PIN 登入 -->
+<div class="pin-gate" id="pin-gate">
+  <div class="pin-card">
+    <h1>🔧 現場排科調整</h1>
+    <div class="sub">當班 Leader 專用<br>請輸入 Leader 碼</div>
+    <input class="pin-input" id="pin-input" type="password" inputmode="numeric" maxlength="8" placeholder="••••">
+    <button class="btn-primary" onclick="checkPin()">進入</button>
+    <div class="pin-err" id="pin-err"></div>
+  </div>
+</div>
+
+<!-- 主介面 -->
+<div class="app" id="app">
+  <div class="topbar">
+    <h1>🔧 現場排科調整</h1>
+    <div class="desc">劃記請假 · 調整科別 · 自動記錄並更新雲端</div>
+  </div>
+  <div class="wrap">
+    <div class="controls">
+      <div class="ctrl-row">
+        <span class="ctrl-label">系統</span>
+        <button class="seg-btn sys active" id="sys-nurse" onclick="setSystem('nurse')">護理師</button>
+        <button class="seg-btn sys" id="sys-aide" onclick="setSystem('aide')">技助事員</button>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-label">日期</span>
+        <button class="seg-btn" id="day-prev" onclick="setDayOffset(-1)">昨天</button>
+        <button class="seg-btn active" id="day-today" onclick="setDayOffset(0)">今天</button>
+        <button class="seg-btn" id="day-next" onclick="setDayOffset(1)">明天</button>
+        <span id="day-label" style="font-weight:700; color:#b45309; margin-left:4px"></span>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-label">班別</span>
+        <button class="seg-btn active" id="shift-D" onclick="setShift('D')">D 白</button>
+        <button class="seg-btn" id="shift-E" onclick="setShift('E')">E 小夜</button>
+        <button class="seg-btn" id="shift-N" onclick="setShift('N')">N 大夜</button>
+      </div>
+    </div>
+
+    <div class="status-line" id="status-line">載入中...</div>
+    <div id="person-list"></div>
+  </div>
+
+  <div class="wrap">
+    <div class="bottom-bar">
+      <button class="save-btn" id="save-btn" onclick="saveToCloud()">💾 儲存並更新雲端</button>
+      <button class="log-btn" onclick="showLog()">📋 記錄</button>
+    </div>
+  </div>
+</div>
+
+<!-- 科別選擇彈窗 -->
+<div class="modal" id="dept-modal">
+  <div class="modal-card">
+    <div class="modal-head" style="background:#7c3aed">
+      <span id="dept-modal-title">選擇科別</span>
+      <span onclick="closeModal('dept-modal')" style="cursor:pointer">✕</span>
+    </div>
+    <div class="modal-body"><div class="dept-grid" id="dept-grid"></div></div>
+  </div>
+</div>
+
+<!-- 請假原因彈窗 -->
+<div class="modal" id="leave-modal">
+  <div class="modal-card">
+    <div class="modal-head" style="background:#dc2626">
+      <span id="leave-modal-title">請假原因</span>
+      <span onclick="closeModal('leave-modal')" style="cursor:pointer">✕</span>
+    </div>
+    <div class="modal-body">
+      <div class="reason-grid">
+        <div class="reason-opt" onclick="applyLeave('病假')">病假</div>
+        <div class="reason-opt" onclick="applyLeave('事假')">事假</div>
+        <div class="reason-opt" onclick="applyLeave('喪假')">喪假</div>
+        <div class="reason-opt" onclick="applyLeave('公假')">公假</div>
+      </div>
+      <div style="display:flex; gap:6px">
+        <input id="leave-other" type="text" placeholder="其他原因..." style="flex:1; padding:9px; border:1px solid #d1d5db; border-radius:7px">
+        <button onclick="applyLeaveOther()" style="padding:9px 14px; background:#dc2626; color:white; border:none; border-radius:7px; font-weight:700; cursor:pointer">確定</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 記錄彈窗 -->
+<div class="modal" id="log-modal">
+  <div class="modal-card">
+    <div class="modal-head" style="background:#b45309">
+      <span>📋 今日異動記錄</span>
+      <span onclick="closeModal('log-modal')" style="cursor:pointer">✕</span>
+    </div>
+    <div class="modal-body" id="log-body"></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js';
+import { getDatabase, ref, get, set, update } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-database.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDiR4V_KZTBaLIuPLZOben9r4HFprGTW1k",
+  authDomain: "cych-ed-scheduling.firebaseapp.com",
+  databaseURL: "https://cych-ed-scheduling-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "cych-ed-scheduling",
+};
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+// ===== 設定 =====
+const LEADER_PIN = '1111';   // ← Leader 碼(護理長可自行改這行數字)
+const DEPT_OPTIONS = ['L','T','PT','CPR','P','R1','R2','R3','O+ST','P+OB','RX'];
+const DEPT_COLORS = {
+  'L':'#7c3aed','T':'#0891b2','PT':'#06b6d4','CPR':'#dc2626','P':'#db2777',
+  'R1':'#16a34a','R2':'#15803d','R3':'#166534','O+ST':'#ca8a04','P+OB':'#9333ea','RX':'#ea580c'
+};
+const DEPT_FULL = {
+  'L':'Leader','T':'成人檢傷','PT':'兒童檢傷','CPR':'急救區','P':'兒科',
+  'R1':'治療區1','R2':'治療區2','R3':'治療區3','O+ST':'留觀區','P+OB':'P+OB','RX':'RX流動'
+};
+
+// ===== 狀態 =====
+const S = {
+  system: 'nurse',    // nurse | aide
+  dayOffset: 0,       // -1/0/1
+  shift: 'D',
+  month: null,
+  day: null,
+  cloudNode: null,    // 整包雲端資料 { data, meta }
+  dirty: false,
+  editingPid: null,   // 正在改科別/請假的人
+};
+
+// ===== PIN =====
+window.checkPin = function() {
+  const v = document.getElementById('pin-input').value.trim();
+  if (v === LEADER_PIN) {
+    document.getElementById('pin-gate').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    initApp();
+  } else {
+    document.getElementById('pin-err').textContent = 'Leader 碼錯誤,請重試';
+    document.getElementById('pin-input').value = '';
+  }
+};
+document.getElementById('pin-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') window.checkPin();
+});
+
+// ===== 日期計算 =====
+function computeMonthDay() {
+  const now = new Date();
+  now.setDate(now.getDate() + S.dayOffset);
+  const y = now.getFullYear();
+  const m = String(now.getMonth()+1).padStart(2,'0');
+  S.month = `${y}-${m}`;
+  S.day = now.getDate();
+  const dow = ['日','一','二','三','四','五','六'][now.getDay()];
+  document.getElementById('day-label').textContent = `${now.getMonth()+1}/${S.day}(${dow})`;
+}
+
+function initApp() {
+  computeMonthDay();
+  loadCloud();
+}
+
+// ===== 控制列 =====
+window.setSystem = function(sys) {
+  S.system = sys;
+  document.getElementById('sys-nurse').classList.toggle('active', sys==='nurse');
+  document.getElementById('sys-aide').classList.toggle('active', sys==='aide');
+  loadCloud();
+};
+window.setDayOffset = function(off) {
+  S.dayOffset = off;
+  ['prev','today','next'].forEach((k,i) => {
+    document.getElementById('day-'+k).classList.toggle('active', [-1,0,1][i]===off);
+  });
+  computeMonthDay();
+  loadCloud();
+};
+window.setShift = function(sh) {
+  S.shift = sh;
+  ['D','E','N'].forEach(s => document.getElementById('shift-'+s).classList.toggle('active', s===sh));
+  renderPeople();
+};
+
+// ===== 載入雲端 =====
+async function loadCloud() {
+  const statusEl = document.getElementById('status-line');
+  statusEl.className = 'status-line';
+  statusEl.textContent = '載入中...';
+  document.getElementById('person-list').innerHTML = '';
+  S.cloudNode = null; S.dirty = false;
+  try {
+    const path = S.system === 'aide' ? 'aide-schedules' : 'schedules';
+    const monthKey = S.month.replace(/[.#$\[\]/]/g, '_');
+    const snap = await get(ref(db, `${path}/${monthKey}`));
+    if (!snap.exists()) {
+      statusEl.className = 'status-line err';
+      statusEl.textContent = `⚠ ${S.month} 這個月還沒公告,無法調整。請護理長先公告。`;
+      return;
+    }
+    const node = snap.val();
+    if (node.meta && node.meta.status === 'withdrawn') {
+      statusEl.className = 'status-line err';
+      statusEl.textContent = `⚠ ${S.month} 班表調整中(已撤回),暫時無法調整。`;
+      return;
+    }
+    S.cloudNode = node;
+    renderPeople();
+  } catch (e) {
+    statusEl.className = 'status-line err';
+    statusEl.textContent = '⚠ 載入失敗:' + (e.message || e);
+  }
+}
+
+// ===== 顯示人員 =====
+function renderPeople() {
+  const statusEl = document.getElementById('status-line');
+  const listEl = document.getElementById('person-list');
+  if (!S.cloudNode || !S.cloudNode.data) { listEl.innerHTML = ''; return; }
+  const data = S.cloudNode.data;
+  const staff = data.staff || [];
+  const schedule = data.schedule || {};
+  const flags = data.flags || {};
+
+  // 當天當班的人
+  const onShift = staff.filter(p => (schedule[p.id]||{})[S.day] === S.shift);
+  statusEl.className = 'status-line ok';
+  statusEl.textContent = `${S.month.split('-')[1]}/${S.day} ${S.shift}班 · 共 ${onShift.length} 人`;
+
+  if (onShift.length === 0) {
+    listEl.innerHTML = '<div style="text-align:center; padding:30px; color:#9ca3af">這個班別今天沒有人上班</div>';
+    return;
+  }
+
+  let html = '';
+  onShift.forEach(p => {
+    const f = (flags[p.id]||{})[S.day] || {};
+    const dept = f.dept || '';
+    const isTemp = f.tempAdjust === true;
+    const onLeave = f.leaveMarked === true;
+    const cls = onLeave ? 'person on-leave' : (isTemp ? 'person temp-adj' : 'person');
+    const deptCls = onLeave ? 'p-dept empty' : (isTemp ? 'p-dept temp' : (dept ? 'p-dept' : 'p-dept empty'));
+    const deptText = dept || '未排';
+
+    html += `<div class="${cls}">`;
+    html += `<div class="p-info">`;
+    html += `<div class="p-name">${esc(p.name)}${onLeave?` <span class="p-leave-tag">· ${esc(f.leaveReason||'請假')}</span>`:''}</div>`;
+    html += `<div class="p-sub">${esc(p.level||'')}${p.peakStage?' · '+capName(p.peakStage):''}</div>`;
+    html += `</div>`;
+    if (!onLeave) {
+      html += `<span class="${deptCls}" onclick="openDeptPicker('${p.id}')">${esc(deptText)}${isTemp?' 🔧':''}</span>`;
+    }
+    html += `<div class="p-actions">`;
+    if (onLeave) {
+      html += `<button class="act-btn act-restore" onclick="restorePerson('${p.id}')">取消請假</button>`;
+    } else {
+      html += `<button class="act-btn act-leave" onclick="openLeavePicker('${p.id}')">劃假</button>`;
+    }
+    html += `</div>`;
+    html += `</div>`;
+  });
+  listEl.innerHTML = html;
+}
+
+function capName(s) {
+  return {basic:'基礎',P:'兒P',cpr:'CPR',tri:'檢傷',lead:'Lead'}[s] || s;
+}
+
+// ===== 改科別 =====
+window.openDeptPicker = function(pid) {
+  S.editingPid = pid;
+  const data = S.cloudNode.data;
+  const p = (data.staff||[]).find(x=>x.id===pid);
+  document.getElementById('dept-modal-title').textContent = `${p?p.name:''} 改科別`;
+  const cur = ((data.flags[pid]||{})[S.day]||{}).dept || '';
+  let html = '';
+  DEPT_OPTIONS.forEach(name => {
+    const c = DEPT_COLORS[name] || '#6b7280';
+    const sel = name === cur;
+    html += `<div class="dept-opt" style="border-color:${c}; background:${sel?c:'white'}; color:${sel?'white':c}" onclick="applyDept('${name}')" title="${DEPT_FULL[name]||name}">${name}</div>`;
+  });
+  html += `<div class="dept-opt" style="border-color:#d1d5db; background:#f9fafb; color:#6b7280" onclick="applyDept('')">清除</div>`;
+  document.getElementById('dept-grid').innerHTML = html;
+  openModal('dept-modal');
+};
+
+window.applyDept = function(name) {
+  const pid = S.editingPid;
+  const data = S.cloudNode.data;
+  if (!data.flags[pid]) data.flags[pid] = {};
+  if (!data.flags[pid][S.day]) data.flags[pid][S.day] = {};
+  const f = data.flags[pid][S.day];
+  const oldDept = f.dept || '(未排科)';
+  if (name) f.dept = name; else delete f.dept;
+  f.tempAdjust = true;
+  logAdjust(pid, { action:'cover', who: personName(pid), fromDept: oldDept, toDept: name||'(清除)' });
+  S.dirty = true;
+  closeModal('dept-modal');
+  renderPeople();
+};
+
+// ===== 劃假 =====
+window.openLeavePicker = function(pid) {
+  S.editingPid = pid;
+  document.getElementById('leave-modal-title').textContent = `${personName(pid)} 請假`;
+  document.getElementById('leave-other').value = '';
+  openModal('leave-modal');
+};
+window.applyLeave = function(reason) { doLeave(reason); };
+window.applyLeaveOther = function() {
+  const v = document.getElementById('leave-other').value.trim();
+  if (!v) { alert('請輸入原因'); return; }
+  doLeave(v);
+};
+function doLeave(reason) {
+  const pid = S.editingPid;
+  const data = S.cloudNode.data;
+  if (!data.flags[pid]) data.flags[pid] = {};
+  if (!data.flags[pid][S.day]) data.flags[pid][S.day] = {};
+  const f = data.flags[pid][S.day];
+  const oldDept = f.dept || '(未排科)';
+  f.leaveMarked = true;
+  f.leaveReason = reason;
+  f.tempAdjust = true;
+  delete f.dept;   // 請假 → 清掉科別
+  logAdjust(pid, { action:'leave', who: personName(pid), fromDept: oldDept, reason });
+  S.dirty = true;
+  closeModal('leave-modal');
+  renderPeople();
+}
+window.restorePerson = function(pid) {
+  const data = S.cloudNode.data;
+  const f = (data.flags[pid]||{})[S.day];
+  if (f) { delete f.leaveMarked; delete f.leaveReason; }
+  logAdjust(pid, { action:'restore', who: personName(pid) });
+  S.dirty = true;
+  renderPeople();
+};
+
+// ===== 記錄 =====
+function logAdjust(pid, entry) {
+  const data = S.cloudNode.data;
+  if (!data.flags[pid]) data.flags[pid] = {};
+  if (!data.flags[pid][S.day]) data.flags[pid][S.day] = {};
+  const f = data.flags[pid][S.day];
+  if (!f.adjustLog) f.adjustLog = [];
+  f.adjustLog.push(Object.assign({ time: new Date().toISOString(), by:'leader' }, entry));
+}
+
+window.showLog = function() {
+  const data = S.cloudNode ? S.cloudNode.data : null;
+  const body = document.getElementById('log-body');
+  if (!data) { body.innerHTML = '無資料'; openModal('log-modal'); return; }
+  const logs = [];
+  (data.staff||[]).forEach(p => {
+    const f = (data.flags[p.id]||{})[S.day];
+    if (f && Array.isArray(f.adjustLog)) f.adjustLog.forEach(e => logs.push(e));
+  });
+  logs.sort((a,b)=>(a.time||'').localeCompare(b.time||''));
+  if (logs.length===0) {
+    body.innerHTML = `<div style="text-align:center; color:#9ca3af; padding:20px">今天沒有異動記錄</div>`;
+  } else {
+    body.innerHTML = logs.map(e => {
+      const t = e.time ? new Date(e.time).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}) : '';
+      if (e.action==='leave')
+        return `<div class="log-entry log-leave"><b>${esc(e.who)}</b> 請假(${esc(e.reason||'')})<br><span class="log-time">原:${esc(e.fromDept||'')} · ${t}</span></div>`;
+      if (e.action==='cover')
+        return `<div class="log-entry log-cover"><b>${esc(e.who)}</b> 改科別 → ${esc(e.toDept||'')}<br><span class="log-time">原:${esc(e.fromDept||'')} · ${t}</span></div>`;
+      if (e.action==='restore')
+        return `<div class="log-entry log-leave"><b>${esc(e.who)}</b> 取消請假<br><span class="log-time">${t}</span></div>`;
+      return '';
+    }).join('');
+  }
+  openModal('log-modal');
+};
+
+// ===== 存雲端 =====
+window.saveToCloud = async function() {
+  if (!S.cloudNode) return;
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true; btn.textContent = '⏳ 儲存中...';
+  try {
+    const path = S.system === 'aide' ? 'aide-schedules' : 'schedules';
+    const monthKey = S.month.replace(/[.#$\[\]/]/g, '_');
+    // 只更新 data(保留原 meta),並記錄最後調整資訊
+    await update(ref(db, `${path}/${monthKey}`), {
+      data: S.cloudNode.data,
+      lastAdjust: {
+        at: new Date().toISOString(),
+        by: 'leader-onsite',
+        day: S.day,
+      },
+    });
+    S.dirty = false;
+    btn.textContent = '✓ 已更新雲端';
+    setTimeout(()=>{ btn.disabled=false; btn.textContent='💾 儲存並更新雲端'; }, 1800);
+  } catch (e) {
+    btn.textContent = '⚠ 儲存失敗';
+    alert('儲存失敗:' + (e.message||e) + '\n請檢查網路後再試。');
+    setTimeout(()=>{ btn.disabled=false; btn.textContent='💾 儲存並更新雲端'; }, 1800);
+  }
+};
+
+// ===== 工具 =====
+function personName(pid) {
+  const data = S.cloudNode.data;
+  const p = (data.staff||[]).find(x=>x.id===pid);
+  return p ? p.name : pid;
+}
+function esc(s) {
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+window.openModal = function(id){ document.getElementById(id).style.display='flex'; };
+window.closeModal = function(id){ document.getElementById(id).style.display='none'; };
+
+// 離開前提醒未存
+window.addEventListener('beforeunload', (e) => {
+  if (S.dirty) { e.preventDefault(); e.returnValue='有未儲存的調整,離開前請先「儲存並更新雲端」。'; return e.returnValue; }
+});
+</script>
+</body>
+</html>

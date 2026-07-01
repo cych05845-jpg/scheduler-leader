@@ -16670,6 +16670,9 @@ const deptState = {
   day: null,       // 當前排科日期
   shift: 'D',      // 當前班別
   dirty: false,    // 有未存雲端的變更?(避免離開時遺失手動調整)
+  tempMode: false, // 臨時調整模式(現場請假/代班)
+  tempLeaveSlot: null,  // 剛標記請假空出來的科
+  tempLeaveName: null,  // 剛標記請假的人名(給代班記錄用)
 };
 
 // 標記排科有變更(未存雲端)
@@ -16678,6 +16681,105 @@ function deptMarkDirty() {
   // 更新💾儲存按鈕外觀提示(若存在)
   const btn = document.getElementById('dept-save-btn');
   if (btn) { btn.style.background = '#f59e0b'; btn.textContent = '💾 儲存*(未存雲端)'; }
+}
+
+// ============================================================
+// 🔧 臨時調整模式(現場有人請假 → 改科別 + 找人蓋班 + 記錄)
+// ============================================================
+function deptToggleTempMode() {
+  deptState.tempMode = !deptState.tempMode;
+  deptSelectedPerson = null;
+  if (deptState.tempMode) {
+    alert('🔧 已進入「臨時調整」模式\n\n用於現場有人請假時即時處理:\n1. 點請假者名字 → 選「標記請假」\n2. 點別人 → 再點科別卡 → 指派為代班(自動記錄)\n\n所有臨時異動都會記錄「誰改的、原本是什麼、代誰的班」。\n再按一次「🔧 臨時調整」可離開此模式。');
+  }
+  renderDeptScheduler();
+}
+
+// 記一筆臨時異動到某格
+function deptLogAdjust(pid, day, entry) {
+  if (!state.scheduleFlags[pid]) state.scheduleFlags[pid] = {};
+  if (!state.scheduleFlags[pid][day]) state.scheduleFlags[pid][day] = {};
+  const f = state.scheduleFlags[pid][day];
+  if (!f.adjustLog) f.adjustLog = [];
+  f.adjustLog.push(Object.assign({ time: new Date().toISOString() }, entry));
+  f.tempAdjust = true;   // 標記這格是臨時調整過的(觸發橘色顯示)
+}
+
+// 臨時:標記某人今天請假(清掉他的科別,記錄)
+function deptMarkLeave(pid) {
+  const day = deptState.day;
+  const p = state.staff.find(x => x.id === pid);
+  if (!p) return;
+  const oldDept = ((state.scheduleFlags[pid]||{})[day]||{}).dept || '(未排科)';
+  const reason = prompt(`標記「${p.name}」今天(${state.month.split('-')[1]}/${day})請假\n\n原本排:${oldDept}\n請輸入請假原因(選填,例:病假、事假):`, '');
+  if (reason === null) return;
+  if (state.scheduleFlags[pid] && state.scheduleFlags[pid][day]) {
+    delete state.scheduleFlags[pid][day].dept;
+  }
+  deptLogAdjust(pid, day, {
+    action: 'leave', who: p.name, fromDept: oldDept,
+    reason: reason.trim() || '請假', by: 'leader',
+  });
+  deptState.tempLeaveSlot = (oldDept && oldDept !== '(未排科)') ? oldDept : null;
+  deptState.tempLeaveName = p.name;
+  deptMarkDirty();
+  renderDeptScheduler();
+  if (deptState.tempLeaveSlot) {
+    alert(`已標記 ${p.name} 請假,空出「${deptState.tempLeaveSlot}」。\n\n現在點要蓋班的人 → 再點「${deptState.tempLeaveSlot}」科別卡,即完成代班。`);
+  }
+}
+
+// 臨時:指派某人代班到某科(記錄代誰的班)
+function deptAssignTemp(pid, slotName) {
+  const day = deptState.day;
+  const p = state.staff.find(x => x.id === pid);
+  if (!p) return;
+  const oldDept = ((state.scheduleFlags[pid]||{})[day]||{}).dept || '(未排科)';
+  if (!state.scheduleFlags[pid]) state.scheduleFlags[pid] = {};
+  if (!state.scheduleFlags[pid][day]) state.scheduleFlags[pid][day] = {};
+  state.scheduleFlags[pid][day].dept = slotName;
+  deptLogAdjust(pid, day, {
+    action: 'cover', who: p.name, fromDept: oldDept, toDept: slotName,
+    coverFor: deptState.tempLeaveName || '', by: 'leader',
+  });
+  deptState.tempLeaveSlot = null;
+  deptState.tempLeaveName = null;
+  deptMarkDirty();
+  renderDeptScheduler();
+}
+
+// 看某天的異動記錄
+function deptShowAdjustLog() {
+  const day = deptState.day;
+  const mm = state.month.split('-')[1];
+  const logs = [];
+  state.staff.forEach(p => {
+    const f = (state.scheduleFlags[p.id]||{})[day];
+    if (f && Array.isArray(f.adjustLog)) {
+      f.adjustLog.forEach(e => logs.push(Object.assign({ pid: p.id }, e)));
+    }
+  });
+  logs.sort((a,b) => (a.time||'').localeCompare(b.time||''));
+  const box = document.getElementById('dept-adjustlog-body');
+  if (!box) return;
+  if (logs.length === 0) {
+    box.innerHTML = `<div style="padding:20px; text-align:center; color:#9ca3af">${mm}/${day} 今天沒有臨時異動記錄</div>`;
+  } else {
+    let html = '';
+    logs.forEach(e => {
+      const t = e.time ? new Date(e.time).toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'}) : '';
+      if (e.action === 'leave') {
+        html += `<div style="padding:8px 10px; border-left:3px solid #dc2626; background:#fef2f2; margin-bottom:6px; border-radius:0 6px 6px 0; font-size:0.85rem"><b>${e.who}</b> 請假(${deptEsc(e.reason||'')})<br><span style="color:#6b7280; font-size:0.78rem">原排:${deptEsc(e.fromDept||'')} · ${t}</span></div>`;
+      } else if (e.action === 'cover') {
+        html += `<div style="padding:8px 10px; border-left:3px solid #ea580c; background:#fff7ed; margin-bottom:6px; border-radius:0 6px 6px 0; font-size:0.85rem"><b>${e.who}</b> 代班 → ${deptEsc(e.toDept||'')}${e.coverFor?`(代 ${deptEsc(e.coverFor)})`:''}<br><span style="color:#6b7280; font-size:0.78rem">${e.fromDept&&e.fromDept!=='(未排科)'?'原:'+deptEsc(e.fromDept)+' · ':''}${t}</span></div>`;
+      }
+    });
+    box.innerHTML = html;
+  }
+  document.getElementById('dept-adjustlog-panel').style.display = 'flex';
+}
+function deptCloseAdjustLog() {
+  document.getElementById('dept-adjustlog-panel').style.display = 'none';
 }
 
 // 排科視窗攔截:beforeunload(關頁/重整/跳走)時,若有未存變更 → 瀏覽器攔截
@@ -16985,13 +17087,19 @@ function deptSelectPerson(pid) {
 // 點科別格 → 把選中的人放進去
 function deptAssignToSlot(slotName) {
   if (!deptSelectedPerson) { return; }
-  const day = deptState.day;
   const p = state.staff.find(x => x.id === deptSelectedPerson);
+  const pid = deptSelectedPerson;
+  deptSelectedPerson = null;
   if (!p) return;
+  // 臨時調整模式:走代班流程(自動記錄)
+  if (deptState.tempMode) {
+    deptAssignTemp(pid, slotName);
+    return;
+  }
+  const day = deptState.day;
   if (!state.scheduleFlags[p.id]) state.scheduleFlags[p.id] = {};
   if (!state.scheduleFlags[p.id][day]) state.scheduleFlags[p.id][day] = {};
   state.scheduleFlags[p.id][day].dept = slotName;
-  deptSelectedPerson = null;
   if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
   deptMarkDirty();
   renderDeptScheduler();
@@ -17055,6 +17163,10 @@ function renderDeptScheduler() {
     html += `<button onclick="deptSetShift('${s}')" style="padding:8px 18px; font-size:1.05rem; font-weight:700; border:2px solid ${active?'#7c3aed':'#d1d5db'}; background:${active?'#7c3aed':'white'}; color:${active?'white':'#6b7280'}; border-radius:6px; cursor:pointer">${s} 班</button>`;
   });
   html += `<div style="flex:1"></div>`;
+  html += `<button onclick="deptToggleTempMode()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:${deptState.tempMode?'#ea580c':'white'}; border:2px solid #ea580c; color:${deptState.tempMode?'white':'#ea580c'}; border-radius:6px; cursor:pointer">🔧 臨時調整${deptState.tempMode?' (進行中)':''}</button>`;
+  if (deptState.tempMode) {
+    html += `<button onclick="deptShowAdjustLog()" style="padding:9px 14px; font-size:0.95rem; font-weight:700; background:white; border:2px solid #b45309; color:#b45309; border-radius:6px; cursor:pointer">📋 異動記錄</button>`;
+  }
   html += `<button onclick="deptToggleAI()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #7c3aed; color:#7c3aed; border-radius:6px; cursor:pointer">🤖 AI</button>`;
   html += `<button onclick="deptToggleOverview()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #7c3aed; color:#7c3aed; border-radius:6px; cursor:pointer">📋 整月總覽</button>`;
   html += `<button onclick="deptOpenBatchPanel()" style="padding:9px 16px; font-size:1rem; font-weight:700; background:white; border:2px solid #ea580c; color:#ea580c; border-radius:6px; cursor:pointer">📅 連續排</button>`;
@@ -17116,6 +17228,9 @@ function renderDeptScheduler() {
     html += `<span onclick="event.stopPropagation(); deptSetGender('${p.id}','女')" title="設為女" style="font-size:0.72rem; padding:1px 6px; border-radius:8px; background:${g==='女'?'#db2777':'#f3f4f6'}; color:${g==='女'?'white':'#9ca3af'}; cursor:pointer; font-weight:${g==='女'?'700':'400'}">女</span>`;
     html += `<span onclick="event.stopPropagation(); deptSetGender('${p.id}','男')" title="設為男" style="font-size:0.72rem; padding:1px 6px; border-radius:8px; background:${g==='男'?'#2563eb':'#f3f4f6'}; color:${g==='男'?'white':'#9ca3af'}; cursor:pointer; font-weight:${g==='男'?'700':'400'}">男</span>`;
     html += `<span onclick="event.stopPropagation(); deptOpenAvoid('${p.id}')" title="設定盡量不排的科別" style="font-size:0.8rem; cursor:pointer; color:#9ca3af; margin-left:2px">⚙</span>`;
+    if (deptState.tempMode) {
+      html += `<span onclick="event.stopPropagation(); deptMarkLeave('${p.id}')" title="標記今天請假" style="font-size:0.72rem; padding:1px 7px; border-radius:8px; background:#dc2626; color:white; cursor:pointer; margin-left:3px; font-weight:700">請假</span>`;
+    }
     html += `</span>`;
     html += `</div>`;
     html += `<div style="font-size:0.75rem; color:#9ca3af; margin-top:2px">${peakName}`;
@@ -17182,8 +17297,12 @@ function renderDeptScheduler() {
       if (slot.femaleOnly && g!=='女') warn='⚠非女性';
       if ((CAP_RANK[p.peakStage]??0) < CAP_RANK[slot.requires]) warn='⚠能力不足';
       const seniorTag = slot.seniorPair ? (idx===0?'資深':'資淺') : '';
-      html += `<div draggable="true" ondragstart="event.stopPropagation(); deptDragStart(event,'${p.id}')" style="display:flex; align-items:center; justify-content:space-between; padding:4px 6px; margin-bottom:3px; background:#f9fafb; border-radius:5px; cursor:grab">`;
-      html += `<span style="font-size:0.9rem"><span style="display:inline-block; width:18px; height:18px; line-height:18px; text-align:center; border-radius:50%; background:${gColor}; color:white; font-size:0.68rem; margin-right:5px">${g||'?'}</span>${p.name}${seniorTag?`<span style="font-size:0.7rem; color:#9ca3af; margin-left:4px">${seniorTag}</span>`:''}${warn?`<span style="font-size:0.7rem; color:#dc2626; margin-left:4px">${warn}</span>`:''}</span>`;
+      // 臨時調整記號(橘色)
+      const isTemp = (((state.scheduleFlags[p.id]||{})[deptState.day]||{}).tempAdjust) === true;
+      const tempTag = isTemp ? `<span style="font-size:0.66rem; color:white; background:#ea580c; padding:0 5px; border-radius:7px; margin-left:4px; font-weight:700">臨時</span>` : '';
+      const rowBg = isTemp ? '#fff7ed' : '#f9fafb';
+      html += `<div draggable="true" ondragstart="event.stopPropagation(); deptDragStart(event,'${p.id}')" style="display:flex; align-items:center; justify-content:space-between; padding:4px 6px; margin-bottom:3px; background:${rowBg}; border-radius:5px; cursor:grab${isTemp?'; border-left:3px solid #ea580c':''}">`;
+      html += `<span style="font-size:0.9rem"><span style="display:inline-block; width:18px; height:18px; line-height:18px; text-align:center; border-radius:50%; background:${gColor}; color:white; font-size:0.68rem; margin-right:5px">${g||'?'}</span>${p.name}${seniorTag?`<span style="font-size:0.7rem; color:#9ca3af; margin-left:4px">${seniorTag}</span>`:''}${tempTag}${warn?`<span style="font-size:0.7rem; color:#dc2626; margin-left:4px">${warn}</span>`:''}</span>`;
       html += `<span onclick="event.stopPropagation(); deptClearPerson('${p.id}')" style="cursor:pointer; color:#9ca3af; font-size:0.9rem; padding:0 4px" title="移除">✕</span>`;
       html += `</div>`;
     });
@@ -18000,6 +18119,10 @@ window.deptEditNote = deptEditNote;
 window.deptOpenAvoid = deptOpenAvoid;
 window.deptSaveNow = deptSaveNow;
 window.deptMarkDirty = deptMarkDirty;
+window.deptToggleTempMode = deptToggleTempMode;
+window.deptMarkLeave = deptMarkLeave;
+window.deptShowAdjustLog = deptShowAdjustLog;
+window.deptCloseAdjustLog = deptCloseAdjustLog;
 window.deptConfirmAndPublish = deptConfirmAndPublish;
 window.deptToggleOverview = deptToggleOverview;
 window.deptDragStart = deptDragStart;
@@ -18258,6 +18381,15 @@ window.autoAssignDept = autoAssignDept;
       <input id="dept-ai-input" type="text" placeholder="下指令或問問題..." onkeydown="if(event.key==='Enter')deptAISend()" style="flex:1; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:0.88rem">
       <button onclick="deptAISend()" style="padding:8px 14px; background:#7c3aed; color:white; border:none; border-radius:6px; font-weight:700; cursor:pointer">送出</button>
     </div>
+  </div>
+
+  <!-- 臨時異動記錄 面板 -->
+  <div id="dept-adjustlog-panel" style="display:none; position:absolute; right:30px; top:80px; width:320px; max-height:70%; background:white; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.25); flex-direction:column; overflow:hidden; z-index:9150; border:2px solid #b45309">
+    <div style="padding:10px 14px; background:linear-gradient(135deg,#ea580c,#b45309); color:white; display:flex; justify-content:space-between; align-items:center">
+      <span style="font-weight:700">📋 今日臨時異動記錄</span>
+      <span onclick="deptCloseAdjustLog()" style="cursor:pointer; font-size:1.1rem">✕</span>
+    </div>
+    <div id="dept-adjustlog-body" style="flex:1; overflow-y:auto; padding:10px"></div>
   </div>
 
   <!-- 連續排多天 面板 -->
