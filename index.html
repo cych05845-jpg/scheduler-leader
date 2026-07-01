@@ -16829,19 +16829,29 @@ function autoAssignDept() {
         const today = (((state.scheduleFlags[p.id]||{})[day]||{}).deptAvoidToday || []).includes(slot.name);
         return longTerm || today;
       };
-      // O+ST 連續性:昨天排同科且今天也上班 → 優先續任(強軟優先,L 已在上面硬處理)
-      const continuedYesterday = (p) => {
-        if (slot.id !== 'O+ST') return false;
-        const yf = (state.scheduleFlags[p.id]||{})[day-1]||{};
-        return yf.dept === slot.name;
+      // 連 2 天友善:留觀(O+ST)、治療區(R1/R2/R3)排了盡量連 2 天,減輕人員 loading
+      // needsPairContinuity=適用連2天的科;剛上第1天者最優先續第2天
+      const pairContinuitySlots = ['O+ST','R1','R2','R3'];
+      const needPair = pairContinuitySlots.includes(slot.id);
+      // 回傳:2=剛上第1天(最該續),1=昨天有排(已滿2天,普通續),0=沒續
+      const continuityScore = (p) => {
+        if (!needPair) {
+          // 非連2天科:只有 O+ST 舊邏輯已移除,這裡其他科不特別續
+          return 0;
+        }
+        const yf = (state.scheduleFlags[p.id]||{})[day-1]||{};   // 昨天
+        const yf2 = (state.scheduleFlags[p.id]||{})[day-2]||{};  // 前天
+        if (yf.dept !== slot.name) return 0;         // 昨天沒排此科 → 不續
+        if (yf2.dept !== slot.name) return 2;        // 昨天排、前天沒排 = 剛上第1天 → 最優先續第2天
+        return -1;                                    // 昨天前天都排 = 已上滿2天 → 該換人(往後排)
       };
 
-      // 排序:① O+ST 連續性 ② 避開不想排的 ③ 最近沒站過 ④ 資深配對
+      // 排序:① 連2天友善(剛上第1天最優先)② 避開不想排的 ③ 最近沒站過 ④ 資深配對
       cands.sort((a,b) => {
-        // ① O+ST 連續性:昨天當此科者優先(比避開重複更優先)
-        const ac = continuedYesterday(a) ? 0 : 1;
-        const bc = continuedYesterday(b) ? 0 : 1;
-        if (ac !== bc) return ac - bc;
+        // ① 連續性分數高者優先(2 > 1 > 0)
+        const ac = continuityScore(a);
+        const bc = continuityScore(b);
+        if (ac !== bc) return bc - ac;   // 分數高的排前面
         // ② 避開「盡量不排」的人(往後排)
         const aav = avoidsSlot(a) ? 1 : 0;
         const bav = avoidsSlot(b) ? 1 : 0;
@@ -17194,25 +17204,51 @@ function deptToggleGender(pid, current) {
 
 // ---------- 儲存 ----------
 function deptSaveNow() {
+  // 先存本機
   if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
   const btn = (typeof event !== 'undefined') && event.target;
   if (btn) {
     const orig = btn.textContent;
-    btn.textContent = '✓ 已儲存';
-    setTimeout(() => { btn.textContent = orig; }, 1200);
+    btn.textContent = '⏳ 儲存中...';
+    // 同時存雲端(關鍵:科別 scheduleFlags 要進雲端,否則登出/重載就消失)
+    if (typeof saveScheduleToCloud === 'function' && typeof getAuthToken === 'function' && getAuthToken()) {
+      saveScheduleToCloud(state.month, true /* silent */).then(ok => {
+        btn.textContent = ok ? '✓ 已存雲端' : '⚠ 僅存本機';
+        setTimeout(() => { btn.textContent = orig; }, 1800);
+      }).catch(() => {
+        btn.textContent = '⚠ 僅存本機';
+        setTimeout(() => { btn.textContent = orig; }, 1800);
+      });
+    } else {
+      btn.textContent = '✓ 已儲存(本機)';
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+    }
+  } else {
+    // 沒有按鈕物件(程式呼叫),也要存雲端
+    if (typeof saveScheduleToCloud === 'function' && typeof getAuthToken === 'function' && getAuthToken()) {
+      saveScheduleToCloud(state.month, true).catch(() => {});
+    }
   }
 }
 
 // ---------- 確認並公告 ----------
-function deptConfirmAndPublish() {
+async function deptConfirmAndPublish() {
   if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow();
   const ok = confirm('確認排科結果並公告給同仁?\n\n公告後同仁就能在公告網頁看到自己每天站的科別。\n(班表本身也會一起更新到雲端)');
   if (!ok) return;
+  // 關鍵:先確實把含科別的班表存到雲端,再公告(避免科別沒進雲端)
+  if (typeof saveScheduleToCloud === 'function' && typeof getAuthToken === 'function' && getAuthToken()) {
+    const saved = await saveScheduleToCloud(state.month, true /* silent */);
+    if (!saved) {
+      alert('⚠ 排科存到雲端失敗,請確認網路/登入狀態後再試一次。\n(先不要關閉,以免科別遺失)');
+      return;
+    }
+  }
   closeDeptScheduler();
   if (typeof openPublishViewModal === 'function') {
     openPublishViewModal();
   } else {
-    alert('排科已儲存。請在主班表點「📢 公告給同仁」推送。');
+    alert('排科已儲存到雲端。請在主班表點「📢 公告給同仁」推送。');
   }
 }
 
@@ -17828,15 +17864,20 @@ function autoAssignDeptCore(day, shift) {
         const today = (((state.scheduleFlags[p.id]||{})[day]||{}).deptAvoidToday || []).includes(slot.name);
         return longTerm || today;
       };
-      const continuedYesterday = (p) => {
-        if (slot.id !== 'O+ST') return false;
+      const pairContinuitySlots = ['O+ST','R1','R2','R3'];
+      const needPair = pairContinuitySlots.includes(slot.id);
+      const continuityScore = (p) => {
+        if (!needPair) return 0;
         const yf = (state.scheduleFlags[p.id]||{})[day-1]||{};
-        return yf.dept === slot.name;
+        const yf2 = (state.scheduleFlags[p.id]||{})[day-2]||{};
+        if (yf.dept !== slot.name) return 0;         // 昨天沒排 → 不續
+        if (yf2.dept !== slot.name) return 2;        // 剛上第1天 → 最優先續第2天
+        return -1;                                    // 已連滿2天 → 該換人休息(往後排)
       };
       cands.sort((a,b) => {
-        const ac = continuedYesterday(a) ? 0 : 1;
-        const bc = continuedYesterday(b) ? 0 : 1;
-        if (ac !== bc) return ac - bc;
+        const ac = continuityScore(a);
+        const bc = continuityScore(b);
+        if (ac !== bc) return bc - ac;
         const aav = avoidsSlot(a) ? 1 : 0;
         const bav = avoidsSlot(b) ? 1 : 0;
         if (aav !== bav) return aav - bav;
@@ -17903,6 +17944,20 @@ function deptRunBatch() {
     msg += `<div style="color:#16a34a; margin-top:5px">無人力短缺</div>`;
   }
   box.innerHTML = msg;
+
+  // 批次排完自動存雲端(避免科別只在本機,登出/重載就消失)
+  if (typeof saveScheduleToCloud === 'function' && typeof getAuthToken === 'function' && getAuthToken()) {
+    box.innerHTML += `<div id="dept-batch-cloud" style="margin-top:6px; color:#6b7280; font-size:0.82rem">⏳ 存到雲端中...</div>`;
+    saveScheduleToCloud(state.month, true).then(ok => {
+      const cbox = $('dept-batch-cloud');
+      if (cbox) { cbox.textContent = ok ? '☁ 已存到雲端(不會遺失)' : '⚠ 雲端儲存失敗,請手動按💾儲存'; cbox.style.color = ok ? '#16a34a' : '#dc2626'; }
+    }).catch(() => {
+      const cbox = $('dept-batch-cloud');
+      if (cbox) { cbox.textContent = '⚠ 雲端儲存失敗,請手動按💾儲存'; cbox.style.color = '#dc2626'; }
+    });
+  } else {
+    box.innerHTML += `<div style="margin-top:6px; color:#f59e0b; font-size:0.82rem">⚠ 未登入雲端,科別只存本機,請登入後按💾儲存</div>`;
+  }
 }
 
 // 暴露到全域
