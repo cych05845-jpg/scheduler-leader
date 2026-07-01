@@ -16960,6 +16960,8 @@ function closeDeptScheduler() {
   }
   deptState.dirty = false;
   $('dept-scheduler-overlay').style.display = 'none';
+  // 重繪主班表 → 讓排科改的科別立刻反映在主班表(避免顯示不一致)
+  if (typeof renderTable === 'function') renderTable();
 }
 
 function deptChangeDay(delta) {
@@ -17272,6 +17274,7 @@ async function deptConfirmAndPublish() {
       alert('⚠ 排科存到雲端失敗,請確認網路/登入狀態後再試一次。\n(先不要關閉,以免科別遺失)');
       return;
     }
+    deptState.dirty = false;   // 已存雲端 → 清除未存標記(避免關閉時誤攔截)
   }
   closeDeptScheduler();
   if (typeof openPublishViewModal === 'function') {
