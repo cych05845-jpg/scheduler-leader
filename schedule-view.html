@@ -725,6 +725,22 @@ body[data-schedule-type="aide"] .month-table td.col-name {
   color: white !important;
   border-bottom-color: #fed7aa !important;
 }
+/* 請假標記(leader 現場劃假):紅底白字,班別保留但標出請什麼假 */
+.month-cell-leave {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: white;
+  background: #dc2626;
+  border-radius: 3px;
+  padding: 0 3px;
+  margin: 1px 0;
+  text-align: center;
+  line-height: 1.2;
+}
+.month-table td.cell-on-leave {
+  outline: 2px solid #dc2626;
+  outline-offset: -2px;
+}
 /* 科別標籤跟班別同色系(深一階),深色實心+白字跟淺色班別格子形成界限 */
 .month-table td.cell-D .month-cell-dept {
   color: white;
@@ -1819,7 +1835,10 @@ function renderMonthTable() {
       const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
         ? `<div class="month-cell-dept${isTemp?' dept-temp':''}" title="${esc(deptFull)}${isTemp?' (臨時調整)':''}">${isTemp?'🔧':''}${esc(flag.dept)}</div>` : '';
       const noteDot = personNote ? `<div class="month-cell-pnote" title="${esc(personNote)}">${esc(personNote.length > 4 ? personNote.slice(0,3) + '⋯' : personNote)}</div>` : '';
-      h += `<td class="${cls}" onclick="toggleRowLock('${escAttr(p.id)}')" style="cursor:pointer" title="${personNote ? esc(personNote) : '點一下鎖定整行,方便對齊'}">${deptSmall}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
+      // 請假標記(leader 現場劃假)— 紅色小標,班別保留但標出請什麼假
+      const leaveTag = (flag.leaveMarked === true)
+        ? `<div class="month-cell-leave" title="${esc(flag.leaveReason||'請假')}">${esc(flag.leaveReason||'請假')}</div>` : '';
+      h += `<td class="${cls}${flag.leaveMarked?' cell-on-leave':''}" onclick="toggleRowLock('${escAttr(p.id)}')" style="cursor:pointer" title="${flag.leaveMarked?esc(flag.leaveReason||'請假'):(personNote ? esc(personNote) : '點一下鎖定整行,方便對齊')}">${deptSmall}${leaveTag}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
     }
     const offCellTitle = vDays > 0 ? `本月公休 ${offDays} 天(另特休 V ${vDays} 天)` : `本月公休 ${offDays} 天`;
     h += `<td class="col-off" title="${offCellTitle}"><span class="off-num">${offDays}</span></td>`;

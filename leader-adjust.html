@@ -167,7 +167,12 @@
         <button class="seg-btn" id="day-prev" onclick="setDayOffset(-1)">昨天</button>
         <button class="seg-btn active" id="day-today" onclick="setDayOffset(0)">今天</button>
         <button class="seg-btn" id="day-next" onclick="setDayOffset(1)">明天</button>
+        <button class="seg-btn" id="day-month" onclick="toggleMonthMode()" style="border-color:#7c3aed; color:#7c3aed">📅 整月</button>
         <span id="day-label" style="font-weight:700; color:#b45309; margin-left:4px"></span>
+      </div>
+      <div class="ctrl-row" id="month-day-row" style="display:none">
+        <span class="ctrl-label">選日</span>
+        <select id="month-day-select" onchange="onMonthDaySelect()" style="flex:1; padding:8px; border:1.5px solid #7c3aed; border-radius:7px; font-size:0.9rem; font-weight:700; color:#6b21a8"></select>
       </div>
       <div class="ctrl-row">
         <span class="ctrl-label">班別</span>
@@ -262,6 +267,7 @@ const DEPT_FULL = {
 const S = {
   system: 'nurse',    // nurse | aide
   dayOffset: 0,       // -1/0/1
+  monthMode: false,   // 整月調整模式(可選整月任一天)
   shift: 'D',
   month: null,
   day: null,
@@ -311,12 +317,65 @@ window.setSystem = function(sys) {
   loadCloud();
 };
 window.setDayOffset = function(off) {
+  S.monthMode = false;
   S.dayOffset = off;
+  document.getElementById('month-day-row').style.display = 'none';
+  document.getElementById('day-month').classList.remove('active');
   ['prev','today','next'].forEach((k,i) => {
     document.getElementById('day-'+k).classList.toggle('active', [-1,0,1][i]===off);
   });
   computeMonthDay();
   loadCloud();
+};
+
+// 切換整月模式
+window.toggleMonthMode = function() {
+  S.monthMode = !S.monthMode;
+  const btn = document.getElementById('day-month');
+  const row = document.getElementById('month-day-row');
+  ['prev','today','next'].forEach(k => document.getElementById('day-'+k).classList.remove('active'));
+  if (S.monthMode) {
+    btn.classList.add('active');
+    btn.style.background = '#7c3aed'; btn.style.color = 'white';
+    row.style.display = 'flex';
+    buildMonthDaySelect();
+  } else {
+    btn.classList.remove('active');
+    btn.style.background = 'white'; btn.style.color = '#7c3aed';
+    row.style.display = 'none';
+    setDayOffset(0);
+  }
+};
+
+// 建整月日期下拉(當前月每一天)
+function buildMonthDaySelect() {
+  // 整月模式:以「今天所在的月」為基準
+  const now = new Date();
+  const y = now.getFullYear();
+  const mIdx = now.getMonth();
+  S.month = `${y}-${String(mIdx+1).padStart(2,'0')}`;
+  const daysInMonth = new Date(y, mIdx+1, 0).getDate();
+  const sel = document.getElementById('month-day-select');
+  let html = '';
+  const dowNames = ['日','一','二','三','四','五','六'];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(y, mIdx, d).getDay();
+    const isWeekend = (dow === 0 || dow === 6);
+    html += `<option value="${d}"${d===now.getDate()?' selected':''}>${mIdx+1}/${d}(${dowNames[dow]})${isWeekend?' ★假日':''}</option>`;
+  }
+  sel.innerHTML = html;
+  S.day = now.getDate();
+  document.getElementById('day-label').textContent = `${mIdx+1}/${S.day}`;
+  loadCloud();
+}
+
+window.onMonthDaySelect = function() {
+  const d = parseInt(document.getElementById('month-day-select').value, 10);
+  S.day = d;
+  const [y, m] = S.month.split('-').map(Number);
+  const dow = ['日','一','二','三','四','五','六'][new Date(y, m-1, d).getDay()];
+  document.getElementById('day-label').textContent = `${m}/${d}(${dow})`;
+  renderPeople();  // 同月不用重載雲端,直接重繪
 };
 window.setShift = function(sh) {
   S.shift = sh;
