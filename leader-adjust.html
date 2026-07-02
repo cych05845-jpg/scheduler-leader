@@ -60,38 +60,39 @@
   .status-line.err { color: #dc2626; }
   .status-line.ok { color: #16a34a; }
 
-  /* 卡片式排版(三班分區,一目了然) */
+  /* 卡片式排版(三班分區,一目了然,柔和配色) */
   .shift-block { margin-bottom: 14px; }
   .shift-head {
-    font-weight: 800; font-size: 1rem; padding: 8px 14px; border-radius: 8px;
+    font-weight: 700; font-size: 0.98rem; padding: 8px 14px; border-radius: 8px;
     margin-bottom: 8px;
   }
   .card-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px;
   }
   .pcard {
-    background: white; border: 1.5px solid #e5e7eb; border-radius: 10px; padding: 10px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05); text-align: center;
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px;
+    text-align: center;
   }
-  .pcard.on-leave { background: #fef2f2; border-color: #dc2626; }
-  .pcard.temp-adj { background: #fff7ed; border-color: #ea580c; }
-  .pcard-name { font-weight: 700; font-size: 0.98rem; margin-bottom: 6px; }
+  .pcard.on-leave { background: #f8f5f2; border-color: #d6bca8; }
+  .pcard.temp-adj { background: #f9f7f2; border-color: #d8cfc0; }
+  .pcard-name { font-weight: 700; font-size: 0.98rem; margin-bottom: 6px; color: #334155; }
   .pcard-dept {
     display: inline-block; padding: 4px 12px; border-radius: 8px; font-weight: 700;
-    font-size: 0.92rem; background: #ede9fe; color: #6b21a8; cursor: pointer; margin-bottom: 7px;
+    font-size: 0.92rem; background: #eef2f7; color: #64748b; cursor: pointer; margin-bottom: 7px;
   }
-  .pcard-dept.temp { background: #ea580c; color: white; }
-  .pcard-dept.empty { background: #f3f4f6; color: #9ca3af; }
+  .pcard-dept.temp { background: #e7ddd0; color: #92722e; }
+  .pcard-dept.empty { background: #f1f5f9; color: #b0bac6; }
   .pcard-leave {
     display: inline-block; padding: 4px 12px; border-radius: 8px; font-weight: 700;
-    font-size: 0.92rem; background: #dc2626; color: white; margin-bottom: 7px;
+    font-size: 0.92rem; background: #e6d9cf; color: #8a5a3c; margin-bottom: 7px;
   }
   .pcard-btn {
     display: block; width: 100%; padding: 6px; border: none; border-radius: 7px;
-    font-size: 0.82rem; font-weight: 700; cursor: pointer;
+    font-size: 0.82rem; font-weight: 600; cursor: pointer;
   }
-  .pcard-btn.leave { background: #fee2e2; color: #dc2626; }
-  .pcard-btn.restore { background: #dcfce7; color: #16a34a; }
+  .pcard-btn.leave { background: #eef2f7; color: #7b8794; }
+  .pcard-btn.leave:hover { background: #e2e8f0; }
+  .pcard-btn.restore { background: #e3ebe3; color: #4a7a5a; }
 
   /* 人員列表(舊列表式,保留給相容) */
   .person {
@@ -207,6 +208,14 @@
         <span class="ctrl-label">選日</span>
         <select id="month-day-select" onchange="onMonthDaySelect()" style="flex:1; padding:8px; border:1.5px solid #7c3aed; border-radius:7px; font-size:0.9rem; font-weight:700; color:#6b21a8"></select>
       </div>
+      <div class="ctrl-row">
+        <span class="ctrl-label">班別</span>
+        <button class="seg-btn active" id="sf-all" onclick="setShiftFilter('')">全部</button>
+        <button class="seg-btn" id="sf-D" onclick="setShiftFilter('D')">D 白</button>
+        <button class="seg-btn" id="sf-E" onclick="setShiftFilter('E')">E 小夜</button>
+        <button class="seg-btn" id="sf-N" onclick="setShiftFilter('N')">N 大夜</button>
+        <button class="seg-btn" id="sf-M" onclick="setShiftFilter('M')">M</button>
+      </div>
     </div>
 
     <div class="status-line" id="status-line">載入中...</div>
@@ -295,6 +304,7 @@ const S = {
   system: 'nurse',    // nurse | aide
   dayOffset: 0,       // -1/0/1
   monthMode: false,   // 整月調整模式(可選整月任一天)
+  shiftFilter: '',    // 班別篩選:'' = 全部,'D'/'E'/'N'/'M' = 只顯示那班
   shift: 'D',
   month: null,
   day: null,
@@ -404,9 +414,13 @@ window.onMonthDaySelect = function() {
   document.getElementById('day-label').textContent = `${m}/${d}(${dow})`;
   renderPeople();  // 同月不用重載雲端,直接重繪
 };
-window.setShift = function(sh) {
-  S.shift = sh;
-  ['D','E','N'].forEach(s => document.getElementById('shift-'+s).classList.toggle('active', s===sh));
+window.setShiftFilter = function(sh) {
+  S.shiftFilter = sh;
+  ['all','D','E','N','M'].forEach(k => {
+    const id = k === 'all' ? 'sf-all' : 'sf-'+k;
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('active', (k==='all'?'':k) === sh);
+  });
   renderPeople();
 };
 
@@ -466,19 +480,21 @@ function renderPeople() {
   }
 
   const shiftMeta = {
-    D: { name: 'D 白班', color: '#3b82f6', bg: '#dbeafe' },
-    E: { name: 'E 小夜', color: '#d97706', bg: '#fef3c7' },
-    N: { name: 'N 大夜', color: '#374151', bg: '#374151', dark: true },
-    M: { name: 'M 行政', color: '#7c3aed', bg: '#ede9fe' },
+    D: { name: 'D 白班', bg: '#eaf0f6', color: '#4a6785' },
+    E: { name: 'E 小夜', bg: '#f2ede4', color: '#8a6d3b' },
+    N: { name: 'N 大夜', bg: '#e8eaef', color: '#4b5268' },
+    M: { name: 'M 行政', bg: '#eee9f2', color: '#6b5b85' },
   };
 
   let html = '';
   ['D','E','N','M'].forEach(sh => {
     const arr = buckets[sh];
     if (arr.length === 0) return;  // 沒人的班別不顯示
+    // 班別切換:只顯示選定的班(deptFilter)
+    if (S.shiftFilter && S.shiftFilter !== sh) return;
     const meta = shiftMeta[sh];
     html += `<div class="shift-block">`;
-    html += `<div class="shift-head" style="background:${meta.bg}; color:${meta.dark?'white':meta.color}">${meta.name} <span style="opacity:0.8; font-weight:600">(${arr.length} 人)</span></div>`;
+    html += `<div class="shift-head" style="background:${meta.bg}; color:${meta.color}">${meta.name} <span style="opacity:0.75; font-weight:600">(${arr.length} 人)</span></div>`;
     html += `<div class="card-grid">`;
     arr.forEach(p => {
       const f = (flags[p.id]||{})[S.day] || {};
