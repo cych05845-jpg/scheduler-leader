@@ -161,6 +161,11 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   margin-left: auto;
   white-space: nowrap;
 }
+.shift-person .leave-tag {
+  background: #dc2626; color: white; font-size: 0.72rem; font-weight: 700;
+  padding: 1px 6px; border-radius: 6px; margin-left: 4px;
+}
+.shift-person.on-leave { border-color: #dc2626; background: #fef2f2; }
 .shift-person .off-tag {
   font-size: 0.7rem;
   padding: 1px 5px;
@@ -315,6 +320,11 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
 .cal-cell.empty { background: #fafafa; border: none; }
 .cal-cell .day-num { font-size: 0.7rem; color: #9ca3af; position: absolute; top: 2px; left: 4px; }
 .cal-cell .shift-mark { font-weight: 700; font-size: 0.95rem; margin-top: 6px; }
+.cal-cell-leave {
+  font-size: 0.68rem; font-weight: 700; color: white; background: #dc2626;
+  border-radius: 3px; padding: 0 2px; margin-top: 2px;
+}
+.cal-cell.cell-on-leave { outline: 2px solid #dc2626; outline-offset: -2px; }
 .cal-cell-dept {
   font-size: 0.74rem;       /* 字體放大(0.62 → 0.74) */
   font-weight: 700;
@@ -1516,7 +1526,7 @@ function renderToday() {
     const sh = (state.schedule[p.id] || {})[day];
     if (buckets[sh] !== undefined) {
       const flag = (state.flags[p.id] && state.flags[p.id][day]) || {};
-      buckets[sh].push({ p, marker: flag.marker || '', dept: flag.dept || '' });
+      buckets[sh].push({ p, marker: flag.marker || '', dept: flag.dept || '', leaveMarked: flag.leaveMarked === true, leaveReason: flag.leaveReason || '' });
     }
   });
 
@@ -1545,14 +1555,16 @@ function renderToday() {
         <span class="shift-count">(${arr.length} 人)</span>
       </div>
       <div class="shift-people">`;
-    arr.forEach(({p, marker, dept}) => {
+    arr.forEach(({p, marker, dept, leaveMarked, leaveReason}) => {
       const markerTag = marker === 'preceptor' ? '<span class="marker-tag preceptor">帶</span>'
                       : marker === 'trainee' ? "<span class='marker-tag trainee'>'</span>"
                       : '';
       const deptTag = dept ? `<span class="dept-tag">${esc(dept)}</span>` : '';
+      const leaveTag = leaveMarked ? `<span class="leave-tag">${esc(leaveReason||'請假')}</span>` : '';
       const offDays = countOffDays(p.id);
       const offTag = `<span class="off-tag" title="本月 OFF 數">休 ${offDays}</span>`;
-      html += `<div class="shift-person" onclick="openPersonByName('${escAttr(p.name)}')">${esc(p.name)}${deptTag}${offTag}${markerTag}</div>`;
+      const cls = leaveMarked ? 'shift-person on-leave' : 'shift-person';
+      html += `<div class="${cls}" onclick="openPersonByName('${escAttr(p.name)}')">${esc(p.name)}${deptTag}${leaveTag}${offTag}${markerTag}</div>`;
     });
     if (arr.length === 0) html += `<div style="color:#9ca3af; font-size:0.85rem; padding:6px">無人</div>`;
     html += '</div></div>';
@@ -1679,7 +1691,10 @@ function renderPersonCalendar(calId, dowId, month, days, sched, pFlags, holidays
     const display = sh === 'o' ? 'off' : (sh || '');
     const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
       ? `<div class="cal-cell-dept">${esc(flag.dept)}</div>` : '';
-    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}</div>`;
+    const leaveSmall = (flag.leaveMarked === true)
+      ? `<div class="cal-cell-leave">${esc(flag.leaveReason||'請假')}</div>` : '';
+    if (flag.leaveMarked === true) cls += ' cell-on-leave';
+    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}${leaveSmall}</div>`;
   }
   document.getElementById(calId).innerHTML = html;
 }
