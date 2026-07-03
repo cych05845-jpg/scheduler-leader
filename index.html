@@ -4033,7 +4033,7 @@ async function exportAllBackup() {
         rules: state.rules,
       },
       cloud: {          // 雲端各月份
-        drafts: {},       // schedule-drafts(排班草稿)
+        drafts: {},       // (已併入 published 的 draft 子鍵)
         published: {},    // schedules(護理師公告)
         aidePublished: {},// aide-schedules(技助事員公告)
       },
@@ -4044,8 +4044,7 @@ async function exportAllBackup() {
       await ensureFirebase();
       const { ref, get } = window._fbHelpers;
       const paths = [
-        ['schedule-drafts', 'drafts'],
-        ['schedules', 'published'],
+        ['schedules', 'published'],       // 含各月的 data(公告)+ draft(跨電腦草稿)
         ['aide-schedules', 'aidePublished'],
       ];
       for (const [path, key] of paths) {
@@ -4106,12 +4105,13 @@ async function saveScheduleToCloud(month, silent) {
     }
   }
 
-  // 優先存 Firebase 草稿路徑(schedule-drafts/{month}),無 5萬字元上限
+  // 存 Firebase:放在 schedules/{month}/draft 子鍵(規則允許寫 schedules 下的子節點)
+  // 不碰 Sheet(避免 5萬字元上限),也不碰 data/meta(不影響公告)
   try {
     await ensureFirebase();
     const { ref, set } = window._fbHelpers;
     const monthKey = month.replace(/[.#$\[\]/]/g, '_');
-    await set(ref(_firebaseDb, `schedule-drafts/${monthKey}`), {
+    await set(ref(_firebaseDb, `schedules/${monthKey}/draft`), {
       data: payload,
       savedAt: Date.now(),
     });
@@ -4121,22 +4121,12 @@ async function saveScheduleToCloud(month, silent) {
     }
     return true;
   } catch (fbErr) {
-    console.warn('[雲端草稿] Firebase 儲存失敗,改試 Sheet:', fbErr);
-    // 降級:Firebase 失敗才試 Google Sheet(舊備援,有 5萬字元限制)
-    try {
-      const result = await apiCall('saveSchedule', { token, month, data: dataStr });
-      if (result.ok) {
-        _scheduleListCache = null;
-        if (!silent) alert(`✅ 班表已儲存到雲端(Sheet 備援)\n月份: ${month}`);
-        return true;
-      } else {
-        if (!silent) alert('儲存到雲端失敗: ' + (result.error || '未知'));
-        return false;
-      }
-    } catch (e) {
-      if (!silent) alert('儲存錯誤: ' + e.message);
-      return false;
+    console.warn('[雲端草稿] Firebase 儲存失敗(不影響公告):', fbErr);
+    // 不再降級 Sheet(Sheet 有 5萬字元上限會爆)。這是「跨電腦草稿」,失敗不影響公告。
+    if (!silent) {
+      alert('⚠ 跨電腦草稿儲存失敗(不影響公告)。\n\n你的公告班表若已「確認並公告」,同仁一樣看得到。\n此功能僅供換電腦排班用。');
     }
+    return false;
   }
 }
 
@@ -4149,16 +4139,21 @@ async function loadSchedulesList(forceRefresh) {
 
   const merged = {};  // month -> {month, savedAt, source}
 
-  // 1. Firebase 草稿列表(新的主要來源)
+  // 1. Firebase 草稿列表(讀 schedules 下各月份的 draft 子鍵)
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
-    const snap = await get(ref(_firebaseDb, 'schedule-drafts'));
+    const snap = await get(ref(_firebaseDb, 'schedules'));
     if (snap && snap.exists()) {
       const all = snap.val() || {};
       for (const monthKey in all) {
-        const m = monthKey.replace(/_/g, '-');  // 還原月份格式
-        merged[m] = { month: m, savedAt: all[monthKey].savedAt || 0, source: 'firebase' };
+        const node = all[monthKey];
+        // 有 draft(跨電腦草稿)或 data(已公告)都列出來
+        if (node && (node.draft || node.data)) {
+          const m = monthKey.replace(/_/g, '-');
+          const savedAt = (node.draft && node.draft.savedAt) || (node.meta && node.meta.publishedAt) || 0;
+          merged[m] = { month: m, savedAt, source: 'firebase' };
+        }
       }
     }
   } catch (fbErr) {
@@ -4187,12 +4182,12 @@ async function loadSchedulesList(forceRefresh) {
 async function loadScheduleFromCloud(month) {
   const token = getAuthToken();
   if (!token) return null;
-  // 優先從 Firebase 草稿讀(schedule-drafts/{month})
+  // 優先從 Firebase 草稿讀(schedules/{month}/draft)
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
     const monthKey = month.replace(/[.#$\[\]/]/g, '_');
-    const snap = await get(ref(_firebaseDb, `schedule-drafts/${monthKey}`));
+    const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/draft`));
     if (snap && snap.exists()) {
       const node = snap.val();
       if (node && node.data) return node.data;
@@ -15583,8 +15578,8 @@ async function saveScheduleFirebaseOnly(month) {
       await update(ref(_firebaseDb, `schedules/${monthKey}/meta`), { lastSyncedAt: Date.now() });
       return { ok: true, target: 'published' };
     } else {
-      // 還沒公告 → 存進排科獨立路徑(dept-schedules),不會遺失,之後公告會帶入
-      await set(ref(_firebaseDb, `dept-schedules/${monthKey}`), {
+      // 還沒公告 → 存進 schedules/{month}/draft 子鍵(不觸發父節點 meta 檢查),不會遺失
+      await set(ref(_firebaseDb, `schedules/${monthKey}/draft`), {
         data: viewData,
         savedAt: Date.now(),
       });
