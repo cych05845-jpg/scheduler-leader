@@ -602,6 +602,7 @@ function logAdjust(pid, entry) {
   const f = data.flags[pid][S.day];
   if (!f.adjustLog) f.adjustLog = [];
   f.adjustLog.push(Object.assign({ time: new Date().toISOString(), by:'leader' }, entry));
+  if (f.adjustLog.length > 8) f.adjustLog = f.adjustLog.slice(-8);  // 只留最近8筆,避免膨脹
 }
 
 window.showLog = function() {
@@ -639,14 +640,14 @@ window.saveToCloud = async function() {
   try {
     const path = S.system === 'aide' ? 'aide-schedules' : 'schedules';
     const monthKey = S.month.replace(/[.#$\[\]/]/g, '_');
-    // 只更新 data(保留原 meta),並記錄最後調整資訊
-    await update(ref(db, `${path}/${monthKey}`), {
-      data: S.cloudNode.data,
-      lastAdjust: {
-        at: new Date().toISOString(),
-        by: 'leader-onsite',
-        day: S.day,
-      },
+    // 直接寫 data 子路徑(規則 data:.write=true 無條件允許),
+    // 避開父節點 {month} 的 hasChildren(['meta']) 檢查(只更新 data 會被擋 → 這是之前存不了的原因)
+    await set(ref(db, `${path}/${monthKey}/data`), S.cloudNode.data);
+    // 記錄最後調整資訊(寫 meta 子路徑,不觸發父節點檢查)
+    await update(ref(db, `${path}/${monthKey}/meta`), {
+      lastAdjustAt: new Date().toISOString(),
+      lastAdjustBy: 'leader-onsite',
+      lastAdjustDay: S.day,
     });
     S.dirty = false;
     btn.textContent = '✓ 已更新雲端';
