@@ -347,6 +347,10 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.cal-cell-hours {
+  font-size: 0.6rem; font-weight: 700; color: #2c7a70; background: #dcf0ee;
+  border-radius: 3px; padding: 0 2px; margin-top: 1px;
+}
 .cal-cell.shift-N .cal-cell-dept {
   background: rgba(0,0,0,0.4);
   color: #fef3c7;
@@ -738,6 +742,7 @@ body[data-schedule-type="aide"] .month-table td.col-name {
   border-radius: 3px 3px 0 0;
 }
 /* 臨時調整的科別:橘底白字 + 🔧,跟正常公告科別區分 */
+.month-cell-dept2 { font-size: 0.62rem; opacity: 0.8; vertical-align: super; margin-left: 1px; }
 .month-cell-dept.dept-temp {
   background: #ea580c !important;
   color: white !important;
@@ -1545,7 +1550,7 @@ function renderToday() {
     const sh = (state.schedule[p.id] || {})[day];
     if (buckets[sh] !== undefined) {
       const flag = (state.flags[p.id] && state.flags[p.id][day]) || {};
-      buckets[sh].push({ p, marker: flag.marker || '', dept: flag.dept || '', leaveMarked: flag.leaveMarked === true, leaveReason: flag.leaveReason || '', hoursNote: flag.hoursNote || '', shiftChanged: flag.shiftChanged === true, origShift: flag.origShift || '' });
+      buckets[sh].push({ p, marker: flag.marker || '', dept: flag.dept || '', dept2: flag.dept2 || '', leaveMarked: flag.leaveMarked === true, leaveReason: flag.leaveReason || '', hoursNote: flag.hoursNote || '', shiftChanged: flag.shiftChanged === true, origShift: flag.origShift || '' });
     }
   });
 
@@ -1574,11 +1579,11 @@ function renderToday() {
         <span class="shift-count">(${arr.length} 人)</span>
       </div>
       <div class="shift-people">`;
-    arr.forEach(({p, marker, dept, leaveMarked, leaveReason, hoursNote, shiftChanged, origShift}) => {
+    arr.forEach(({p, marker, dept, dept2, leaveMarked, leaveReason, hoursNote, shiftChanged, origShift}) => {
       const markerTag = marker === 'preceptor' ? '<span class="marker-tag preceptor">帶</span>'
                       : marker === 'trainee' ? "<span class='marker-tag trainee'>'</span>"
                       : '';
-      const deptTag = dept ? `<span class="dept-tag">${esc(dept)}</span>` : '';
+      const deptTag = dept ? `<span class="dept-tag">${esc(dept)}${dept2?`<span style="font-size:0.72rem; opacity:0.85">+${esc(dept2)}</span>`:''}</span>` : '';
       const leaveTag = leaveMarked ? `<span class="leave-tag">${esc(leaveReason||'請假')}</span>` : '';
       const hoursTag = hoursNote ? `<span class="hours-tag">⏱${esc(hoursNote)}</span>` : '';
       const shiftTag = shiftChanged ? `<span class="shift-tag">↔原${esc(origShift)}</span>` : '';
@@ -1710,12 +1715,15 @@ function renderPersonCalendar(calId, dowId, month, days, sched, pFlags, holidays
     if (flag.marker === 'preceptor') cls += ' marker-preceptor';
     if (flag.marker === 'trainee') cls += ' marker-trainee';
     const display = sh === 'o' ? 'off' : (sh || '');
+    const dept2 = flag.dept2 || '';
     const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
-      ? `<div class="cal-cell-dept">${esc(flag.dept)}</div>` : '';
+      ? `<div class="cal-cell-dept">${esc(flag.dept)}${dept2?`<span style="font-size:0.6rem; opacity:0.8">+${esc(dept2)}</span>`:''}</div>` : '';
     const leaveSmall = (flag.leaveMarked === true)
       ? `<div class="cal-cell-leave">${esc(flag.leaveReason||'請假')}</div>` : '';
+    const hoursSmall = flag.hoursNote
+      ? `<div class="cal-cell-hours">⏱${esc(flag.hoursNote)}</div>` : '';
     if (flag.leaveMarked === true) cls += ' cell-on-leave';
-    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}${leaveSmall}</div>`;
+    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}${leaveSmall}${hoursSmall}</div>`;
   }
   document.getElementById(calId).innerHTML = html;
 }
@@ -1868,8 +1876,10 @@ function renderMonthTable() {
       };
       const deptFull = flag.dept ? (DEPT_FULLNAME[flag.dept] || flag.dept) : '';
       const isTemp = flag.tempAdjust === true;
+      const dept2 = flag.dept2 || '';
+      const dept2Html = dept2 ? `<span class="month-cell-dept2">+${esc(dept2)}</span>` : '';
       const deptSmall = (flag.dept && ['D','E','N','M'].includes(sh))
-        ? `<div class="month-cell-dept${isTemp?' dept-temp':''}" title="${esc(deptFull)}${isTemp?' (臨時調整)':''}">${isTemp?'🔧':''}${esc(flag.dept)}</div>` : '';
+        ? `<div class="month-cell-dept${isTemp?' dept-temp':''}" title="${esc(deptFull)}${dept2?' + '+esc(DEPT_FULLNAME[dept2]||dept2):''}${isTemp?' (臨時調整)':''}">${isTemp?'🔧':''}${esc(flag.dept)}${dept2Html}</div>` : '';
       const noteDot = personNote ? `<div class="month-cell-pnote" title="${esc(personNote)}">${esc(personNote.length > 4 ? personNote.slice(0,3) + '⋯' : personNote)}</div>` : '';
       // 請假標記(leader 現場劃假)— 紅色小標,班別保留但標出請什麼假
       const leaveTag = (flag.leaveMarked === true)
