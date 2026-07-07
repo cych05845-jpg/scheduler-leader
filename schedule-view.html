@@ -165,6 +165,14 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   background: #dc2626; color: white; font-size: 0.72rem; font-weight: 700;
   padding: 1px 6px; border-radius: 6px; margin-left: 4px;
 }
+.shift-person .hours-tag {
+  background: #dcf0ee; color: #2c7a70; font-size: 0.72rem; font-weight: 700;
+  padding: 1px 6px; border-radius: 6px; margin-left: 4px;
+}
+.shift-person .shift-tag {
+  background: #efe9f5; color: #7c6a95; font-size: 0.72rem; font-weight: 700;
+  padding: 1px 6px; border-radius: 6px; margin-left: 4px;
+}
 .shift-person.on-leave { border-color: #dc2626; background: #fef2f2; }
 .shift-person .off-tag {
   font-size: 0.7rem;
@@ -741,6 +749,17 @@ body[data-schedule-type="aide"] .month-table td.col-name {
   font-weight: 700;
   color: white;
   background: #dc2626;
+  border-radius: 3px;
+  padding: 0 3px;
+  margin: 1px 0;
+  text-align: center;
+  line-height: 1.2;
+}
+.month-cell-hours {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #2c7a70;
+  background: #dcf0ee;
   border-radius: 3px;
   padding: 0 3px;
   margin: 1px 0;
@@ -1526,7 +1545,7 @@ function renderToday() {
     const sh = (state.schedule[p.id] || {})[day];
     if (buckets[sh] !== undefined) {
       const flag = (state.flags[p.id] && state.flags[p.id][day]) || {};
-      buckets[sh].push({ p, marker: flag.marker || '', dept: flag.dept || '', leaveMarked: flag.leaveMarked === true, leaveReason: flag.leaveReason || '' });
+      buckets[sh].push({ p, marker: flag.marker || '', dept: flag.dept || '', leaveMarked: flag.leaveMarked === true, leaveReason: flag.leaveReason || '', hoursNote: flag.hoursNote || '', shiftChanged: flag.shiftChanged === true, origShift: flag.origShift || '' });
     }
   });
 
@@ -1555,16 +1574,18 @@ function renderToday() {
         <span class="shift-count">(${arr.length} 人)</span>
       </div>
       <div class="shift-people">`;
-    arr.forEach(({p, marker, dept, leaveMarked, leaveReason}) => {
+    arr.forEach(({p, marker, dept, leaveMarked, leaveReason, hoursNote, shiftChanged, origShift}) => {
       const markerTag = marker === 'preceptor' ? '<span class="marker-tag preceptor">帶</span>'
                       : marker === 'trainee' ? "<span class='marker-tag trainee'>'</span>"
                       : '';
       const deptTag = dept ? `<span class="dept-tag">${esc(dept)}</span>` : '';
       const leaveTag = leaveMarked ? `<span class="leave-tag">${esc(leaveReason||'請假')}</span>` : '';
+      const hoursTag = hoursNote ? `<span class="hours-tag">⏱${esc(hoursNote)}</span>` : '';
+      const shiftTag = shiftChanged ? `<span class="shift-tag">↔原${esc(origShift)}</span>` : '';
       const offDays = countOffDays(p.id);
       const offTag = `<span class="off-tag" title="本月 OFF 數">休 ${offDays}</span>`;
       const cls = leaveMarked ? 'shift-person on-leave' : 'shift-person';
-      html += `<div class="${cls}" onclick="openPersonByName('${escAttr(p.name)}')">${esc(p.name)}${deptTag}${leaveTag}${offTag}${markerTag}</div>`;
+      html += `<div class="${cls}" onclick="openPersonByName('${escAttr(p.name)}')">${esc(p.name)}${deptTag}${leaveTag}${hoursTag}${shiftTag}${offTag}${markerTag}</div>`;
     });
     if (arr.length === 0) html += `<div style="color:#9ca3af; font-size:0.85rem; padding:6px">無人</div>`;
     html += '</div></div>';
@@ -1853,7 +1874,10 @@ function renderMonthTable() {
       // 請假標記(leader 現場劃假)— 紅色小標,班別保留但標出請什麼假
       const leaveTag = (flag.leaveMarked === true)
         ? `<div class="month-cell-leave" title="${esc(flag.leaveReason||'請假')}">${esc(flag.leaveReason||'請假')}</div>` : '';
-      h += `<td class="${cls}${flag.leaveMarked?' cell-on-leave':''}" onclick="toggleRowLock('${escAttr(p.id)}')" style="cursor:pointer" title="${flag.leaveMarked?esc(flag.leaveReason||'請假'):(personNote ? esc(personNote) : '點一下鎖定整行,方便對齊')}">${deptSmall}${leaveTag}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
+      // 工時標記(加減工時)— 藍綠小標,不影響科別
+      const hoursTag = flag.hoursNote
+        ? `<div class="month-cell-hours" title="加減工時 ${esc(flag.hoursNote)}">⏱${esc(flag.hoursNote)}</div>` : '';
+      h += `<td class="${cls}${flag.leaveMarked?' cell-on-leave':''}" onclick="toggleRowLock('${escAttr(p.id)}')" style="cursor:pointer" title="${flag.leaveMarked?esc(flag.leaveReason||'請假'):(personNote ? esc(personNote) : '點一下鎖定整行,方便對齊')}">${deptSmall}${leaveTag}${hoursTag}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
     }
     const offCellTitle = vDays > 0 ? `本月公休 ${offDays} 天(另特休 V ${vDays} 天)` : `本月公休 ${offDays} 天`;
     h += `<td class="col-off" title="${offCellTitle}"><span class="off-num">${offDays}</span></td>`;
