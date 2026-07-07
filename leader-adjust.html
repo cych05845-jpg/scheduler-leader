@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- LEADER-VERSION: 2026-07-07-v5 (換班人力對照) -->
+<!-- LEADER-VERSION: 2026-07-07-v6 (換班選日期+HN審閱區,HN碼9999) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>現場排科調整 — Leader</title>
@@ -244,6 +244,7 @@
     <div class="bottom-bar">
       <button class="save-btn" id="save-btn" onclick="saveToCloud()">💾 儲存並更新雲端</button>
       <button class="log-btn" onclick="showLog()">📋 記錄</button>
+      <button class="log-btn" id="hn-review-btn" onclick="showReview()" style="display:none; border-color:#7c6a95; color:#7c6a95">🔎 待審閱換班</button>
     </div>
   </div>
 </div>
@@ -290,7 +291,11 @@
     </div>
     <div class="modal-body">
       <div id="shift-manpower" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px; margin-bottom:12px; font-size:0.85rem"></div>
-      <div style="color:#6b7280; font-size:0.85rem; margin-bottom:10px">把這人臨時調到別的班別:</div>
+      <div style="margin-bottom:12px">
+        <div style="color:#475569; font-size:0.85rem; font-weight:700; margin-bottom:4px">要改哪一天:</div>
+        <select id="shift-day-select" onchange="onShiftDayChange()" style="width:100%; padding:8px; border:1.5px solid #7c6a95; border-radius:7px; font-size:0.9rem; font-weight:700; color:#5b4b7a"></select>
+      </div>
+      <div style="color:#6b7280; font-size:0.85rem; margin-bottom:10px">把這人那天調到別的班別:</div>
       <div class="reason-grid">
         <div class="reason-opt" style="border-color:#c7bce0; background:#f3eff8; color:#5b4b7a" onclick="applyShift('D')">D 白班</div>
         <div class="reason-opt" style="border-color:#c7bce0; background:#f3eff8; color:#5b4b7a" onclick="applyShift('E')">E 小夜</div>
@@ -340,7 +345,19 @@
   </div>
 </div>
 
+<!-- HN 待審閱換班彈窗 -->
+<div class="modal" id="review-modal">
+  <div class="modal-card">
+    <div class="modal-head" style="background:#7c6a95">
+      <span>🔎 待審閱換班(HN)</span>
+      <span onclick="closeModal('review-modal')" style="cursor:pointer">✕</span>
+    </div>
+    <div class="modal-body" id="review-body"></div>
+  </div>
+</div>
+
 <script type="module">
+
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js';
 import { getDatabase, ref, get, set, update } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-database.js';
 
@@ -355,6 +372,7 @@ const db = getDatabase(app);
 
 // ===== 設定 =====
 const LEADER_PIN = '1111';   // ← Leader 碼(護理長可自行改這行數字)
+const HN_PIN = '9999';       // ← HN(護理長)碼,進去才看得到「待審閱換班」
 const DEPT_OPTIONS = ['L','T','PT','CPR','P','R1','R2','R3','O+ST','P+OB','RX'];
 const DEPT_COLORS = {
   'L':'#7c3aed','T':'#0891b2','PT':'#06b6d4','CPR':'#dc2626','P':'#db2777',
@@ -377,17 +395,22 @@ const S = {
   cloudNode: null,    // 整包雲端資料 { data, meta }
   dirty: false,
   editingPid: null,   // 正在改科別/請假的人
+  role: 'leader',     // leader | hn(HN 碼進來才是 hn,能看待審閱換班)
 };
 
 // ===== PIN =====
 window.checkPin = function() {
   const v = document.getElementById('pin-input').value.trim();
-  if (v === LEADER_PIN) {
+  if (v === LEADER_PIN || v === HN_PIN) {
+    S.role = (v === HN_PIN) ? 'hn' : 'leader';
     document.getElementById('pin-gate').style.display = 'none';
     document.getElementById('app').style.display = 'block';
+    // HN 進來 → 顯示審閱區入口
+    const reviewBtn = document.getElementById('hn-review-btn');
+    if (reviewBtn) reviewBtn.style.display = (S.role === 'hn') ? 'inline-block' : 'none';
     initApp();
   } else {
-    document.getElementById('pin-err').textContent = 'Leader 碼錯誤,請重試';
+    document.getElementById('pin-err').textContent = '碼錯誤,請重試';
     document.getElementById('pin-input').value = '';
   }
 };
@@ -637,28 +660,51 @@ window.applyDept = function(name) {
 // ===== 換班(臨時調到別的班別)=====
 window.openShiftPicker = function(pid) {
   S.editingPid = pid;
+  S.shiftDay = S.day;   // 預設改當天,可用下拉改成別天
   document.getElementById('shift-modal-title').textContent = `${personName(pid)} 換班`;
+  buildShiftDaySelect();
   renderShiftManpower(pid);
   openModal('shift-modal');
 };
 
-// 顯示當天各班人數(換班時參考,避免換到人力不足)
+// 建立「換哪一天」下拉(當月每一天)
+function buildShiftDaySelect() {
+  const [y, m] = S.month.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const dowNames = ['日','一','二','三','四','五','六'];
+  const sel = document.getElementById('shift-day-select');
+  let html = '';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(y, m-1, d).getDay();
+    const weekend = (dow===0||dow===6) ? ' ★' : '';
+    html += `<option value="${d}"${d===S.shiftDay?' selected':''}>${m}/${d}(${dowNames[dow]})${weekend}</option>`;
+  }
+  sel.innerHTML = html;
+}
+
+window.onShiftDayChange = function() {
+  S.shiftDay = parseInt(document.getElementById('shift-day-select').value, 10);
+  renderShiftManpower(S.editingPid);  // 換天要重算那天人力
+};
+
+// 顯示「換班目標日」各班人數(換班時參考,避免換到人力不足)
 function renderShiftManpower(pid) {
   const data = S.cloudNode.data;
   const schedule = data.schedule || {};
   const flags = data.flags || {};
   const staff = data.staff || [];
+  const targetDay = S.shiftDay || S.day;
   const counts = { D:0, E:0, N:0, M:0 };
   staff.forEach(p => {
-    const sh = (schedule[p.id]||{})[S.day];
-    const f = (flags[p.id]||{})[S.day] || {};
-    if (f.leaveMarked) return;   // 請假的不算人力
+    const sh = (schedule[p.id]||{})[targetDay];
+    const f = (flags[p.id]||{})[targetDay] || {};
+    if (f.leaveMarked) return;
     if (counts[sh] !== undefined) counts[sh]++;
   });
-  const curShift = (schedule[pid]||{})[S.day];
+  const curShift = (schedule[pid]||{})[targetDay];
   const box = document.getElementById('shift-manpower');
   const label = { D:'D 白', E:'E 小夜', N:'N 大夜', M:'M' };
-  let html = `<div style="font-weight:700; color:#475569; margin-bottom:6px">當天各班人數(不含請假):</div><div style="display:flex; gap:10px; flex-wrap:wrap">`;
+  let html = `<div style="font-weight:700; color:#475569; margin-bottom:6px">${S.month.split('-')[1]}/${targetDay} 各班人數(不含請假):</div><div style="display:flex; gap:10px; flex-wrap:wrap">`;
   ['D','E','N','M'].forEach(sh => {
     const isCur = sh === curShift;
     html += `<span style="padding:3px 10px; border-radius:6px; font-weight:700; background:${isCur?'#dbeafe':'#f1f5f9'}; color:${isCur?'#1e40af':'#64748b'}">${label[sh]}: ${counts[sh]}人${isCur?' ←現在':''}</span>`;
@@ -668,31 +714,35 @@ function renderShiftManpower(pid) {
 }
 window.applyShift = function(newShift) {
   const pid = S.editingPid;
+  const day = S.shiftDay || S.day;   // 換班的目標日(可跨天)
   const data = S.cloudNode.data;
   if (!data.schedule[pid]) data.schedule[pid] = {};
-  const curShift = data.schedule[pid][S.day];
+  const curShift = data.schedule[pid][day];
   if (curShift === newShift) { closeModal('shift-modal'); return; }  // 沒變
   if (!data.flags[pid]) data.flags[pid] = {};
-  if (!data.flags[pid][S.day]) data.flags[pid][S.day] = {};
-  const f = data.flags[pid][S.day];
+  if (!data.flags[pid][day]) data.flags[pid][day] = {};
+  const f = data.flags[pid][day];
   // 記錄原班別(第一次換才記,避免多次換覆蓋掉最原始的)
   if (!f.shiftChanged) f.origShift = curShift || '';
-  data.schedule[pid][S.day] = newShift;   // 改班別
+  data.schedule[pid][day] = newShift;   // 改班別
   f.shiftChanged = true;
   f.tempAdjust = true;
-  logAdjust(pid, { action:'shift', who: personName(pid), fromShift: f.origShift, toShift: newShift });
+  // 標記「待 HN 審閱」(換班立刻生效,但留紀錄給 HN 事後審)
+  f.shiftReview = { by: S.role, at: new Date().toISOString(), from: f.origShift, to: newShift, reviewed: false };
+  logAdjustDay(pid, day, { action:'shift', who: personName(pid), fromShift: f.origShift, toShift: newShift });
   S.dirty = true;
   closeModal('shift-modal');
   renderPeople();
 };
 window.restoreShift = function() {
   const pid = S.editingPid;
+  const day = S.shiftDay || S.day;
   const data = S.cloudNode.data;
-  const f = (data.flags[pid]||{})[S.day];
+  const f = (data.flags[pid]||{})[day];
   if (f && f.shiftChanged) {
-    if (data.schedule[pid] && f.origShift !== undefined) data.schedule[pid][S.day] = f.origShift;
-    logAdjust(pid, { action:'shift-restore', who: personName(pid), toShift: f.origShift });
-    delete f.shiftChanged; delete f.origShift;
+    if (data.schedule[pid] && f.origShift !== undefined) data.schedule[pid][day] = f.origShift;
+    logAdjustDay(pid, day, { action:'shift-restore', who: personName(pid), toShift: f.origShift });
+    delete f.shiftChanged; delete f.origShift; delete f.shiftReview;
     S.dirty = true;
   }
   closeModal('shift-modal');
@@ -786,6 +836,66 @@ function logAdjust(pid, entry) {
   f.adjustLog.push(Object.assign({ time: new Date().toISOString(), by:'leader' }, entry));
   if (f.adjustLog.length > 8) f.adjustLog = f.adjustLog.slice(-8);  // 只留最近8筆,避免膨脹
 }
+
+// 指定日版本(換班可跨天,記錄到目標日)
+function logAdjustDay(pid, day, entry) {
+  const data = S.cloudNode.data;
+  if (!data.flags[pid]) data.flags[pid] = {};
+  if (!data.flags[pid][day]) data.flags[pid][day] = {};
+  const f = data.flags[pid][day];
+  if (!f.adjustLog) f.adjustLog = [];
+  f.adjustLog.push(Object.assign({ time: new Date().toISOString(), by: S.role, day }, entry));
+  if (f.adjustLog.length > 8) f.adjustLog = f.adjustLog.slice(-8);
+}
+
+window.showReview = function() {
+  const data = S.cloudNode ? S.cloudNode.data : null;
+  const body = document.getElementById('review-body');
+  if (!data) { body.innerHTML = '無資料'; openModal('review-modal'); return; }
+  // 掃全月所有 shiftReview
+  const items = [];
+  const flags = data.flags || {};
+  for (const pid in flags) {
+    for (const day in flags[pid]) {
+      const f = flags[pid][day];
+      if (f && f.shiftReview) {
+        items.push({ pid, day: parseInt(day,10), review: f.shiftReview });
+      }
+    }
+  }
+  items.sort((a,b) => (a.review.reviewed?1:0)-(b.review.reviewed?1:0) || a.day-b.day);
+  const pending = items.filter(x => !x.review.reviewed);
+  if (items.length === 0) {
+    body.innerHTML = `<div style="text-align:center; color:#9ca3af; padding:20px">目前沒有換班紀錄</div>`;
+  } else {
+    let html = `<div style="color:#7c6a95; font-weight:700; margin-bottom:10px">待審閱 ${pending.length} 筆 / 共 ${items.length} 筆</div>`;
+    items.forEach(({pid, day, review}) => {
+      const t = review.at ? new Date(review.at).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+      const done = review.reviewed;
+      html += `<div style="padding:10px 12px; margin-bottom:8px; border-radius:0 8px 8px 0; border-left:3px solid ${done?'#a8d8b0':'#7c6a95'}; background:${done?'#f0f7f1':'#f3eff8'}">`;
+      html += `<div style="font-weight:700; color:#334155">${esc(personName(pid))} · ${S.month.split('-')[1]}/${day}</div>`;
+      html += `<div style="font-size:0.85rem; color:#64748b; margin:3px 0">${esc(review.from||'?')} 班 → ${esc(review.to||'?')} 班</div>`;
+      html += `<div style="font-size:0.75rem; color:#94a3b8">${t}${done?' · ✓ 已審閱':''}</div>`;
+      if (!done) {
+        html += `<button onclick="markReviewed('${pid}',${day})" style="margin-top:6px; padding:5px 14px; background:#7c6a95; color:white; border:none; border-radius:6px; font-weight:700; font-size:0.82rem; cursor:pointer">✓ 標記已審閱</button>`;
+      }
+      html += `</div>`;
+    });
+    body.innerHTML = html;
+  }
+  openModal('review-modal');
+};
+
+window.markReviewed = function(pid, day) {
+  const data = S.cloudNode.data;
+  const f = (data.flags[pid]||{})[day];
+  if (f && f.shiftReview) {
+    f.shiftReview.reviewed = true;
+    f.shiftReview.reviewedAt = new Date().toISOString();
+    S.dirty = true;
+    showReview();  // 重繪
+  }
+};
 
 window.showLog = function() {
   const data = S.cloudNode ? S.cloudNode.data : null;
