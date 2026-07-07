@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
+<!-- LEADER-VERSION: 2026-07-07-v5 (換班人力對照) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>現場排科調整 — Leader</title>
@@ -93,6 +94,23 @@
   .pcard-btn.leave { background: #eef2f7; color: #7b8794; }
   .pcard-btn.leave:hover { background: #e2e8f0; }
   .pcard-btn.restore { background: #e3ebe3; color: #4a7a5a; }
+  /* 工時標記(藍綠,跟科別區分) */
+  .pcard-hours {
+    display: inline-block; padding: 3px 10px; border-radius: 8px; font-weight: 700;
+    font-size: 0.85rem; background: #dcf0ee; color: #2c7a70; cursor: pointer; margin-bottom: 6px;
+  }
+  /* 換班標記(淡紫) */
+  .pcard-shift-tag {
+    font-size: 0.78rem; font-weight: 700; color: #7c6a95; background: #efe9f5;
+    border-radius: 6px; padding: 2px 8px; margin-bottom: 6px; display: inline-block;
+  }
+  /* 三個操作鈕橫排 */
+  .pcard-actions-row { display: flex; gap: 4px; }
+  .pcard-actions-row .pcard-btn { flex: 1; padding: 5px 4px; font-size: 0.78rem; }
+  .pcard-btn.shift { background: #efe9f5; color: #7c6a95; }
+  .pcard-btn.shift:hover { background: #e5dcf0; }
+  .pcard-btn.hours { background: #dcf0ee; color: #2c7a70; }
+  .pcard-btn.hours:hover { background: #cce8e4; }
 
   /* 人員列表(舊列表式,保留給相容) */
   .person {
@@ -263,8 +281,56 @@
   </div>
 </div>
 
-<!-- 記錄彈窗 -->
-<div class="modal" id="log-modal">
+<!-- 換班彈窗 -->
+<div class="modal" id="shift-modal">
+  <div class="modal-card">
+    <div class="modal-head" style="background:#7c6a95">
+      <span id="shift-modal-title">換班</span>
+      <span onclick="closeModal('shift-modal')" style="cursor:pointer">✕</span>
+    </div>
+    <div class="modal-body">
+      <div id="shift-manpower" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px; margin-bottom:12px; font-size:0.85rem"></div>
+      <div style="color:#6b7280; font-size:0.85rem; margin-bottom:10px">把這人臨時調到別的班別:</div>
+      <div class="reason-grid">
+        <div class="reason-opt" style="border-color:#c7bce0; background:#f3eff8; color:#5b4b7a" onclick="applyShift('D')">D 白班</div>
+        <div class="reason-opt" style="border-color:#c7bce0; background:#f3eff8; color:#5b4b7a" onclick="applyShift('E')">E 小夜</div>
+        <div class="reason-opt" style="border-color:#c7bce0; background:#f3eff8; color:#5b4b7a" onclick="applyShift('N')">N 大夜</div>
+        <div class="reason-opt" style="border-color:#c7bce0; background:#f3eff8; color:#5b4b7a" onclick="applyShift('M')">M 行政</div>
+      </div>
+      <div style="margin-top:8px">
+        <button onclick="restoreShift()" style="width:100%; padding:9px; background:#f1f5f9; color:#64748b; border:none; border-radius:7px; font-weight:700; cursor:pointer">↩ 取消換班(恢復原班)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 工時彈窗 -->
+<div class="modal" id="hours-modal">
+  <div class="modal-card">
+    <div class="modal-head" style="background:#2c7a70">
+      <span id="hours-modal-title">加減工時</span>
+      <span onclick="closeModal('hours-modal')" style="cursor:pointer">✕</span>
+    </div>
+    <div class="modal-body">
+      <div style="color:#6b7280; font-size:0.85rem; margin-bottom:10px">標記加班或提早下班(不影響科別):</div>
+      <div class="reason-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="reason-opt" style="border-color:#a8d8d0; background:#e6f5f2; color:#2c7a70" onclick="applyHours('+1hr')">+1hr</div>
+        <div class="reason-opt" style="border-color:#a8d8d0; background:#e6f5f2; color:#2c7a70" onclick="applyHours('+2hr')">+2hr</div>
+        <div class="reason-opt" style="border-color:#a8d8d0; background:#e6f5f2; color:#2c7a70" onclick="applyHours('+4hr')">+4hr</div>
+        <div class="reason-opt" style="border-color:#a8d8d0; background:#e6f5f2; color:#2c7a70" onclick="applyHours('-1hr')">-1hr</div>
+        <div class="reason-opt" style="border-color:#a8d8d0; background:#e6f5f2; color:#2c7a70" onclick="applyHours('-2hr')">-2hr</div>
+        <div class="reason-opt" style="border-color:#a8d8d0; background:#e6f5f2; color:#2c7a70" onclick="applyHours('-4hr')">-4hr</div>
+      </div>
+      <div style="display:flex; gap:6px; margin-top:8px">
+        <input id="hours-other" type="text" placeholder="其他(例:提早下班2hr)" style="flex:1; padding:9px; border:1px solid #d1d5db; border-radius:7px">
+        <button onclick="applyHoursOther()" style="padding:9px 14px; background:#2c7a70; color:white; border:none; border-radius:7px; font-weight:700; cursor:pointer">確定</button>
+      </div>
+      <div style="margin-top:8px">
+        <button onclick="clearHours()" style="width:100%; padding:9px; background:#f1f5f9; color:#64748b; border:none; border-radius:7px; font-weight:700; cursor:pointer">↩ 清除工時標記</button>
+      </div>
+    </div>
+  </div>
+</div>
   <div class="modal-card">
     <div class="modal-head" style="background:#b45309">
       <span>📋 今日異動記錄</span>
@@ -510,7 +576,19 @@ function renderPeople() {
       } else {
         const deptCls = isTemp ? 'pcard-dept temp' : (dept ? 'pcard-dept' : 'pcard-dept empty');
         html += `<div class="${deptCls}" onclick="openDeptPicker('${p.id}')">${dept?esc(dept):'＋排科'}${isTemp?' 🔧':''}</div>`;
+        // 工時標記(加減工時)— 獨立欄位,不影響科別
+        if (f.hoursNote) {
+          html += `<div class="pcard-hours" onclick="openHoursPicker('${p.id}')">⏱ ${esc(f.hoursNote)}</div>`;
+        }
+        // 換班標記(臨時調到別班)
+        if (f.shiftChanged) {
+          html += `<div class="pcard-shift-tag">↔ 原 ${esc(f.origShift||'')} 班</div>`;
+        }
+        html += `<div class="pcard-actions-row">`;
+        html += `<button class="pcard-btn shift" onclick="openShiftPicker('${p.id}')">換班</button>`;
+        html += `<button class="pcard-btn hours" onclick="openHoursPicker('${p.id}')">工時</button>`;
         html += `<button class="pcard-btn leave" onclick="openLeavePicker('${p.id}')">劃假</button>`;
+        html += `</div>`;
       }
       html += `</div>`;
     });
@@ -553,6 +631,110 @@ window.applyDept = function(name) {
   logAdjust(pid, { action:'cover', who: personName(pid), fromDept: oldDept, toDept: name||'(清除)' });
   S.dirty = true;
   closeModal('dept-modal');
+  renderPeople();
+};
+
+// ===== 換班(臨時調到別的班別)=====
+window.openShiftPicker = function(pid) {
+  S.editingPid = pid;
+  document.getElementById('shift-modal-title').textContent = `${personName(pid)} 換班`;
+  renderShiftManpower(pid);
+  openModal('shift-modal');
+};
+
+// 顯示當天各班人數(換班時參考,避免換到人力不足)
+function renderShiftManpower(pid) {
+  const data = S.cloudNode.data;
+  const schedule = data.schedule || {};
+  const flags = data.flags || {};
+  const staff = data.staff || [];
+  const counts = { D:0, E:0, N:0, M:0 };
+  staff.forEach(p => {
+    const sh = (schedule[p.id]||{})[S.day];
+    const f = (flags[p.id]||{})[S.day] || {};
+    if (f.leaveMarked) return;   // 請假的不算人力
+    if (counts[sh] !== undefined) counts[sh]++;
+  });
+  const curShift = (schedule[pid]||{})[S.day];
+  const box = document.getElementById('shift-manpower');
+  const label = { D:'D 白', E:'E 小夜', N:'N 大夜', M:'M' };
+  let html = `<div style="font-weight:700; color:#475569; margin-bottom:6px">當天各班人數(不含請假):</div><div style="display:flex; gap:10px; flex-wrap:wrap">`;
+  ['D','E','N','M'].forEach(sh => {
+    const isCur = sh === curShift;
+    html += `<span style="padding:3px 10px; border-radius:6px; font-weight:700; background:${isCur?'#dbeafe':'#f1f5f9'}; color:${isCur?'#1e40af':'#64748b'}">${label[sh]}: ${counts[sh]}人${isCur?' ←現在':''}</span>`;
+  });
+  html += `</div><div style="color:#94a3b8; font-size:0.78rem; margin-top:6px">換班後這兩班人數會 ±1,請確認調出的班不會人力不足</div>`;
+  box.innerHTML = html;
+}
+window.applyShift = function(newShift) {
+  const pid = S.editingPid;
+  const data = S.cloudNode.data;
+  if (!data.schedule[pid]) data.schedule[pid] = {};
+  const curShift = data.schedule[pid][S.day];
+  if (curShift === newShift) { closeModal('shift-modal'); return; }  // 沒變
+  if (!data.flags[pid]) data.flags[pid] = {};
+  if (!data.flags[pid][S.day]) data.flags[pid][S.day] = {};
+  const f = data.flags[pid][S.day];
+  // 記錄原班別(第一次換才記,避免多次換覆蓋掉最原始的)
+  if (!f.shiftChanged) f.origShift = curShift || '';
+  data.schedule[pid][S.day] = newShift;   // 改班別
+  f.shiftChanged = true;
+  f.tempAdjust = true;
+  logAdjust(pid, { action:'shift', who: personName(pid), fromShift: f.origShift, toShift: newShift });
+  S.dirty = true;
+  closeModal('shift-modal');
+  renderPeople();
+};
+window.restoreShift = function() {
+  const pid = S.editingPid;
+  const data = S.cloudNode.data;
+  const f = (data.flags[pid]||{})[S.day];
+  if (f && f.shiftChanged) {
+    if (data.schedule[pid] && f.origShift !== undefined) data.schedule[pid][S.day] = f.origShift;
+    logAdjust(pid, { action:'shift-restore', who: personName(pid), toShift: f.origShift });
+    delete f.shiftChanged; delete f.origShift;
+    S.dirty = true;
+  }
+  closeModal('shift-modal');
+  renderPeople();
+};
+
+// ===== 加減工時(獨立欄位,不碰科別)=====
+window.openHoursPicker = function(pid) {
+  S.editingPid = pid;
+  document.getElementById('hours-modal-title').textContent = `${personName(pid)} 加減工時`;
+  document.getElementById('hours-other').value = '';
+  openModal('hours-modal');
+};
+window.applyHours = function(val) { doHours(val); };
+window.applyHoursOther = function() {
+  const v = document.getElementById('hours-other').value.trim();
+  if (!v) { alert('請輸入工時說明'); return; }
+  doHours(v);
+};
+function doHours(val) {
+  const pid = S.editingPid;
+  const data = S.cloudNode.data;
+  if (!data.flags[pid]) data.flags[pid] = {};
+  if (!data.flags[pid][S.day]) data.flags[pid][S.day] = {};
+  const f = data.flags[pid][S.day];
+  f.hoursNote = val;      // 獨立欄位,不碰 dept → 科別保留
+  f.tempAdjust = true;
+  logAdjust(pid, { action:'hours', who: personName(pid), hours: val });
+  S.dirty = true;
+  closeModal('hours-modal');
+  renderPeople();
+}
+window.clearHours = function() {
+  const pid = S.editingPid;
+  const data = S.cloudNode.data;
+  const f = (data.flags[pid]||{})[S.day];
+  if (f && f.hoursNote) {
+    delete f.hoursNote;
+    logAdjust(pid, { action:'hours-clear', who: personName(pid) });
+    S.dirty = true;
+  }
+  closeModal('hours-modal');
   renderPeople();
 };
 
