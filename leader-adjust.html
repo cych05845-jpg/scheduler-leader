@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- LEADER-VERSION: 2026-07-07-v6 (換班選日期+HN審閱區,HN碼9999) -->
+<!-- LEADER-VERSION: 2026-07-07-v6 (換班選日期+HN審閱區,HN碼5845) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>現場排科調整 — Leader</title>
@@ -244,7 +244,7 @@
     <div class="bottom-bar">
       <button class="save-btn" id="save-btn" onclick="saveToCloud()">💾 儲存並更新雲端</button>
       <button class="log-btn" onclick="showLog()">📋 記錄</button>
-      <button class="log-btn" id="hn-review-btn" onclick="showReview()" style="display:none; border-color:#7c6a95; color:#7c6a95">🔎 待審閱換班</button>
+      <button class="log-btn" id="-review-btn" onclick="showReview()" style="display:none; border-color:#7c6a95; color:#7c6a95">🔎 待審閱換班</button>
     </div>
   </div>
 </div>
@@ -345,7 +345,7 @@
   </div>
 </div>
 
-<!-- HN 待審閱換班彈窗 -->
+<!--  待審閱換班彈窗 -->
 <div class="modal" id="review-modal">
   <div class="modal-card">
     <div class="modal-head" style="background:#7c6a95">
@@ -372,7 +372,7 @@ const db = getDatabase(app);
 
 // ===== 設定 =====
 const LEADER_PIN = '1111';   // ← Leader 碼(護理長可自行改這行數字)
-const HN_PIN = '9999';       // ← HN(護理長)碼,進去才看得到「待審閱換班」
+const HN_PIN = '5845';       // ← HN(護理長)碼,進去才看得到「待審閱換班」
 const DEPT_OPTIONS = ['L','T','PT','CPR','P','R1','R2','R3','O+ST','P+OB','RX'];
 const DEPT_COLORS = {
   'L':'#7c3aed','T':'#0891b2','PT':'#06b6d4','CPR':'#dc2626','P':'#db2777',
