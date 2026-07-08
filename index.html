@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-08-v7 (修載入欄位對應flags,人數科別正確) -->
+<!-- VERSION: 2026-07-08-v8 (還原載入回原始+保留L+OB互斥) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4154,25 +4154,16 @@ async function loadSchedulesList(forceRefresh) {
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
-    const snap = await get(ref(_firebaseDb, 'schedules'));
+    const snap = await get(ref(_firebaseDb, 'schedule-drafts'));
     if (snap && snap.exists()) {
       const all = snap.val() || {};
       for (const monthKey in all) {
-        const node = all[monthKey];
-        if (!node || (!node.data && !node.draft)) continue;
         const m = monthKey.replace(/_/g, '-');  // 還原月份格式
-        const meta = node.meta || {};
-        const savedAt = (node.draft && node.draft.savedAt) || meta.lastSyncedAt || meta.publishedAt || 0;
-        merged[m] = {
-          month: m,
-          savedAt,
-          savedByName: meta.publishedBy || '─',   // 存檔人(從 meta 讀,修正之前 undefined)
-          source: 'firebase',
-        };
+        merged[m] = { month: m, savedAt: all[monthKey].savedAt || 0, source: 'firebase' };
       }
     }
   } catch (fbErr) {
-    console.warn('[雲端列表] Firebase 失敗:', fbErr);
+    console.warn('[雲端草稿] Firebase 列表失敗:', fbErr);
   }
 
   // 2. Sheet 舊列表(相容,補上 Firebase 沒有的舊月份)
@@ -4181,7 +4172,7 @@ async function loadSchedulesList(forceRefresh) {
     if (result.ok && Array.isArray(result.schedules)) {
       result.schedules.forEach(s => {
         const m = s.month || s;
-        if (!merged[m]) merged[m] = { month: m, savedAt: s.savedAt || 0, savedByName: s.savedByName || s.savedBy || '─', source: 'sheet' };
+        if (!merged[m]) merged[m] = { month: m, savedAt: s.savedAt || 0, source: 'sheet' };
       });
     }
   } catch (e) {
@@ -4197,29 +4188,20 @@ async function loadSchedulesList(forceRefresh) {
 async function loadScheduleFromCloud(month) {
   const token = getAuthToken();
   if (!token) return null;
+  // 優先從 Firebase 草稿讀(schedule-drafts/{month})
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
     const monthKey = month.replace(/[.#$\[\]/]/g, '_');
-
-    // 優先讀 schedules/{月}/data —— 這是排科儲存、公告、臨時調整實際寫入的地方(最新、最完整)
-    // (之前的 bug:優先讀 schedule-drafts 或 draft,那是落後的草稿,會載到舊科別)
-    const dataSnap = await get(ref(_firebaseDb, `schedules/${monthKey}/data`));
-    if (dataSnap && dataSnap.exists()) {
-      const data = dataSnap.val();
-      if (data) return data;
-    }
-
-    // 備援:跨電腦草稿 draft(只有 data 完全沒有時才用)
-    const draftSnap = await get(ref(_firebaseDb, `schedules/${monthKey}/draft`));
-    if (draftSnap && draftSnap.exists()) {
-      const node = draftSnap.val();
+    const snap = await get(ref(_firebaseDb, `schedule-drafts/${monthKey}`));
+    if (snap && snap.exists()) {
+      const node = snap.val();
       if (node && node.data) return node.data;
     }
   } catch (fbErr) {
-    console.warn('[雲端載入] Firebase 讀取失敗,改試 Sheet:', fbErr);
+    console.warn('[雲端草稿] Firebase 讀取失敗,改試 Sheet:', fbErr);
   }
-  // 最後降級:Google Sheet(舊資料相容)
+  // 降級:Firebase 沒有 → 試 Google Sheet(舊資料相容)
   try {
     const result = await apiCall('loadSchedule', { token, month });
     if (result.ok && result.data) {
@@ -4283,13 +4265,12 @@ async function loadCloudScheduleDirectly(month) {
     return;
   }
 
-  // 整批寫入 state(data 是公告格式,欄位名要正確對應到主系統格式)
+  // 整批寫入 state
   state.month = month;
   state.staff = data.staff || [];
   state.schedule = data.schedule || {};
-  // 科別:公告格式存在 data.flags,主系統用 state.scheduleFlags —— 正確對應(修 v6 讀錯欄位的 bug)
-  state.scheduleFlags = data.scheduleFlags || data.flags || {};
-  state.notes = data.notes || data.personNotes || {};
+  state.scheduleFlags = data.scheduleFlags || {};
+  state.notes = data.notes || {};
   state.fixed = data.fixed || {};
   state.holidays = data.holidays || [];
   if (data.rules) state.rules = data.rules;
