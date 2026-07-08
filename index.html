@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-08-v5 (L+OB互斥+修存檔人undefined) -->
+<!-- VERSION: 2026-07-08-v6 (載入改讀data最新,不再讀落後draft) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4197,20 +4197,29 @@ async function loadSchedulesList(forceRefresh) {
 async function loadScheduleFromCloud(month) {
   const token = getAuthToken();
   if (!token) return null;
-  // 優先從 Firebase 草稿讀(schedule-drafts/{month})
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
     const monthKey = month.replace(/[.#$\[\]/]/g, '_');
-    const snap = await get(ref(_firebaseDb, `schedule-drafts/${monthKey}`));
-    if (snap && snap.exists()) {
-      const node = snap.val();
+
+    // 優先讀 schedules/{月}/data —— 這是排科儲存、公告、臨時調整實際寫入的地方(最新、最完整)
+    // (之前的 bug:優先讀 schedule-drafts 或 draft,那是落後的草稿,會載到舊科別)
+    const dataSnap = await get(ref(_firebaseDb, `schedules/${monthKey}/data`));
+    if (dataSnap && dataSnap.exists()) {
+      const data = dataSnap.val();
+      if (data) return data;
+    }
+
+    // 備援:跨電腦草稿 draft(只有 data 完全沒有時才用)
+    const draftSnap = await get(ref(_firebaseDb, `schedules/${monthKey}/draft`));
+    if (draftSnap && draftSnap.exists()) {
+      const node = draftSnap.val();
       if (node && node.data) return node.data;
     }
   } catch (fbErr) {
-    console.warn('[雲端草稿] Firebase 讀取失敗,改試 Sheet:', fbErr);
+    console.warn('[雲端載入] Firebase 讀取失敗,改試 Sheet:', fbErr);
   }
-  // 降級:Firebase 沒有 → 試 Google Sheet(舊資料相容)
+  // 最後降級:Google Sheet(舊資料相容)
   try {
     const result = await apiCall('loadSchedule', { token, month });
     if (result.ok && result.data) {
