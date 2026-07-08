@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-08-v6 (載入改讀data最新,不再讀落後draft) -->
+<!-- VERSION: 2026-07-08-v7 (修載入欄位對應flags,人數科別正確) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4283,12 +4283,13 @@ async function loadCloudScheduleDirectly(month) {
     return;
   }
 
-  // 整批寫入 state
+  // 整批寫入 state(data 是公告格式,欄位名要正確對應到主系統格式)
   state.month = month;
   state.staff = data.staff || [];
   state.schedule = data.schedule || {};
-  state.scheduleFlags = data.scheduleFlags || {};
-  state.notes = data.notes || {};
+  // 科別:公告格式存在 data.flags,主系統用 state.scheduleFlags —— 正確對應(修 v6 讀錯欄位的 bug)
+  state.scheduleFlags = data.scheduleFlags || data.flags || {};
+  state.notes = data.notes || data.personNotes || {};
   state.fixed = data.fixed || {};
   state.holidays = data.holidays || [];
   if (data.rules) state.rules = data.rules;
