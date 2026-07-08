@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-08-v8 (還原載入回原始+保留L+OB互斥) -->
+<!-- VERSION: 2026-07-08-v9 (加匯入備份還原班表) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -1480,7 +1480,11 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
         <button onclick="exportAllBackup()" style="padding: 8px 16px; background: #16a34a; color: white; border: none; border-radius: 6px; font-size: 0.92rem; font-weight: 700; cursor: pointer">
           ⬇ 匯出全部班表備份
         </button>
-        <span style="color: var(--ink-mute); font-size: 0.85rem; margin-left: 0.5rem">下載一個備份檔存電腦,萬一出事可還原</span>
+        <button onclick="document.getElementById('backup-import-file').click()" style="padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; font-size: 0.92rem; font-weight: 700; cursor: pointer; margin-left: 0.5rem">
+          ⬆ 匯入備份還原班表
+        </button>
+        <input type="file" id="backup-import-file" accept=".json" style="display:none" onchange="importAllBackup(event)">
+        <div style="color: var(--ink-mute); font-size: 0.85rem; margin-top: 0.5rem">下載備份存電腦;或用備份檔還原班表(含科別、班別)到畫面</div>
       </div>
     </div>
     <div class="modal-footer">
@@ -4078,6 +4082,68 @@ async function exportAllBackup() {
   } catch (e) {
     alert('匯出備份失敗:' + e.message);
     btnMsg('⬇ 匯出全部班表備份');
+  }
+}
+
+// ⬆ 匯入備份還原班表 — 用 exportAllBackup 下載的 JSON,把 currentView 載回畫面
+async function importAllBackup(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';  // 清掉,才能重複選同一檔
+  try {
+    const text = await file.text();
+    const backup = JSON.parse(text);
+    const cv = backup.currentView;
+    if (!cv || !cv.staff || !cv.month) {
+      alert('這個檔案看起來不是有效的班表備份(缺 currentView)。請確認是用「⬇ 匯出全部班表備份」下載的檔案。');
+      return;
+    }
+    // 統計備份內容,讓使用者確認再還原
+    const sf = cv.scheduleFlags || {};
+    let deptCount = 0;
+    for (const pid in sf) for (const d in sf[pid]) {
+      const cell = sf[pid][d];
+      if (cell && typeof cell === 'object' && cell.dept) deptCount++;
+    }
+    const staffCount = (cv.staff || []).length;
+    const msg = `確定用這個備份還原班表?\n\n` +
+      `月份:${cv.month}\n人員:${staffCount} 人\n科別:${deptCount} 格\n` +
+      `匯出時間:${backup.exportedAt ? new Date(backup.exportedAt).toLocaleString('zh-TW') : '未知'}\n\n` +
+      `⚠ 這會用備份的內容取代目前畫面的班表。`;
+    if (!confirm(msg)) return;
+
+    // 還原前先 snapshot(可復原)
+    if (typeof snapshotState === 'function') snapshotState('匯入備份還原');
+
+    // 整批寫入 state(currentView 是主系統格式,欄位對得上,而且 staff 有能力欄位)
+    state.month = cv.month;
+    state.staff = cv.staff || [];
+    state.schedule = cv.schedule || {};
+    state.scheduleFlags = cv.scheduleFlags || {};
+    state.notes = cv.notes || {};
+    state.fixed = cv.fixed || {};
+    state.holidays = cv.holidays || [];
+    if (cv.rules) state.rules = cv.rules;
+
+    if (typeof applySavedStaffOrder === 'function') applySavedStaffOrder();
+
+    // 存本機(雙存)
+    try { saveScheduleLocalNow(); } catch (e) { console.warn(e); }
+    try { saveStaffData(); } catch (e) { console.warn(e); }
+    try { saveRules(); } catch (e) { console.warn(e); }
+
+    // 更新 UI
+    if ($('month-input')) $('month-input').value = cv.month;
+    if ($('empty-state')) $('empty-state').style.display = 'none';
+    if ($('main-content')) $('main-content').style.display = 'block';
+    if ($('side-panel')) $('side-panel').style.display = 'block';
+    if (typeof renderTable === 'function') renderTable();
+
+    closeModal('cloud-schedules-modal');
+    alert(`✅ 已從備份還原「${cv.month}」班表\n人員 ${staffCount} 人 · 科別 ${deptCount} 格\n\n請檢查畫面,確認無誤後再存檔/公告。`);
+  } catch (e) {
+    console.error('匯入備份失敗:', e);
+    alert('匯入失敗:檔案格式錯誤或損壞。\n' + e.message);
   }
 }
 
