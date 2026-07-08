@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: FIREBASE-ONLY-2026-07-03-v2 (排科不碰Sheet) -->
+<!-- VERSION: 2026-07-08-v5 (L+OB互斥+修存檔人undefined) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4034,7 +4034,7 @@ async function exportAllBackup() {
         rules: state.rules,
       },
       cloud: {          // 雲端各月份
-        drafts: {},       // (已併入 published 的 draft 子鍵)
+        drafts: {},       // schedule-drafts(排班草稿)
         published: {},    // schedules(護理師公告)
         aidePublished: {},// aide-schedules(技助事員公告)
       },
@@ -4045,7 +4045,8 @@ async function exportAllBackup() {
       await ensureFirebase();
       const { ref, get } = window._fbHelpers;
       const paths = [
-        ['schedules', 'published'],       // 含各月的 data(公告)+ draft(跨電腦草稿)
+        ['schedule-drafts', 'drafts'],
+        ['schedules', 'published'],
         ['aide-schedules', 'aidePublished'],
       ];
       for (const [path, key] of paths) {
@@ -4106,13 +4107,12 @@ async function saveScheduleToCloud(month, silent) {
     }
   }
 
-  // 存 Firebase:放在 schedules/{month}/draft 子鍵(規則允許寫 schedules 下的子節點)
-  // 不碰 Sheet(避免 5萬字元上限),也不碰 data/meta(不影響公告)
+  // 優先存 Firebase 草稿路徑(schedule-drafts/{month}),無 5萬字元上限
   try {
     await ensureFirebase();
     const { ref, set } = window._fbHelpers;
     const monthKey = month.replace(/[.#$\[\]/]/g, '_');
-    await set(ref(_firebaseDb, `schedules/${monthKey}/draft`), {
+    await set(ref(_firebaseDb, `schedule-drafts/${monthKey}`), {
       data: payload,
       savedAt: Date.now(),
     });
@@ -4122,12 +4122,22 @@ async function saveScheduleToCloud(month, silent) {
     }
     return true;
   } catch (fbErr) {
-    console.warn('[雲端草稿] Firebase 儲存失敗(不影響公告):', fbErr);
-    // 不再降級 Sheet(Sheet 有 5萬字元上限會爆)。這是「跨電腦草稿」,失敗不影響公告。
-    if (!silent) {
-      alert('⚠ 跨電腦草稿儲存失敗(不影響公告)。\n\n你的公告班表若已「確認並公告」,同仁一樣看得到。\n此功能僅供換電腦排班用。');
+    console.warn('[雲端草稿] Firebase 儲存失敗,改試 Sheet:', fbErr);
+    // 降級:Firebase 失敗才試 Google Sheet(舊備援,有 5萬字元限制)
+    try {
+      const result = await apiCall('saveSchedule', { token, month, data: dataStr });
+      if (result.ok) {
+        _scheduleListCache = null;
+        if (!silent) alert(`✅ 班表已儲存到雲端(Sheet 備援)\n月份: ${month}`);
+        return true;
+      } else {
+        if (!silent) alert('儲存到雲端失敗: ' + (result.error || '未知'));
+        return false;
+      }
+    } catch (e) {
+      if (!silent) alert('儲存錯誤: ' + e.message);
+      return false;
     }
-    return false;
   }
 }
 
@@ -4140,7 +4150,7 @@ async function loadSchedulesList(forceRefresh) {
 
   const merged = {};  // month -> {month, savedAt, source}
 
-  // 1. Firebase 草稿列表(讀 schedules 下各月份的 draft 子鍵)
+  // 1. Firebase 草稿列表(新的主要來源)
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
@@ -4149,16 +4159,20 @@ async function loadSchedulesList(forceRefresh) {
       const all = snap.val() || {};
       for (const monthKey in all) {
         const node = all[monthKey];
-        // 有 draft(跨電腦草稿)或 data(已公告)都列出來
-        if (node && (node.draft || node.data)) {
-          const m = monthKey.replace(/_/g, '-');
-          const savedAt = (node.draft && node.draft.savedAt) || (node.meta && node.meta.publishedAt) || 0;
-          merged[m] = { month: m, savedAt, source: 'firebase' };
-        }
+        if (!node || (!node.data && !node.draft)) continue;
+        const m = monthKey.replace(/_/g, '-');  // 還原月份格式
+        const meta = node.meta || {};
+        const savedAt = (node.draft && node.draft.savedAt) || meta.lastSyncedAt || meta.publishedAt || 0;
+        merged[m] = {
+          month: m,
+          savedAt,
+          savedByName: meta.publishedBy || '─',   // 存檔人(從 meta 讀,修正之前 undefined)
+          source: 'firebase',
+        };
       }
     }
   } catch (fbErr) {
-    console.warn('[雲端草稿] Firebase 列表失敗:', fbErr);
+    console.warn('[雲端列表] Firebase 失敗:', fbErr);
   }
 
   // 2. Sheet 舊列表(相容,補上 Firebase 沒有的舊月份)
@@ -4167,7 +4181,7 @@ async function loadSchedulesList(forceRefresh) {
     if (result.ok && Array.isArray(result.schedules)) {
       result.schedules.forEach(s => {
         const m = s.month || s;
-        if (!merged[m]) merged[m] = { month: m, savedAt: s.savedAt || 0, source: 'sheet' };
+        if (!merged[m]) merged[m] = { month: m, savedAt: s.savedAt || 0, savedByName: s.savedByName || s.savedBy || '─', source: 'sheet' };
       });
     }
   } catch (e) {
@@ -4183,12 +4197,12 @@ async function loadSchedulesList(forceRefresh) {
 async function loadScheduleFromCloud(month) {
   const token = getAuthToken();
   if (!token) return null;
-  // 優先從 Firebase 草稿讀(schedules/{month}/draft)
+  // 優先從 Firebase 草稿讀(schedule-drafts/{month})
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
     const monthKey = month.replace(/[.#$\[\]/]/g, '_');
-    const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/draft`));
+    const snap = await get(ref(_firebaseDb, `schedule-drafts/${monthKey}`));
     if (snap && snap.exists()) {
       const node = snap.val();
       if (node && node.data) return node.data;
@@ -4238,7 +4252,7 @@ async function openCloudSchedules() {
     const d = s.savedAt ? new Date(s.savedAt).toLocaleString('zh-TW') : '';
     html += `<tr>
       <td style="padding:8px; border-bottom:1px solid var(--line-soft)"><strong>${s.month}</strong></td>
-      <td style="padding:8px; border-bottom:1px solid var(--line-soft)">${s.savedByName}</td>
+      <td style="padding:8px; border-bottom:1px solid var(--line-soft)">${s.savedByName || '─'}</td>
       <td style="padding:8px; border-bottom:1px solid var(--line-soft); color: var(--ink-mute); font-size: 0.85rem">${d}</td>
       <td style="padding:8px; border-bottom:1px solid var(--line-soft); text-align:center">
         <button onclick="loadCloudScheduleDirectly('${s.month}')" style="padding: 4px 12px; background: var(--accent); color: white; border: none; border-radius: 4px; font-size: 0.85rem; margin-right: 4px">⬇ 載入</button>
@@ -15540,52 +15554,39 @@ function disableAutoSyncForMonth(month) {
 async function saveScheduleFirebaseOnly(month) {
   try {
     await ensureFirebase();
-    const { ref, update, get, set } = window._fbHelpers;
+    const { ref, get, set } = window._fbHelpers;
     const monthKey = (month || state.month).replace(/[.#$\[\]/]/g, '_');
     const viewData = buildPublishViewPayload();
 
-    // 檢查該月有沒有公告過
-    const metaSnap = await get(ref(_firebaseDb, `schedules/${monthKey}/meta`));
-    const isPublished = metaSnap && metaSnap.exists();
-
-    if (isPublished) {
-      // 已公告 → 存進公告雲端(同仁即時看到),並合併 leader 的請假/臨時調整
-      try {
-        const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/data/flags`));
-        if (snap && snap.exists()) {
-          const cloudFlags = snap.val() || {};
-          if (!viewData.flags) viewData.flags = {};
-          for (const pid in cloudFlags) {
-            for (const day in cloudFlags[pid]) {
-              const cf = cloudFlags[pid][day];
-              if (!cf || typeof cf !== 'object') continue;
-              if (cf.leaveMarked || cf.leaveReason || cf.tempAdjust || cf.adjustLog) {
-                if (!viewData.flags[pid]) viewData.flags[pid] = {};
-                if (!viewData.flags[pid][day]) viewData.flags[pid][day] = {};
-                const tgt = viewData.flags[pid][day];
-                if (cf.leaveMarked) tgt.leaveMarked = cf.leaveMarked;
-                if (cf.leaveReason) tgt.leaveReason = cf.leaveReason;
-                if (cf.tempAdjust) tgt.tempAdjust = cf.tempAdjust;
-                if (cf.adjustLog) tgt.adjustLog = cf.adjustLog;
-                if (cf.tempAdjust && cf.dept && !tgt.dept) tgt.dept = cf.dept;
-              }
+    // 合併雲端既有的 leader 請假/臨時調整(避免蓋掉 leader 現場改的)
+    try {
+      const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/data/flags`));
+      if (snap && snap.exists()) {
+        const cloudFlags = snap.val() || {};
+        if (!viewData.flags) viewData.flags = {};
+        for (const pid in cloudFlags) {
+          for (const day in cloudFlags[pid]) {
+            const cf = cloudFlags[pid][day];
+            if (!cf || typeof cf !== 'object') continue;
+            if (cf.leaveMarked || cf.leaveReason || cf.tempAdjust || cf.adjustLog) {
+              if (!viewData.flags[pid]) viewData.flags[pid] = {};
+              if (!viewData.flags[pid][day]) viewData.flags[pid][day] = {};
+              const tgt = viewData.flags[pid][day];
+              if (cf.leaveMarked) tgt.leaveMarked = cf.leaveMarked;
+              if (cf.leaveReason) tgt.leaveReason = cf.leaveReason;
+              if (cf.tempAdjust) tgt.tempAdjust = cf.tempAdjust;
+              if (cf.adjustLog) tgt.adjustLog = cf.adjustLog;
+              if (cf.tempAdjust && cf.dept && !tgt.dept) tgt.dept = cf.dept;
             }
           }
         }
-      } catch (e) { /* 合併失敗不擋 */ }
-      // 直接寫 data 子路徑(規則 data:.write=true 無條件允許),
-      // 避開父節點 schedules/{month} 的 hasChildren(['meta']) 檢查(只更新 data 會被擋)
-      await set(ref(_firebaseDb, `schedules/${monthKey}/data`), viewData);
-      await update(ref(_firebaseDb, `schedules/${monthKey}/meta`), { lastSyncedAt: Date.now() });
-      return { ok: true, target: 'published' };
-    } else {
-      // 還沒公告 → 存進 schedules/{month}/draft 子鍵(不觸發父節點 meta 檢查),不會遺失
-      await set(ref(_firebaseDb, `schedules/${monthKey}/draft`), {
-        data: viewData,
-        savedAt: Date.now(),
-      });
-      return { ok: true, target: 'draft' };
-    }
+      }
+    } catch (e) { /* 合併失敗不擋 */ }
+
+    // 只寫 data 子路徑(跟臨時調整相同、已證實能穩定儲存的寫法)。
+    // 完全不碰 meta，不碰 dept-schedules(規則沒開的死路)。
+    await set(ref(_firebaseDb, `schedules/${monthKey}/data`), viewData);
+    return { ok: true, target: 'published' };
   } catch (e) {
     console.warn('[Firebase排科儲存] 失敗:', e);
     return { ok: false, reason: 'error', error: e.message };
@@ -16861,7 +16862,7 @@ function slotCount(slot, shift) {
 const DEPT_FULLNAME = {
   'L':'Leader', 'T':'成人檢傷', 'PT':'兒童檢傷', 'CPR':'急救區', 'P':'兒科',
   'R1':'治療區1', 'R2':'治療區2', 'R3':'治療區3', 'O+ST':'留觀區',
-  'P+OB':'P+OB', 'RX':'RX流動',
+  'L+OB':'Leader兼OB', 'P+OB':'P+OB', 'RX':'RX流動',
 };
 
 const CAP_RANK = { basic:0, P:1, cpr:2, tri:3, lead:4 };
@@ -16876,7 +16877,7 @@ const DEPT_COLORS = {
   'L':'#7c3aed', 'T':'#0891b2', 'PT':'#06b6d4',
   'CPR':'#dc2626', 'P':'#db2777', 'R1':'#16a34a',
   'R2':'#15803d', 'R3':'#166534', 'O+ST':'#ca8a04',
-  'P+OB':'#9333ea', 'RX':'#ea580c',
+  'P+OB':'#9333ea', 'RX':'#ea580c', 'L+OB':'#7c3aed',
 };
 
 // 排科狀態
@@ -17096,6 +17097,18 @@ function getActiveSlots(day, shift, staffCount, staff) {
       if (staffCount >= 16 && !result.some(s => s.id==='RX')) result.push(slot);
     }
   });
+
+  // L / L+OB 互斥邏輯:
+  // 有 P+OB → P 扛 OB,Leader 站純 L;沒 P+OB → Leader 兼 OB,L 變 L+OB。
+  // N 班一律 L+OB(N 人少,不可能 ≥15、沒 P+OB)。
+  const hasPOB = result.some(s => s.id === 'P+OB');
+  if (!hasPOB) {
+    // 沒 P+OB → 把 L 站位改成 L+OB(用複本,避免污染共用的 DEPT_SLOTS 常數)
+    const idx = result.findIndex(s => s.id === 'L');
+    if (idx >= 0) {
+      result[idx] = Object.assign({}, result[idx], { id:'L+OB', name:'L+OB' });
+    }
+  }
   return result;
 }
 
