@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- LEADER-VERSION: 2026-07-07-v9 (OFF緊急調度) -->
+<!-- LEADER-VERSION: 2026-07-08-v11 (順序DEN OFF M) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>現場排科調整 — Leader</title>
@@ -233,6 +233,7 @@
         <button class="seg-btn" id="sf-D" onclick="setShiftFilter('D')">D 白</button>
         <button class="seg-btn" id="sf-E" onclick="setShiftFilter('E')">E 小夜</button>
         <button class="seg-btn" id="sf-N" onclick="setShiftFilter('N')">N 大夜</button>
+        <button class="seg-btn" id="sf-OFF" onclick="setShiftFilter('OFF')" style="border-color:#94a3b8; color:#64748b">💤 OFF</button>
         <button class="seg-btn" id="sf-M" onclick="setShiftFilter('M')">M</button>
       </div>
     </div>
@@ -548,7 +549,7 @@ window.onMonthDaySelect = function() {
 };
 window.setShiftFilter = function(sh) {
   S.shiftFilter = sh;
-  ['all','D','E','N','M'].forEach(k => {
+  ['all','D','E','N','M','OFF'].forEach(k => {
     const id = k === 'all' ? 'sf-all' : 'sf-'+k;
     const el = document.getElementById(id);
     if (el) el.classList.toggle('active', (k==='all'?'':k) === sh);
@@ -606,10 +607,19 @@ function renderPeople() {
   });
   const total = buckets.D.length + buckets.E.length + buckets.N.length + buckets.M.length;
   statusEl.className = 'status-line ok';
-  statusEl.textContent = `${S.month.split('-')[1]}/${S.day} · 全班別共 ${total} 人 · 點卡片改科別、點「劃假」標記請假`;
+  if (S.shiftFilter === 'OFF') {
+    statusEl.textContent = `${S.month.split('-')[1]}/${S.day} · 休假 ${offList.length} 人 · 點「調來上班」緊急調度`;
+  } else {
+    statusEl.textContent = `${S.month.split('-')[1]}/${S.day} · 全班別共 ${total} 人 · 點卡片改科別、點「劃假」標記請假`;
+  }
 
-  if (total === 0) {
+  // 篩選 OFF 時,即使 D/E/N/M 沒人也要繼續(顯示 OFF 區)
+  if (total === 0 && S.shiftFilter !== 'OFF') {
     listEl.innerHTML = '<div style="text-align:center; padding:30px; color:#9ca3af">今天沒有人上班</div>';
+    return;
+  }
+  if (S.shiftFilter === 'OFF' && offList.length === 0) {
+    listEl.innerHTML = '<div style="text-align:center; padding:30px; color:#9ca3af">今天沒有人休假</div>';
     return;
   }
 
@@ -621,11 +631,11 @@ function renderPeople() {
   };
 
   let html = '';
-  ['D','E','N','M'].forEach(sh => {
+  // 順序:D → E → N → (OFF) → M(依現場習慣)
+  const renderShiftBlock = (sh) => {
     const arr = buckets[sh];
     if (arr.length === 0) return;  // 沒人的班別不顯示
-    // 班別切換:只顯示選定的班(deptFilter)
-    if (S.shiftFilter && S.shiftFilter !== sh) return;
+    if (S.shiftFilter && S.shiftFilter !== sh) return;  // 班別篩選
     const meta = shiftMeta[sh];
     html += `<div class="shift-block">`;
     html += `<div class="shift-head" style="background:${meta.bg}; color:${meta.color}; display:flex; justify-content:space-between; align-items:center">`;
@@ -649,11 +659,9 @@ function renderPeople() {
         const dept2 = f.dept2 || '';
         const dept2Html = dept2 ? `<span class="pcard-dept2">+${esc(dept2)}</span>` : '';
         html += `<div class="${deptCls}" onclick="openDeptPicker('${p.id}')">${dept?esc(dept):'＋排科'}${dept2Html}${isTemp?' 🔧':''}</div>`;
-        // 工時標記(加減工時)— 獨立欄位,不影響科別
         if (f.hoursNote) {
           html += `<div class="pcard-hours" onclick="openHoursPicker('${p.id}')">⏱ ${esc(f.hoursNote)}</div>`;
         }
-        // 換班標記(臨時調到別班)
         if (f.shiftChanged) {
           html += `<div class="pcard-shift-tag">↔ 原 ${esc(f.origShift||'')} 班</div>`;
         }
@@ -666,16 +674,23 @@ function renderPeople() {
       html += `</div>`;
     });
     html += `</div></div>`;
-  });
+  };
 
-  // OFF 休假區(緊急可調度)— 折疊,預設收合
-  if (offList.length > 0 && (!S.shiftFilter)) {
+  // D E N 先渲染
+  ['D','E','N'].forEach(renderShiftBlock);
+
+  // OFF 休假區(緊急可調度)
+  // 篩選=OFF → 當成一個班別,展開顯示;篩選=全部 → 折疊在下方
+  const showOff = (S.shiftFilter === 'OFF') || (!S.shiftFilter);
+  if (offList.length > 0 && showOff) {
+    const isOffFilter = (S.shiftFilter === 'OFF');
+    const expanded = isOffFilter || S.offListOpen;  // 篩選OFF時一律展開
     html += `<div class="shift-block">`;
-    html += `<div class="shift-head" style="background:#eef1f4; color:#64748b; display:flex; justify-content:space-between; align-items:center; cursor:pointer" onclick="toggleOffList()">`;
+    html += `<div class="shift-head" style="background:#eef1f4; color:#64748b; display:flex; justify-content:space-between; align-items:center; ${isOffFilter?'':'cursor:pointer'}" ${isOffFilter?'':'onclick="toggleOffList()"'}>`;
     html += `<span>💤 OFF 休假 <span style="opacity:0.75; font-weight:600">(${offList.length} 人 · 緊急可調度)</span></span>`;
-    html += `<span id="off-toggle-icon" style="font-size:0.9rem">${S.offListOpen?'▲ 收合':'▼ 展開'}</span>`;
+    if (!isOffFilter) html += `<span id="off-toggle-icon" style="font-size:0.9rem">${S.offListOpen?'▲ 收合':'▼ 展開'}</span>`;
     html += `</div>`;
-    html += `<div class="card-grid" style="display:${S.offListOpen?'grid':'none'}">`;
+    html += `<div class="card-grid" style="display:${expanded?'grid':'none'}">`;
     offList.forEach(({p}) => {
       html += `<div class="pcard" style="background:#f8fafc">`;
       html += `<div class="pcard-name" style="color:#94a3b8">${esc(p.name)}</div>`;
@@ -685,6 +700,9 @@ function renderPeople() {
     });
     html += `</div></div>`;
   }
+
+  // M 行政(排在 OFF 之後,依現場習慣順序 D E N OFF M)
+  renderShiftBlock('M');
 
   listEl.innerHTML = html;
 }
