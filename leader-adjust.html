@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- LEADER-VERSION: 2026-07-07-v8 (一人兩科別+批次OT) -->
+<!-- LEADER-VERSION: 2026-07-07-v9 (OFF緊急調度) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>現場排科調整 — Leader</title>
@@ -598,9 +598,11 @@ function renderPeople() {
 
   // 三班(D/E/N/M)全部顯示,分區(像今天班表,一目了然不用滾)
   const buckets = { D: [], E: [], N: [], M: [] };
+  const offList = [];   // 今天休假的人(緊急可調度)
   staff.forEach(p => {
     const sh = (schedule[p.id]||{})[S.day];
     if (buckets[sh] !== undefined) buckets[sh].push(p);
+    else if (sh === 'off' || sh === 'o' || sh === 'OFF') offList.push({ p, offCode: sh });
   });
   const total = buckets.D.length + buckets.E.length + buckets.N.length + buckets.M.length;
   statusEl.className = 'status-line ok';
@@ -665,8 +667,32 @@ function renderPeople() {
     });
     html += `</div></div>`;
   });
+
+  // OFF 休假區(緊急可調度)— 折疊,預設收合
+  if (offList.length > 0 && (!S.shiftFilter)) {
+    html += `<div class="shift-block">`;
+    html += `<div class="shift-head" style="background:#eef1f4; color:#64748b; display:flex; justify-content:space-between; align-items:center; cursor:pointer" onclick="toggleOffList()">`;
+    html += `<span>💤 OFF 休假 <span style="opacity:0.75; font-weight:600">(${offList.length} 人 · 緊急可調度)</span></span>`;
+    html += `<span id="off-toggle-icon" style="font-size:0.9rem">${S.offListOpen?'▲ 收合':'▼ 展開'}</span>`;
+    html += `</div>`;
+    html += `<div class="card-grid" style="display:${S.offListOpen?'grid':'none'}">`;
+    offList.forEach(({p}) => {
+      html += `<div class="pcard" style="background:#f8fafc">`;
+      html += `<div class="pcard-name" style="color:#94a3b8">${esc(p.name)}</div>`;
+      html += `<div style="font-size:0.8rem; color:#b0bac6; margin-bottom:6px">休假中</div>`;
+      html += `<button class="pcard-btn" style="background:#e0ecff; color:#3b6fb5; width:100%" onclick="openCallInPicker('${p.id}')">📞 調來上班</button>`;
+      html += `</div>`;
+    });
+    html += `</div></div>`;
+  }
+
   listEl.innerHTML = html;
 }
+
+window.toggleOffList = function() {
+  S.offListOpen = !S.offListOpen;
+  renderPeople();
+};
 
 function capName(s) {
   return {basic:'基礎',P:'兒P',cpr:'CPR',tri:'檢傷',lead:'Lead'}[s] || s;
@@ -798,21 +824,24 @@ window.applyShift = function(newShift) {
   const data = S.cloudNode.data;
   if (!data.schedule[pid]) data.schedule[pid] = {};
   const curShift = data.schedule[pid][day];
-  if (curShift === newShift) { closeModal('shift-modal'); return; }  // 沒變
+  if (curShift === newShift) { closeModal('shift-modal'); S.callInMode = false; return; }  // 沒變
   if (!data.flags[pid]) data.flags[pid] = {};
   if (!data.flags[pid][day]) data.flags[pid][day] = {};
   const f = data.flags[pid][day];
+  const isCallIn = S.callInMode === true;   // 調度休假人員上班
   // 記錄原班別(第一次換才記,避免多次換覆蓋掉最原始的)
   if (!f.shiftChanged) f.origShift = curShift || '';
   data.schedule[pid][day] = newShift;   // 改班別
   f.shiftChanged = true;
   f.tempAdjust = true;
-  // 標記「待 HN 審閱」(換班立刻生效,但留紀錄給 HN 事後審)
-  f.shiftReview = { by: S.role, at: new Date().toISOString(), from: f.origShift, to: newShift, reviewed: false };
-  logAdjustDay(pid, day, { action:'shift', who: personName(pid), fromShift: f.origShift, toShift: newShift });
+  // 標記「待 HN 審閱」(調度立刻生效,但留紀錄給 HN 事後審)
+  f.shiftReview = { by: S.role, at: new Date().toISOString(), from: f.origShift, to: newShift, reviewed: false, callIn: isCallIn };
+  logAdjustDay(pid, day, { action: isCallIn?'callin':'shift', who: personName(pid), fromShift: f.origShift, toShift: newShift });
   S.dirty = true;
+  S.callInMode = false;
   closeModal('shift-modal');
   renderPeople();
+  if (isCallIn) alert(`✓ 已將 ${personName(pid)} 從休假調來上 ${newShift} 班\n(已記錄,HN 可在審閱區查看)`);
 };
 window.restoreShift = function() {
   const pid = S.editingPid;
@@ -827,6 +856,17 @@ window.restoreShift = function() {
   }
   closeModal('shift-modal');
   renderPeople();
+};
+
+// ===== 緊急調度:把休假的人調來上班 =====
+window.openCallInPicker = function(pid) {
+  S.editingPid = pid;
+  S.callInMode = true;   // 標記這是「調度休假人員」
+  S.shiftDay = S.day;
+  document.getElementById('shift-modal-title').textContent = `📞 調 ${personName(pid)} 來上班`;
+  buildShiftDaySelect();
+  renderShiftManpower(pid);
+  openModal('shift-modal');
 };
 
 // ===== 加減工時(獨立欄位,不碰科別)=====
