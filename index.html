@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-08-v9 (加匯入備份還原班表) -->
+<!-- VERSION: 2026-07-08-v10 (手動儲存改存Firebase fullBackup,不撞Sheet) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4173,37 +4173,25 @@ async function saveScheduleToCloud(month, silent) {
     }
   }
 
-  // 優先存 Firebase 草稿路徑(schedule-drafts/{month}),無 5萬字元上限
+  // 存 Firebase schedules/{月}/fullBackup(完整格式含能力欄位;獨立路徑,不碰公告 data、無字元上限)
   try {
     await ensureFirebase();
     const { ref, set } = window._fbHelpers;
     const monthKey = month.replace(/[.#$\[\]/]/g, '_');
-    await set(ref(_firebaseDb, `schedule-drafts/${monthKey}`), {
+    await set(ref(_firebaseDb, `schedules/${monthKey}/fullBackup`), {
       data: payload,
       savedAt: Date.now(),
+      savedByName: (state.staff.find(p => p.level === 'HN') || {}).name || '',
     });
     _scheduleListCache = null;
     if (!silent) {
-      alert(`☁ 班表已存到雲端(Firebase)\n月份: ${month}\n大小: ${(dataStr.length / 1024).toFixed(1)} KB\n\n可在任何電腦登入後載入。`);
+      alert(`☁ 完整班表已存到雲端\n月份: ${month}\n大小: ${(dataStr.length / 1024).toFixed(1)} KB\n\n其他排班人員登入後可載入這份最新的。`);
     }
     return true;
   } catch (fbErr) {
-    console.warn('[雲端草稿] Firebase 儲存失敗,改試 Sheet:', fbErr);
-    // 降級:Firebase 失敗才試 Google Sheet(舊備援,有 5萬字元限制)
-    try {
-      const result = await apiCall('saveSchedule', { token, month, data: dataStr });
-      if (result.ok) {
-        _scheduleListCache = null;
-        if (!silent) alert(`✅ 班表已儲存到雲端(Sheet 備援)\n月份: ${month}`);
-        return true;
-      } else {
-        if (!silent) alert('儲存到雲端失敗: ' + (result.error || '未知'));
-        return false;
-      }
-    } catch (e) {
-      if (!silent) alert('儲存錯誤: ' + e.message);
-      return false;
-    }
+    console.warn('[雲端儲存] Firebase fullBackup 失敗:', fbErr);
+    if (!silent) alert('儲存到雲端失敗: ' + (fbErr.message || '未知') + '\n\n(請確認已登入)');
+    return false;
   }
 }
 
