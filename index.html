@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-08-v10 (手動儲存改存Firebase fullBackup,不撞Sheet) -->
+<!-- VERSION: 2026-07-13-v11 (載入+列表讀fullBackup,雲端共用最新檔) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4204,20 +4204,28 @@ async function loadSchedulesList(forceRefresh) {
 
   const merged = {};  // month -> {month, savedAt, source}
 
-  // 1. Firebase 草稿列表(新的主要來源)
+  // 1. Firebase fullBackup 列表(手動儲存的完整檔)
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
-    const snap = await get(ref(_firebaseDb, 'schedule-drafts'));
+    const snap = await get(ref(_firebaseDb, 'schedules'));
     if (snap && snap.exists()) {
       const all = snap.val() || {};
       for (const monthKey in all) {
-        const m = monthKey.replace(/_/g, '-');  // 還原月份格式
-        merged[m] = { month: m, savedAt: all[monthKey].savedAt || 0, source: 'firebase' };
+        const node = all[monthKey];
+        if (!node || !node.fullBackup) continue;   // 只列有 fullBackup 的月份
+        const fb = node.fullBackup;
+        const m = monthKey.replace(/_/g, '-');
+        merged[m] = {
+          month: m,
+          savedAt: fb.savedAt || 0,
+          savedByName: fb.savedByName || '─',
+          source: 'firebase',
+        };
       }
     }
   } catch (fbErr) {
-    console.warn('[雲端草稿] Firebase 列表失敗:', fbErr);
+    console.warn('[雲端列表] fullBackup 讀取失敗:', fbErr);
   }
 
   // 2. Sheet 舊列表(相容,補上 Firebase 沒有的舊月份)
@@ -4242,20 +4250,20 @@ async function loadSchedulesList(forceRefresh) {
 async function loadScheduleFromCloud(month) {
   const token = getAuthToken();
   if (!token) return null;
-  // 優先從 Firebase 草稿讀(schedule-drafts/{month})
+  // 優先讀 Firebase fullBackup(手動儲存的完整檔,含能力欄位,別人也能載到最新)
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
     const monthKey = month.replace(/[.#$\[\]/]/g, '_');
-    const snap = await get(ref(_firebaseDb, `schedule-drafts/${monthKey}`));
+    const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/fullBackup`));
     if (snap && snap.exists()) {
       const node = snap.val();
-      if (node && node.data) return node.data;
+      if (node && node.data) return node.data;   // fullBackup 是完整格式,直接可用
     }
   } catch (fbErr) {
-    console.warn('[雲端草稿] Firebase 讀取失敗,改試 Sheet:', fbErr);
+    console.warn('[雲端載入] fullBackup 讀取失敗,改試 Sheet:', fbErr);
   }
-  // 降級:Firebase 沒有 → 試 Google Sheet(舊資料相容)
+  // 降級:沒有 fullBackup → 試 Google Sheet(舊資料相容)
   try {
     const result = await apiCall('loadSchedule', { token, month });
     if (result.ok && result.data) {
