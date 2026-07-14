@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-13-v11 (載入+列表讀fullBackup,雲端共用最新檔) -->
+<!-- VERSION: 2026-07-14-v14 (修全新月份存fullBackup被拒:補meta) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4154,6 +4154,16 @@ async function saveScheduleToCloud(month, silent) {
     return false;
   }
 
+  // 存檔前檢查:有沒有別人正在排這個月(防覆蓋別人的)
+  if (!silent) {
+    const editing = await checkEditingLock(month);
+    const myName = (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '';
+    if (editing && editing.by && editing.by !== myName) {
+      const mins = Math.round((Date.now() - editing.at) / 60000);
+      if (!confirm(`⚠ 注意:${editing.by} 正在排「${month}」班表(約 ${mins} 分鐘前開始)。\n\n你現在存檔會覆蓋掉 ${editing.by} 的內容。\n\n建議先跟對方確認。確定仍要存檔嗎?`)) return false;
+    }
+  }
+
   // 完整主檔(跨電腦排班用,含所有欄位;Firebase 無容量限制,不必精簡)
   const payload = {
     staff: state.staff,
@@ -4176,13 +4186,31 @@ async function saveScheduleToCloud(month, silent) {
   // 存 Firebase schedules/{月}/fullBackup(完整格式含能力欄位;獨立路徑,不碰公告 data、無字元上限)
   try {
     await ensureFirebase();
-    const { ref, set } = window._fbHelpers;
+    const { ref, set, get, update } = window._fbHelpers;
     const monthKey = month.replace(/[.#$\[\]/]/g, '_');
-    await set(ref(_firebaseDb, `schedules/${monthKey}/fullBackup`), {
-      data: payload,
-      savedAt: Date.now(),
-      savedByName: (state.staff.find(p => p.level === 'HN') || {}).name || '',
-    });
+    const savedByName = (typeof getCurrentUserName === 'function' && getCurrentUserName())
+      || (state.staff.find(p => p.level === 'HN') || {}).name || '';
+
+    // 全新月份(如剛開的 8 月)父節點還沒 meta,直接寫子路徑會被規則擋。
+    // 先確認父節點有沒有 meta,沒有就用 update 一次補上 meta + fullBackup(滿足規則)。
+    let hasMeta = false;
+    try {
+      const metaSnap = await get(ref(_firebaseDb, `schedules/${monthKey}/meta`));
+      hasMeta = metaSnap && metaSnap.exists();
+    } catch (e) { /* 讀不到當作沒有 */ }
+
+    const fbNode = { data: payload, savedAt: Date.now(), savedByName };
+
+    if (hasMeta) {
+      // 已有 meta(如已公告的月份)→ 直接寫 fullBackup 子路徑
+      await set(ref(_firebaseDb, `schedules/${monthKey}/fullBackup`), fbNode);
+    } else {
+      // 全新月份 → 用 update 一次補 meta + fullBackup(父節點含 meta,通過規則)
+      await update(ref(_firebaseDb, `schedules/${monthKey}`), {
+        meta: { status: 'draft', createdBy: savedByName, createdAt: Date.now() },
+        fullBackup: fbNode,
+      });
+    }
     _scheduleListCache = null;
     if (!silent) {
       alert(`☁ 完整班表已存到雲端\n月份: ${month}\n大小: ${(dataStr.length / 1024).toFixed(1)} KB\n\n其他排班人員登入後可載入這份最新的。`);
@@ -4318,7 +4346,51 @@ async function openCloudSchedules() {
   listEl.innerHTML = html;
 }
 
+// ===== 排科中提醒(防多人互蓋)=====
+const EDITING_LOCK_TTL = 30 * 60 * 1000;  // 30 分鐘沒動作就失效
+
+// 讀某月的「排科中」標記
+async function checkEditingLock(month) {
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const monthKey = month.replace(/[.#$\[\]/]/g, '_');
+    const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/editing`));
+    if (snap && snap.exists()) {
+      const e = snap.val();
+      // 超過 30 分鐘沒更新 → 當作沒人排
+      if (e && e.at && (Date.now() - e.at) < EDITING_LOCK_TTL) return e;
+    }
+  } catch (err) { /* 讀失敗不擋 */ }
+  return null;
+}
+
+// 標記「我正在排這個月」(續命:每次呼叫更新時間)
+async function markEditingLock(month) {
+  try {
+    await ensureFirebase();
+    const { ref, set } = window._fbHelpers;
+    const monthKey = month.replace(/[.#$\[\]/]/g, '_');
+    const myName = (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '';
+    await set(ref(_firebaseDb, `schedules/${monthKey}/editing`), {
+      by: myName || '(未具名)',
+      at: Date.now(),
+    });
+    _myEditingMonth = month;  // 記住我在排哪月,續命用
+  } catch (err) { /* 標記失敗不擋 */ }
+}
+let _myEditingMonth = '';
+let _lastEditingPing = 0;
+
 async function loadCloudScheduleDirectly(month) {
+  // 先檢查有沒有別人正在排這個月(排科中提醒,防多人互蓋)
+  const editing = await checkEditingLock(month);
+  const myName = (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '';
+  if (editing && editing.by && editing.by !== myName) {
+    const mins = Math.round((Date.now() - editing.at) / 60000);
+    if (!confirm(`⚠ 注意:${editing.by} 正在排「${month}」班表(約 ${mins} 分鐘前開始)。\n\n如果你載入後排科並存檔,可能會覆蓋掉 ${editing.by} 正在排的內容。\n\n建議先跟對方確認。確定仍要載入嗎?`)) return;
+  }
+
   if (!confirm(`確定載入「${month}」班表?\n\n⚠ 目前的班表(若有)會被覆蓋。\nlocalStorage 仍保留現有資料,可重新整理還原。`)) return;
 
   const data = await loadScheduleFromCloud(month);
@@ -4326,6 +4398,9 @@ async function loadCloudScheduleDirectly(month) {
     alert('載入失敗');
     return;
   }
+
+  // 標記「我開始排這個月」(排科中,別人載入時會被提醒)
+  markEditingLock(month);
 
   // 整批寫入 state
   state.month = month;
@@ -7961,6 +8036,13 @@ function snapshotState(description) {
   if (state.undoStack.length > UNDO_LIMIT) {
     state.undoStack.shift();
   }
+  // 排科中續命:我還在動這個月 → 更新「排科中」時間戳(節流:最多每2分鐘寫一次)
+  if (_myEditingMonth && state.month === _myEditingMonth) {
+    if (!_lastEditingPing || Date.now() - _lastEditingPing > 120000) {
+      _lastEditingPing = Date.now();
+      if (typeof markEditingLock === 'function') markEditingLock(_myEditingMonth);
+    }
+  }
   updateUndoButton();
 }
 
@@ -11113,8 +11195,8 @@ async function updateEmptyStateForCloud() {
     return;
   }
 
-  // 取得雲端班表清單
-  const schedules = await loadSchedulesList(false);
+  // 取得雲端班表清單(強制讀最新,不用快取,才會顯示剛存的 fullBackup)
+  const schedules = await loadSchedulesList(true);
   if (!schedules || schedules.length === 0) {
     cloudEl.style.display = 'none';
     return;
@@ -11142,7 +11224,7 @@ async function updateEmptyStateForCloud() {
     html += `<div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.7rem; ${idx < recent.length - 1 ? 'border-bottom: 1px solid #dbeafe;' : ''} gap: 1rem">
       <div style="flex: 1; min-width: 0">
         <div style="font-weight: 700; color: #1e40af">${icon} ${s.month}</div>
-        <div style="font-size: 0.82rem; color: var(--ink-mute)">${s.savedByName} · ${d}</div>
+        <div style="font-size: 0.82rem; color: var(--ink-mute)">${s.savedByName || '─'} · ${d}</div>
       </div>
       <button onclick="loadCloudScheduleDirectly('${s.month}')" style="${btnStyle}">⬇ 載入${tag}</button>
     </div>`;
