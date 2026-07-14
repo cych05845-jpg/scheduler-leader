@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-14-v16 (名字旁顯示上月末連續班別) -->
+<!-- VERSION: 2026-07-14-v17 (連續班別:兩路徑都算+載入時觸發) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4429,6 +4429,11 @@ async function loadCloudScheduleDirectly(month) {
   if ($('main-content')) $('main-content').style.display = 'block';
   if ($('side-panel')) $('side-panel').style.display = 'block';
   if (typeof renderTable === 'function') renderTable();
+
+  // 載入後也算「上月末連續班別」(名字旁參考標記),不必特地切換月份
+  if (typeof computePrevMonthConsecFromCloud === 'function') {
+    computePrevMonthConsecFromCloud(month);
+  }
 
   closeModal('cloud-schedules-modal');
   alert(`✅ 已載入「${month}」班表(${data.staff?.length || 0} 人)`);
@@ -11439,9 +11444,15 @@ function executeNewMonth() {
       const sched = state.schedule[p.id] || {};
       // Count consecutive work days going backwards from prevLastDay
       let consec = 0;
+      let lastShift = '';   // 月底最後一段的班別
+      let sameShiftCount = 0;
       for (let d = prevLastDay; d >= 1; d--) {
         const v = sched[d];
-        if (isWorkChar(v)) consec++;
+        if (isWorkChar(v)) {
+          consec++;
+          if (lastShift === '') { lastShift = v; sameShiftCount = 1; }
+          else if (v === lastShift) { sameShiftCount++; }
+        }
         else if (isOffChar(v)) break;
         else break; // empty also breaks
       }
@@ -11450,6 +11461,8 @@ function executeNewMonth() {
 
       // Update both in-memory and stored
       p.prevMonthConsec = consec;
+      // 月底連續班別標記(例 E/3),名字旁參考用
+      p.prevMonthConsecShift = (consec > 0 && lastShift) ? `${lastShift}/${sameShiftCount}` : '';
       if (stored[p.name]) {
         stored[p.name].prevMonthConsec = consec;
       }
