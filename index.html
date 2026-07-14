@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-14-v14 (修全新月份存fullBackup被拒:補meta) -->
+<!-- VERSION: 2026-07-14-v16 (名字旁顯示上月末連續班別) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -5552,8 +5552,16 @@ function renderTable() {
       } catch (e) {}
     }
 
+    // 上月末連續班別標記(例 E/3)— 只在排班畫面參考,不進公告/列印
+    let prevConsecTag = '';
+    if (p.prevMonthConsecShift) {
+      const cnt = p.prevMonthConsec || 0;
+      const warn = cnt >= 4;  // 連4天以上紅色提醒
+      prevConsecTag = ` <span style="display:inline-block; padding:0 5px; background:${warn?'#fee2e2':'#f1f5f9'}; color:${warn?'#b91c1c':'#64748b'}; border-radius:3px; font-size:0.7rem; font-weight:700; vertical-align:middle" title="上月底連續上班:${p.prevMonthConsecShift.split('/')[0]}班連${p.prevMonthConsecShift.split('/')[1]}天(排新月開頭參考)">${esc(p.prevMonthConsecShift)}</span>`;
+    }
+
     html += `<tr data-pid="${p.id}"${rowStyle}>`;
-    html += `<td class="col-meta col-name" onclick="openPersonModal('${p.id}')" style="cursor:pointer" title="點擊查看設定">${p.name}${hireTag}${dispatchTag}</td>`;
+    html += `<td class="col-meta col-name" onclick="openPersonModal('${p.id}')" style="cursor:pointer" title="點擊查看設定">${p.name}${hireTag}${dispatchTag}${prevConsecTag}</td>`;
     html += `<td class="col-meta col-level"><span class="level-tag level-${p.level}">${p.level}</span></td>`;
     html += `<td class="col-meta col-pref">${pref ? `<span class="tag">${pref}</span>` : ''}</td>`;
 
@@ -8238,15 +8246,24 @@ async function computePrevMonthConsecFromCloud(currentMonth) {
     state.staff.forEach(p => {
       const sched = prevSched[p.id] || {};
       let consec = 0;
+      let lastShift = '';   // 月底最後一段是什麼班
+      let sameShiftCount = 0;  // 同一種班連幾天
       for (let d = lastDay; d >= 1; d--) {
         const v = sched[d];
-        if (isWorkChar(v)) consec++;
+        if (isWorkChar(v)) {
+          consec++;
+          if (lastShift === '') { lastShift = v; sameShiftCount = 1; }
+          else if (v === lastShift) { sameShiftCount++; }
+          else { /* 換班別了,同班段結束,但總連續繼續算 */ }
+        }
         else if (isOffChar(v)) break;
         else break;
       }
       consec = Math.min(consec, 6);
       p.prevMonthConsec = consec;
-      if (consec > 0) debug.push({ name: p.name, consec });
+      // 月底連續的「班別/天數」參考標記(例 E/3);只在排班畫面名字旁顯示
+      p.prevMonthConsecShift = (consec > 0 && lastShift) ? `${lastShift}/${sameShiftCount}` : '';
+      if (consec > 0) debug.push({ name: p.name, consec, shift: p.prevMonthConsecShift });
     });
     debug.sort((a,b)=>b.consec-a.consec);
     console.log(`[跨月連續] 從 ${prevMonth} 月底計算(前10):`, debug.slice(0,10));
@@ -11495,13 +11512,30 @@ function executeNewMonth() {
     return;
   }
 
-  // Sort by level (N4 first, then N3, ..., then HN, etc)
+  // 先照職級排(N4→N3→...)當預設
   const levelOrder = ['HN', 'N4', 'N3', 'N2', 'N1', '半日', '實習'];
   staffList.sort((a, b) => {
     const ia = levelOrder.indexOf(a.level);
     const ib = levelOrder.indexOf(b.level);
     return (ia >= 0 ? ia : 99) - (ib >= 0 ? ib : 99);
   });
+
+  // 若使用者之前手動調整過人員順序(存在 localStorage),優先套用它
+  // (例:資深人員雖然職級沒進階,但護理長希望擺在特定位置 → 沿用上月順序)
+  try {
+    const raw = localStorage.getItem('schedulerStaffOrder');
+    if (raw) {
+      const order = JSON.parse(raw);
+      if (Array.isArray(order) && order.length > 0) {
+        const idxOf = new Map(order.map((name, i) => [name, i]));
+        staffList.sort((a, b) => {
+          const ia = idxOf.has(a.name) ? idxOf.get(a.name) : 9999;
+          const ib = idxOf.has(b.name) ? idxOf.get(b.name) : 9999;
+          return ia - ib;  // 有記錄的照記錄順序,沒記錄的(新人)排最後
+        });
+      }
+    }
+  } catch (e) { console.warn('套用手調順序失敗:', e); }
 
   // Apply
   state.month = month;
