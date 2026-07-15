@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-15-v19 (跨月連續改用名字對應,修id對不上) -->
+<!-- VERSION: 2026-07-15-v20 (修esc未定義導致renderTable崩潰、點格子失效) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -5562,7 +5562,7 @@ function renderTable() {
     if (p.prevMonthConsecShift) {
       const cnt = p.prevMonthConsec || 0;
       const warn = cnt >= 4;  // 連4天以上紅色提醒
-      prevConsecTag = ` <span style="display:inline-block; padding:0 5px; background:${warn?'#fee2e2':'#f1f5f9'}; color:${warn?'#b91c1c':'#64748b'}; border-radius:3px; font-size:0.7rem; font-weight:700; vertical-align:middle" title="上月底連續上班:${p.prevMonthConsecShift.split('/')[0]}班連${p.prevMonthConsecShift.split('/')[1]}天(排新月開頭參考)">${esc(p.prevMonthConsecShift)}</span>`;
+      prevConsecTag = ` <span style="display:inline-block; padding:0 5px; background:${warn?'#fee2e2':'#f1f5f9'}; color:${warn?'#b91c1c':'#64748b'}; border-radius:3px; font-size:0.7rem; font-weight:700; vertical-align:middle" title="上月底連續上班:${p.prevMonthConsecShift.split('/')[0]}班連${p.prevMonthConsecShift.split('/')[1]}天(排新月開頭參考)">${escapeHTML(p.prevMonthConsecShift)}</span>`;
     }
 
     html += `<tr data-pid="${p.id}"${rowStyle}>`;
