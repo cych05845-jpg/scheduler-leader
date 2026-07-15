@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-14-v18 (AI能答休假天數/人力諮詢) -->
+<!-- VERSION: 2026-07-15-v19 (跨月連續改用名字對應,修id對不上) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -8243,13 +8243,23 @@ async function computePrevMonthConsecFromCloud(currentMonth) {
       return;
     }
     const prevSched = data.schedule;
+    const prevStaff = data.staff || [];
+    // 8月的人員 id 跟 7月不同(重建產生新 id),改用「名字」對應。
+    // 先建 7月的「名字 → 該人7月班表」對照。
+    const prevIdToName = {};
+    prevStaff.forEach(p => { prevIdToName[p.id] = p.name; });
+    const prevSchedByName = {};
+    for (const pid in prevSched) {
+      const name = prevIdToName[pid];
+      if (name) prevSchedByName[name] = prevSched[pid];
+    }
     const lastDay = new Date(py, pm, 0).getDate();
     const isWorkChar = (v) => v === 'D' || v === 'E' || v === 'N' || v === 'M';
     const isOffChar = (v) => v === 'O' || v === 'OFF' || v === 'off' || v === 'o' || v === 'V';
 
     const debug = [];
     state.staff.forEach(p => {
-      const sched = prevSched[p.id] || {};
+      const sched = prevSchedByName[p.name] || {};   // 用名字對應(id 會變,名字不變)
       let consec = 0;
       let lastShift = '';   // 月底最後一段是什麼班
       let sameShiftCount = 0;  // 同一種班連幾天
