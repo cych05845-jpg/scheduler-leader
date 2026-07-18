@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- LEADER-VERSION: 2026-07-08-v11 (順序DEN OFF M) -->
+<!-- LEADER-VERSION: 2026-07-18-v13 (換班加off+醒目標示+OFF區可取消換班) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>現場排科調整 — Leader</title>
@@ -75,7 +75,7 @@
     text-align: center;
   }
   .pcard.on-leave { background: #f8f5f2; border-color: #d6bca8; }
-  .pcard.temp-adj { background: #f9f7f2; border-color: #d8cfc0; }
+  .pcard.temp-adj { background: #fff7ed; border-color: #fb923c; border-left: 5px solid #ea580c; }
   .pcard-name { font-weight: 700; font-size: 0.98rem; margin-bottom: 6px; color: #334155; }
   .pcard-dept {
     display: inline-block; padding: 4px 12px; border-radius: 8px; font-weight: 700;
@@ -102,8 +102,9 @@
   }
   /* 換班標記(淡紫) */
   .pcard-shift-tag {
-    font-size: 0.78rem; font-weight: 700; color: #7c6a95; background: #efe9f5;
-    border-radius: 6px; padding: 2px 8px; margin-bottom: 6px; display: inline-block;
+    font-size: 0.78rem; font-weight: 700; color: #9a3412; background: #ffedd5;
+    border: 1px solid #fdba74;
+    border-radius: 6px; padding: 3px 8px; margin-bottom: 6px; display: inline-block;
   }
   /* 三個操作鈕橫排 */
   .pcard-actions-row { display: flex; gap: 4px; }
@@ -309,6 +310,7 @@
         <div class="reason-opt" style="border-color:#c7bce0; background:#f3eff8; color:#5b4b7a" onclick="applyShift('D')">D 白班</div>
         <div class="reason-opt" style="border-color:#c7bce0; background:#f3eff8; color:#5b4b7a" onclick="applyShift('E')">E 小夜</div>
         <div class="reason-opt" style="border-color:#c7bce0; background:#f3eff8; color:#5b4b7a" onclick="applyShift('N')">N 大夜</div>
+        <div class="reason-opt" style="border-color:#94a3b8; background:#f1f5f9; color:#475569" onclick="applyShift('o')">💤 off 休假</div>
         <div class="reason-opt" style="border-color:#c7bce0; background:#f3eff8; color:#5b4b7a" onclick="applyShift('M')">M 行政</div>
       </div>
       <div style="margin-top:8px">
@@ -663,7 +665,10 @@ function renderPeople() {
           html += `<div class="pcard-hours" onclick="openHoursPicker('${p.id}')">⏱ ${esc(f.hoursNote)}</div>`;
         }
         if (f.shiftChanged) {
-          html += `<div class="pcard-shift-tag">↔ 原 ${esc(f.origShift||'')} 班</div>`;
+          const orig = f.origShift || '';
+          const origIsOff = ['o','off','OFF','O','V',''].includes(orig);
+          const txt = origIsOff ? `🔺 原休假 · 調來上 ${sh} 班` : `↔ 原 ${orig} 班 → 改上 ${sh}`;
+          html += `<div class="pcard-shift-tag">${esc(txt)}</div>`;
         }
         html += `<div class="pcard-actions-row">`;
         html += `<button class="pcard-btn shift" onclick="openShiftPicker('${p.id}')">換班</button>`;
@@ -692,9 +697,16 @@ function renderPeople() {
     html += `</div>`;
     html += `<div class="card-grid" style="display:${expanded?'grid':'none'}">`;
     offList.forEach(({p}) => {
-      html += `<div class="pcard" style="background:#f8fafc">`;
-      html += `<div class="pcard-name" style="color:#94a3b8">${esc(p.name)}</div>`;
-      html += `<div style="font-size:0.8rem; color:#b0bac6; margin-bottom:6px">休假中</div>`;
+      const f = (flags[p.id]||{})[S.day] || {};
+      const changed = f.shiftChanged === true;   // 這人是「本來要上班,被臨時改成休假」
+      html += `<div class="pcard${changed ? ' temp-adj' : ''}" style="${changed ? '' : 'background:#f8fafc'}">`;
+      html += `<div class="pcard-name" style="color:${changed ? '#9a3412' : '#94a3b8'}">${esc(p.name)}</div>`;
+      if (changed) {
+        html += `<div class="pcard-shift-tag">🔻 原 ${esc(f.origShift||'')} 班 → 改休假</div>`;
+        html += `<button class="pcard-btn restore" style="width:100%; margin-bottom:5px" onclick="restoreShiftFor('${p.id}')">↩ 取消換班(恢復原班)</button>`;
+      } else {
+        html += `<div style="font-size:0.8rem; color:#b0bac6; margin-bottom:6px">休假中</div>`;
+      }
       html += `<button class="pcard-btn" style="background:#e0ecff; color:#3b6fb5; width:100%" onclick="openCallInPicker('${p.id}')">📞 調來上班</button>`;
       html += `</div>`;
     });
@@ -860,6 +872,12 @@ window.applyShift = function(newShift) {
   closeModal('shift-modal');
   renderPeople();
   if (isCallIn) alert(`✓ 已將 ${personName(pid)} 從休假調來上 ${newShift} 班\n(已記錄,HN 可在審閱區查看)`);
+};
+window.restoreShiftFor = function(pid) {
+  // 從卡片直接取消換班(不必先開換班視窗)
+  S.editingPid = pid;
+  S.shiftDay = S.day;
+  window.restoreShift();
 };
 window.restoreShift = function() {
   const pid = S.editingPid;
