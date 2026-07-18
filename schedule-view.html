@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- VIEW-VERSION: 2026-07-18-v2 (劃假不算人力) -->
+<!-- VIEW-VERSION: 2026-07-18-v3 (劃假不算人力+調班紅框註記) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
@@ -776,6 +776,27 @@ body[data-schedule-type="aide"] .month-table td.col-name {
   outline: 2px solid #dc2626;
   outline-offset: -2px;
 }
+/* 調班(leader 現場換班)— 上排「調班」紅標 + 整格紅框 */
+.month-cell-swap {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: white;
+  background: #dc2626;
+  border-radius: 3px;
+  padding: 0 3px;
+  margin: 1px 0;
+  text-align: center;
+  line-height: 1.2;
+}
+.month-table td.cell-swapped {
+  outline: 2px solid #dc2626;
+  outline-offset: -2px;
+}
+.cal-cell-swap {
+  font-size: 0.7rem; font-weight: 700; color: white; background: #dc2626;
+  border-radius: 3px; padding: 0 3px; margin: 1px 0; text-align: center; line-height: 1.2;
+}
+.cal-cell.cell-swapped { outline: 2px solid #dc2626; outline-offset: -2px; }
 /* 科別標籤跟班別同色系(深一階),深色實心+白字跟淺色班別格子形成界限 */
 .month-table td.cell-D .month-cell-dept {
   color: white;
@@ -1723,8 +1744,12 @@ function renderPersonCalendar(calId, dowId, month, days, sched, pFlags, holidays
       ? `<div class="cal-cell-leave">${esc(flag.leaveReason||'請假')}</div>` : '';
     const hoursSmall = flag.hoursNote
       ? `<div class="cal-cell-hours">⏱${esc(flag.hoursNote)}</div>` : '';
+    // 調班標記(leader 現場換班)— 紅標 + 紅框
+    const swapSmall = (flag.shiftChanged === true)
+      ? `<div class="cal-cell-swap" title="原 ${esc(flag.origShift||'—')} 班">調班</div>` : '';
+    if (flag.shiftChanged === true) cls += ' cell-swapped';
     if (flag.leaveMarked === true) cls += ' cell-on-leave';
-    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}${leaveSmall}${hoursSmall}</div>`;
+    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}${swapSmall}${leaveSmall}${hoursSmall}</div>`;
   }
   document.getElementById(calId).innerHTML = html;
 }
@@ -1888,7 +1913,12 @@ function renderMonthTable() {
       // 工時標記(加減工時)— 藍綠小標,不影響科別
       const hoursTag = flag.hoursNote
         ? `<div class="month-cell-hours" title="加減工時 ${esc(flag.hoursNote)}">⏱${esc(flag.hoursNote)}</div>` : '';
-      h += `<td class="${cls}${flag.leaveMarked?' cell-on-leave':''}" onclick="toggleRowLock('${escAttr(p.id)}')" style="cursor:pointer" title="${flag.leaveMarked?esc(flag.leaveReason||'請假'):(personNote ? esc(personNote) : '點一下鎖定整行,方便對齊')}">${deptSmall}${leaveTag}${hoursTag}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
+      // 調班標記(leader 現場換班)— 上排寫「調班」+ 整格紅框,下排仍是實際班別
+      const swapped = flag.shiftChanged === true;
+      const swapTag = swapped
+        ? `<div class="month-cell-swap" title="調班(原 ${esc(flag.origShift || '—')} 班 → 現在 ${esc(sh || 'off')})">調班</div>` : '';
+      const swapCls = swapped ? ' cell-swapped' : '';
+      h += `<td class="${cls}${flag.leaveMarked?' cell-on-leave':''}${swapCls}" onclick="toggleRowLock('${escAttr(p.id)}')" style="cursor:pointer" title="${swapped?('調班:原 '+esc(flag.origShift||'—')+' 班'):(flag.leaveMarked?esc(flag.leaveReason||'請假'):(personNote ? esc(personNote) : '點一下鎖定整行,方便對齊'))}">${deptSmall}${swapTag}${leaveTag}${hoursTag}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
     }
     const offCellTitle = vDays > 0 ? `本月公休 ${offDays} 天(另特休 V ${vDays} 天)` : `本月公休 ${offDays} 天`;
     h += `<td class="col-off" title="${offCellTitle}"><span class="off-num">${offDays}</span></td>`;

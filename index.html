@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-18-v23 (公告保住OT/副科別+劃假不算人力) -->
+<!-- VERSION: 2026-07-18-v24 (排科排除劃假的人) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -17445,6 +17445,8 @@ function getDeptStaffForShift(day, shift) {
     const flag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][day]) || {};
     if (flag.marker === 'preceptor' || flag.marker === 'trainee') return false;
     if (flag.halfdayTime) return false;
+    // 排除 leader 現場劃假的人(當天不在,不該排科別)
+    if (flag.leaveMarked === true) return false;
     // 排除「沒設任何能力」的人(peakStage 空 且 capabilities 空)— 不排科
     const hasPeak = !!p.peakStage;
     const hasCaps = Array.isArray(p.capabilities) && p.capabilities.length > 0;
