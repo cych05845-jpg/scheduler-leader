@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-18-v22 (leader調整合併+劃假不算人力) -->
+<!-- VERSION: 2026-07-18-v23 (公告保住OT/副科別+劃假不算人力) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -15819,17 +15819,19 @@ async function fetchLeaderAdjustments(month) {
         if (!cf || typeof cf !== 'object') continue;
         const isShift = cf.shiftChanged === true;
         const isLeave = cf.leaveMarked === true;
-        if (!isShift && !isLeave) continue;
+        const isHours = !!cf.hoursNote;
+        if (!isShift && !isLeave && !isHours) continue;
         const rv = cf.shiftReview || {};
         const curShift = (cloudSched[pid] || {})[day];
         out.items.push({
           pid,
           name: idToName[pid] || '(未知)',
           day: parseInt(day, 10),
-          type: isShift ? (rv.callIn ? 'callin' : 'shift') : 'leave',
+          type: isShift ? (rv.callIn ? 'callin' : 'shift') : (isLeave ? 'leave' : 'hours'),
           from: cf.origShift !== undefined ? cf.origShift : '',
           to: isShift ? (curShift !== undefined ? curShift : '') : '',
           reason: cf.leaveReason || '',
+          hours: cf.hoursNote || '',
           by: rv.by || (d.meta && d.meta.lastAdjustBy) || 'leader',
           at: rv.at || '',
         });
@@ -15848,7 +15850,7 @@ async function fetchLeaderAdjustments(month) {
 // 把 leader 調整摘要成人看得懂的文字
 function formatLeaderAdjustments(items, limit) {
   const max = limit || 12;
-  const label = { shift: '換班', callin: '調度上班', leave: '劃假' };
+  const label = { shift: '換班', callin: '調度上班', leave: '劃假', hours: '加減工時' };
   const lines = items
     .slice()
     .sort((a, b) => a.day - b.day)
@@ -15856,6 +15858,7 @@ function formatLeaderAdjustments(items, limit) {
     .map(it => {
       const t = label[it.type] || '調整';
       if (it.type === 'leave') return `· ${it.day}日 ${it.name}:${t}${it.reason ? '(' + it.reason + ')' : ''}`;
+      if (it.type === 'hours') return `· ${it.day}日 ${it.name}:${t} ${it.hours}`;
       return `· ${it.day}日 ${it.name}:${it.from || '—'} → ${it.to || '—'}(${t})`;
     });
   if (items.length > max) lines.push(`· ...另有 ${items.length - max} 筆`);
@@ -15882,6 +15885,9 @@ function applyLeaderAdjustmentsToState(adj) {
     if (src.leaveMarked) { tgt.leaveMarked = true; if (src.leaveReason) tgt.leaveReason = src.leaveReason; }
     if (src.tempAdjust) tgt.tempAdjust = true;
     if (src.adjustLog) tgt.adjustLog = src.adjustLog;
+    if (src.hoursNote) tgt.hoursNote = src.hoursNote;   // 加減工時/OT
+    if (src.dept2) tgt.dept2 = src.dept2;               // 副科別
+    if (src.dept && !tgt.dept) tgt.dept = src.dept;
     // 換班:把實際班別套進 state.schedule
     if (it.type !== 'leave' && it.to) {
       if (!state.schedule[localPid]) state.schedule[localPid] = {};
@@ -15926,7 +15932,7 @@ async function saveScheduleFirebaseOnly(month) {
           for (const day in daysObj) {
             const cf = daysObj[day];
             if (!cf || typeof cf !== 'object') continue;
-            if (cf.leaveMarked || cf.leaveReason || cf.tempAdjust || cf.adjustLog || cf.shiftChanged) {
+            if (cf.leaveMarked || cf.leaveReason || cf.tempAdjust || cf.adjustLog || cf.shiftChanged || cf.hoursNote || cf.dept2) {
               if (!viewData.flags[vpid]) viewData.flags[vpid] = {};
               if (!viewData.flags[vpid][day]) viewData.flags[vpid][day] = {};
               const tgt = viewData.flags[vpid][day];
@@ -15934,6 +15940,8 @@ async function saveScheduleFirebaseOnly(month) {
               if (cf.leaveReason) tgt.leaveReason = cf.leaveReason;
               if (cf.tempAdjust) tgt.tempAdjust = cf.tempAdjust;
               if (cf.adjustLog) tgt.adjustLog = cf.adjustLog;
+                  if (cf.hoursNote) tgt.hoursNote = cf.hoursNote;   // 加減工時/OT
+                  if (cf.dept2) tgt.dept2 = cf.dept2;               // 副科別
               if (cf.tempAdjust && cf.dept && !tgt.dept) tgt.dept = cf.dept;
               // ★ 換班:保留 leader 改後的實際班別 + 換班紀錄(之前這段沒保,班別會被蓋回去)
               if (cf.shiftChanged) {
@@ -16000,7 +16008,7 @@ function triggerAutoSync() {
                 const cf = daysObj[day];
                 if (!cf || typeof cf !== 'object') continue;
                 // 只挑「leader 現場調整才會產生」的欄位,合併回 payload
-                if (cf.leaveMarked || cf.leaveReason || cf.tempAdjust || cf.adjustLog || cf.shiftChanged) {
+                if (cf.leaveMarked || cf.leaveReason || cf.tempAdjust || cf.adjustLog || cf.shiftChanged || cf.hoursNote || cf.dept2) {
                   if (!viewData.flags[vpid]) viewData.flags[vpid] = {};
                   if (!viewData.flags[vpid][day]) viewData.flags[vpid][day] = {};
                   const tgt = viewData.flags[vpid][day];
@@ -16008,6 +16016,8 @@ function triggerAutoSync() {
                   if (cf.leaveReason) tgt.leaveReason = cf.leaveReason;
                   if (cf.tempAdjust) tgt.tempAdjust = cf.tempAdjust;
                   if (cf.adjustLog) tgt.adjustLog = cf.adjustLog;
+                  if (cf.hoursNote) tgt.hoursNote = cf.hoursNote;   // 加減工時/OT
+                  if (cf.dept2) tgt.dept2 = cf.dept2;               // 副科別
                   // 若 leader 改過科別(臨時),且 index 這格沒科別,採用雲端的
                   if (cf.tempAdjust && cf.dept && !tgt.dept) tgt.dept = cf.dept;
                   // ★ 換班:保留 leader 改後的實際班別 + 換班紀錄

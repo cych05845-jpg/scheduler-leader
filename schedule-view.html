@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
+<!-- VIEW-VERSION: 2026-07-18-v2 (劃假不算人力) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
@@ -1925,6 +1926,8 @@ function renderMonthTable() {
           const flag = (state.flags[p.id] && state.flags[p.id][d]) || {};
           if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
           if (flag.halfdayTime) return;
+          // leader 現場劃假 → 當天不算人力(公告頁人數要跟著減,才看得出缺人)
+          if (flag.leaveMarked === true) return;
           count++;
         });
         const dDate = new Date(year, monthIdx, d);
@@ -2013,6 +2016,8 @@ function renderMonthTable() {
           const flag = (state.flags[p.id] && state.flags[p.id][d]) || {};
           if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
           if (flag.halfdayTime) return;
+          // leader 現場劃假 → 當天不算人力(公告頁人數要跟著減,才看得出缺人)
+          if (flag.leaveMarked === true) return;
           count++;
           if (sh === 'D' && d === 1) _debugFirstD.push(p.name);
         });
