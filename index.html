@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-15-v20 (修esc未定義導致renderTable崩潰、點格子失效) -->
+<!-- VERSION: 2026-07-18-v22 (leader調整合併+劃假不算人力) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4428,6 +4428,20 @@ async function loadCloudScheduleDirectly(month) {
   if ($('empty-state')) $('empty-state').style.display = 'none';
   if ($('main-content')) $('main-content').style.display = 'block';
   if ($('side-panel')) $('side-panel').style.display = 'block';
+
+  // ★ 合併 leader 現場調整(換班/劃假/調度):fullBackup 看不到這些,不合併會用到舊資料
+  let leaderMsg = '';
+  try {
+    const adj = await fetchLeaderAdjustments(month);
+    if (adj.ok && adj.items.length > 0) {
+      const applied = applyLeaderAdjustmentsToState(adj);
+      if (applied > 0) {
+        leaderMsg = `\n\n🔔 已自動套用 leader 現場調整 ${applied} 筆:\n${formatLeaderAdjustments(adj.items)}`;
+        console.log('[leader調整] 已套用', applied, '筆', adj.items);
+      }
+    }
+  } catch (e) { console.warn('[leader調整] 合併失敗:', e); }
+
   if (typeof renderTable === 'function') renderTable();
 
   // 載入後也算「上月末連續班別」(名字旁參考標記),不必特地切換月份
@@ -4436,7 +4450,7 @@ async function loadCloudScheduleDirectly(month) {
   }
 
   closeModal('cloud-schedules-modal');
-  alert(`✅ 已載入「${month}」班表(${data.staff?.length || 0} 人)`);
+  alert(`✅ 已載入「${month}」班表(${data.staff?.length || 0} 人)${leaderMsg}`);
 }
 
 async function copyCloudScheduleToCurrent(fromMonth) {
@@ -5759,6 +5773,8 @@ function renderBottomTable() {
         if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
         // 排除半日時段格子(該人該日只上 8-12 等部分時段,不算 D/E/N 人力)
         if (flag.halfdayTime) return;
+        // 排除 leader 現場劃假的格子(該人當天請假,不算人力 → 才看得出缺人)
+        if (flag.leaveMarked) return;
         count++;
       });
       let need;
@@ -6888,9 +6904,10 @@ function renderSidePanel() {
       const flag = pFlags[d] || {};
       const isMarked = flag.marker === 'preceptor' || flag.marker === 'trainee';
       const isHalftime = !!flag.halfdayTime;  // 半日時段也不算正式人力
-      if (s[d] === 'D' && !isMarked && !isHalftime) totalD++;
-      else if (s[d] === 'E' && !isMarked && !isHalftime) totalE++;
-      else if (s[d] === 'N' && !isMarked && !isHalftime) totalN++;
+      const onLeave = flag.leaveMarked === true;  // leader 現場劃假,當天不算人力
+      if (s[d] === 'D' && !isMarked && !isHalftime && !onLeave) totalD++;
+      else if (s[d] === 'E' && !isMarked && !isHalftime && !onLeave) totalE++;
+      else if (s[d] === 'N' && !isMarked && !isHalftime && !onLeave) totalN++;
       else if (s[d] === 'O' || s[d] === 'OFF' || s[d] === 'off' || s[d] === 'o' || s[d] === 'V') totalO++;
       else if (!s[d]) totalEmpty++;
     }
@@ -7072,6 +7089,8 @@ function checkViolations() {
         if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
         // 排除半日時段格子(該人只上 8-12 等部分時段,不算 D/E/N 人力)
         if (flag.halfdayTime) return;
+        // 排除 leader 現場劃假的格子(該人當天請假,不算人力 → 才看得出缺人)
+        if (flag.leaveMarked) return;
         count++;
       });
 
@@ -9374,6 +9393,8 @@ async function exportXlsx() {
         if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
         // 排除半日時段格子(該人該日只上 8-12 等部分時段)
         if (flag.halfdayTime) return;
+        // 排除 leader 現場劃假的格子(該人當天請假,不算人力 → 才看得出缺人)
+        if (flag.leaveMarked) return;
         count++;
       });
       const dow = getDayOfWeek(state.month, d);
@@ -9754,6 +9775,8 @@ async function exportXlsxTraditional() {
       if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
       // 排除半日時段(該人該日只上 8-12 等部分時段)
       if (flag.halfdayTime) return;
+      // 排除 leader 現場劃假的格子(該人當天請假,不算人力 → 才看得出缺人)
+      if (flag.leaveMarked) return;
       n++;
     });
     return n;
@@ -15768,6 +15791,107 @@ function disableAutoSyncForMonth(month) {
   } catch (e) {}
 })();
 
+// ===== leader 現場調整:讀取 / 合併 / 摘要(避免公告蓋掉、避免排班用到舊資料)=====
+// leader-adjust.html 寫的是 schedules/{月}/data:
+//   換班 → data.schedule[pid][day] 真的改了 + flags.shiftChanged/origShift/shiftReview
+//   劃假 → 只寫 flags.leaveMarked/leaveReason(班別不動)
+// 主系統走 fullBackup,看不到這些,所以載入要合併、公告要保留。
+async function fetchLeaderAdjustments(month) {
+  const out = { ok: false, items: [], sched: {}, flags: {}, idToName: {} };
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const monthKey = (month || state.month).replace(/[.#$\[\]/]/g, '_');
+    const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/data`));
+    if (!snap || !snap.exists()) return out;
+    const d = snap.val() || {};
+    const cloudStaff = d.staff || [];
+    const cloudSched = d.schedule || {};
+    const cloudFlags = d.flags || {};
+    const idToName = {};
+    cloudStaff.forEach(p => { if (p && p.id) idToName[p.id] = p.name; });
+
+    for (const pid in cloudFlags) {
+      const daysObj = cloudFlags[pid];
+      if (!daysObj || typeof daysObj !== 'object') continue;
+      for (const day in daysObj) {
+        const cf = daysObj[day];
+        if (!cf || typeof cf !== 'object') continue;
+        const isShift = cf.shiftChanged === true;
+        const isLeave = cf.leaveMarked === true;
+        if (!isShift && !isLeave) continue;
+        const rv = cf.shiftReview || {};
+        const curShift = (cloudSched[pid] || {})[day];
+        out.items.push({
+          pid,
+          name: idToName[pid] || '(未知)',
+          day: parseInt(day, 10),
+          type: isShift ? (rv.callIn ? 'callin' : 'shift') : 'leave',
+          from: cf.origShift !== undefined ? cf.origShift : '',
+          to: isShift ? (curShift !== undefined ? curShift : '') : '',
+          reason: cf.leaveReason || '',
+          by: rv.by || (d.meta && d.meta.lastAdjustBy) || 'leader',
+          at: rv.at || '',
+        });
+      }
+    }
+    out.sched = cloudSched;
+    out.flags = cloudFlags;
+    out.idToName = idToName;
+    out.ok = true;
+  } catch (e) {
+    console.warn('[leader調整] 讀取失敗:', e);
+  }
+  return out;
+}
+
+// 把 leader 調整摘要成人看得懂的文字
+function formatLeaderAdjustments(items, limit) {
+  const max = limit || 12;
+  const label = { shift: '換班', callin: '調度上班', leave: '劃假' };
+  const lines = items
+    .slice()
+    .sort((a, b) => a.day - b.day)
+    .slice(0, max)
+    .map(it => {
+      const t = label[it.type] || '調整';
+      if (it.type === 'leave') return `· ${it.day}日 ${it.name}:${t}${it.reason ? '(' + it.reason + ')' : ''}`;
+      return `· ${it.day}日 ${it.name}:${it.from || '—'} → ${it.to || '—'}(${t})`;
+    });
+  if (items.length > max) lines.push(`· ...另有 ${items.length - max} 筆`);
+  return lines.join('\n');
+}
+
+// 把 leader 調整套用到目前畫面 state(載入後用)。回傳實際套用筆數。
+function applyLeaderAdjustmentsToState(adj) {
+  if (!adj || !adj.ok || adj.items.length === 0) return 0;
+  // 用名字對應(pid 可能因重建而不同)
+  const nameToPid = {};
+  state.staff.forEach(p => { if (p && p.name) nameToPid[p.name] = p.id; });
+  let applied = 0;
+  adj.items.forEach(it => {
+    const localPid = nameToPid[it.name] || (state.schedule[it.pid] ? it.pid : null);
+    if (!localPid) return;
+    if (!state.scheduleFlags[localPid]) state.scheduleFlags[localPid] = {};
+    if (!state.scheduleFlags[localPid][it.day]) state.scheduleFlags[localPid][it.day] = {};
+    const tgt = state.scheduleFlags[localPid][it.day];
+    const src = (adj.flags[it.pid] || {})[it.day] || {};
+    // 保留 leader 的標記
+    if (src.shiftChanged) { tgt.shiftChanged = true; tgt.origShift = src.origShift; }
+    if (src.shiftReview) tgt.shiftReview = src.shiftReview;
+    if (src.leaveMarked) { tgt.leaveMarked = true; if (src.leaveReason) tgt.leaveReason = src.leaveReason; }
+    if (src.tempAdjust) tgt.tempAdjust = true;
+    if (src.adjustLog) tgt.adjustLog = src.adjustLog;
+    // 換班:把實際班別套進 state.schedule
+    if (it.type !== 'leave' && it.to) {
+      if (!state.schedule[localPid]) state.schedule[localPid] = {};
+      state.schedule[localPid][it.day] = it.to;
+    }
+    applied++;
+  });
+  return applied;
+}
+
 // 排科專用:只存 Firebase(不碰 Google Sheet,避免 5萬字元上限)
 // 直接把當前 flags(含科別/請假/臨時)+ schedule 寫進公告雲端。
 // 回傳 true/false。該月需已公告(有 Firebase 節點)才會寫。
@@ -15778,25 +15902,50 @@ async function saveScheduleFirebaseOnly(month) {
     const monthKey = (month || state.month).replace(/[.#$\[\]/]/g, '_');
     const viewData = buildPublishViewPayload();
 
-    // 合併雲端既有的 leader 請假/臨時調整(避免蓋掉 leader 現場改的)
+    // 合併雲端既有的 leader 現場調整(避免蓋掉 leader 改的:請假、臨時調整、**換班後的實際班別**)
     try {
-      const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/data/flags`));
+      const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/data`));
       if (snap && snap.exists()) {
-        const cloudFlags = snap.val() || {};
+        const cloud = snap.val() || {};
+        const cloudFlags = cloud.flags || {};
+        const cloudSched = cloud.schedule || {};
+        const cloudStaff = cloud.staff || [];
+        // 雲端 pid → 名字;再對到 viewData 的 pid(pid 可能因重建而不同,用名字保險)
+        const cloudIdToName = {};
+        cloudStaff.forEach(p => { if (p && p.id) cloudIdToName[p.id] = p.name; });
+        const nameToViewPid = {};
+        (viewData.staff || []).forEach(p => { if (p && p.name) nameToViewPid[p.name] = p.id; });
+
         if (!viewData.flags) viewData.flags = {};
+        if (!viewData.schedule) viewData.schedule = {};
         for (const pid in cloudFlags) {
-          for (const day in cloudFlags[pid]) {
-            const cf = cloudFlags[pid][day];
+          const daysObj = cloudFlags[pid];
+          if (!daysObj || typeof daysObj !== 'object') continue;
+          const cname = cloudIdToName[pid];
+          const vpid = (cname && nameToViewPid[cname]) ? nameToViewPid[cname] : pid;
+          for (const day in daysObj) {
+            const cf = daysObj[day];
             if (!cf || typeof cf !== 'object') continue;
-            if (cf.leaveMarked || cf.leaveReason || cf.tempAdjust || cf.adjustLog) {
-              if (!viewData.flags[pid]) viewData.flags[pid] = {};
-              if (!viewData.flags[pid][day]) viewData.flags[pid][day] = {};
-              const tgt = viewData.flags[pid][day];
+            if (cf.leaveMarked || cf.leaveReason || cf.tempAdjust || cf.adjustLog || cf.shiftChanged) {
+              if (!viewData.flags[vpid]) viewData.flags[vpid] = {};
+              if (!viewData.flags[vpid][day]) viewData.flags[vpid][day] = {};
+              const tgt = viewData.flags[vpid][day];
               if (cf.leaveMarked) tgt.leaveMarked = cf.leaveMarked;
               if (cf.leaveReason) tgt.leaveReason = cf.leaveReason;
               if (cf.tempAdjust) tgt.tempAdjust = cf.tempAdjust;
               if (cf.adjustLog) tgt.adjustLog = cf.adjustLog;
               if (cf.tempAdjust && cf.dept && !tgt.dept) tgt.dept = cf.dept;
+              // ★ 換班:保留 leader 改後的實際班別 + 換班紀錄(之前這段沒保,班別會被蓋回去)
+              if (cf.shiftChanged) {
+                tgt.shiftChanged = true;
+                if (cf.origShift !== undefined) tgt.origShift = cf.origShift;
+                if (cf.shiftReview) tgt.shiftReview = cf.shiftReview;
+                const leaderShift = (cloudSched[pid] || {})[day];
+                if (leaderShift !== undefined && leaderShift !== null && leaderShift !== '') {
+                  if (!viewData.schedule[vpid]) viewData.schedule[vpid] = {};
+                  viewData.schedule[vpid][day] = leaderShift;
+                }
+              }
             }
           }
         }
@@ -15825,29 +15974,53 @@ function triggerAutoSync() {
       const monthKey = state.month.replace(/[.#$\[\]/]/g, '_');
       const viewData = buildPublishViewPayload();
 
-      // 關鍵:合併 leader 現場調整頁加的請假/臨時異動(存在雲端,但不在 index 的 state)
-      // 否則 index 自動同步會用舊資料蓋掉 leader 剛加的請假標記(「過一段時間消失」的原因)
+      // 關鍵:合併 leader 現場調整頁加的請假/臨時異動/換班(存在雲端,但不在 index 的 state)
+      // 否則 index 自動同步會用舊資料蓋掉 leader 剛改的內容
       if (get) {
         try {
-          const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/data/flags`));
+          const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/data`));
           if (snap && snap.exists()) {
-            const cloudFlags = snap.val() || {};
+            const cloud = snap.val() || {};
+            const cloudFlags = cloud.flags || {};
+            const cloudSched = cloud.schedule || {};
+            const cloudStaff = cloud.staff || [];
+            const cloudIdToName = {};
+            cloudStaff.forEach(p => { if (p && p.id) cloudIdToName[p.id] = p.name; });
+            const nameToViewPid = {};
+            (viewData.staff || []).forEach(p => { if (p && p.name) nameToViewPid[p.name] = p.id; });
+
             if (!viewData.flags) viewData.flags = {};
+            if (!viewData.schedule) viewData.schedule = {};
             for (const pid in cloudFlags) {
-              for (const day in cloudFlags[pid]) {
-                const cf = cloudFlags[pid][day];
+              const daysObj = cloudFlags[pid];
+              if (!daysObj || typeof daysObj !== 'object') continue;
+              const cname = cloudIdToName[pid];
+              const vpid = (cname && nameToViewPid[cname]) ? nameToViewPid[cname] : pid;
+              for (const day in daysObj) {
+                const cf = daysObj[day];
                 if (!cf || typeof cf !== 'object') continue;
                 // 只挑「leader 現場調整才會產生」的欄位,合併回 payload
-                if (cf.leaveMarked || cf.leaveReason || cf.tempAdjust || cf.adjustLog) {
-                  if (!viewData.flags[pid]) viewData.flags[pid] = {};
-                  if (!viewData.flags[pid][day]) viewData.flags[pid][day] = {};
-                  const tgt = viewData.flags[pid][day];
+                if (cf.leaveMarked || cf.leaveReason || cf.tempAdjust || cf.adjustLog || cf.shiftChanged) {
+                  if (!viewData.flags[vpid]) viewData.flags[vpid] = {};
+                  if (!viewData.flags[vpid][day]) viewData.flags[vpid][day] = {};
+                  const tgt = viewData.flags[vpid][day];
                   if (cf.leaveMarked) tgt.leaveMarked = cf.leaveMarked;
                   if (cf.leaveReason) tgt.leaveReason = cf.leaveReason;
                   if (cf.tempAdjust) tgt.tempAdjust = cf.tempAdjust;
                   if (cf.adjustLog) tgt.adjustLog = cf.adjustLog;
                   // 若 leader 改過科別(臨時),且 index 這格沒科別,採用雲端的
                   if (cf.tempAdjust && cf.dept && !tgt.dept) tgt.dept = cf.dept;
+                  // ★ 換班:保留 leader 改後的實際班別 + 換班紀錄
+                  if (cf.shiftChanged) {
+                    tgt.shiftChanged = true;
+                    if (cf.origShift !== undefined) tgt.origShift = cf.origShift;
+                    if (cf.shiftReview) tgt.shiftReview = cf.shiftReview;
+                    const leaderShift = (cloudSched[pid] || {})[day];
+                    if (leaderShift !== undefined && leaderShift !== null && leaderShift !== '') {
+                      if (!viewData.schedule[vpid]) viewData.schedule[vpid] = {};
+                      viewData.schedule[vpid][day] = leaderShift;
+                    }
+                  }
                 }
               }
             }
