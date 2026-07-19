@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- AIDE-VERSION: 2026-07-19-v4 (組內統計+工讀不算人力+底部可收合+備份還原) -->
+<!-- AIDE-VERSION: 2026-07-19-v5 (修假日綠條+組內統計可收合) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診技助事員排班工具 | ED Aide Scheduling</title>
@@ -262,6 +262,13 @@ body {
   overflow: auto;
   min-height: 100px;
 }
+.aide-stats-toggle {
+  float: right; margin-right: 14px; padding: 1px 10px;
+  background: rgba(255,255,255,0.22); border-radius: 5px;
+  font-size: 0.78rem; font-weight: 700; letter-spacing: 0;
+  cursor: pointer; text-shadow: none;
+}
+.aide-stats-toggle:hover { background: rgba(255,255,255,0.38); }
 .schedule-divider {
   flex: 0 0 20px;
   background: var(--ink);
@@ -5369,6 +5376,27 @@ async function importAideBackup(event) {
   }
 }
 
+// 各組人力統計的收合狀態(技/助 各自獨立,記在 localStorage)
+const AIDE_STATS_COLLAPSE_KEY = 'aide.groupStatsCollapsed.v1';
+let _aideStatsCollapsed = {};
+try { _aideStatsCollapsed = JSON.parse(localStorage.getItem(AIDE_STATS_COLLAPSE_KEY) || '{}') || {}; } catch (e) { _aideStatsCollapsed = {}; }
+
+window.toggleAideGroupStats = function(groupCode) {
+  _aideStatsCollapsed[groupCode] = !_aideStatsCollapsed[groupCode];
+  try { localStorage.setItem(AIDE_STATS_COLLAPSE_KEY, JSON.stringify(_aideStatsCollapsed)); } catch (e) {}
+  // 直接切 display,不必整表重繪(比較快也不會跳位)
+  document.querySelectorAll(`tr.aide-group-stat[data-stat-group="${groupCode}"]`).forEach(tr => {
+    tr.style.display = _aideStatsCollapsed[groupCode] ? 'none' : '';
+  });
+  // 更新按鈕文字
+  document.querySelectorAll('.aide-stats-toggle').forEach(el => {
+    const oc = el.getAttribute('onclick') || '';
+    if (oc.includes(`'${groupCode}'`)) {
+      el.textContent = _aideStatsCollapsed[groupCode] ? '\u25b6 \u5c55\u958b\u4eba\u529b' : '\u25bc \u6536\u5408\u4eba\u529b';
+    }
+  });
+};
+
 // 各職類的人力統計列(插在該組人員正下方)
 // 技/助 才統計;事務員只有一人,不統計。
 // 注意:工讀生顯示上併入助理員組,但「人力統計不算工讀生」。
@@ -5379,7 +5407,8 @@ function renderAideGroupStatRows(groupCode, days) {
   const GROUP_LABEL = { '技': '技術員', '助': '助理員' };
   let h = '';
   shifts.forEach(st => {
-    h += `<tr class="aide-group-stat">`;
+    const hidden = _aideStatsCollapsed[groupCode] === true ? ' style="display:none"' : '';
+    h += `<tr class="aide-group-stat" data-stat-group="${groupCode}"${hidden}>`;
     h += `<td class="col-meta col-name" style="background:#efe6d8;font-weight:800;font-size:12px;text-align:center;color:#5b4a35">${GROUP_LABEL[groupCode] || groupCode}</td>`;
     h += `<td class="col-meta col-level" style="background:#efe6d8;font-weight:800;font-size:12px;text-align:center;color:#5b4a35">${groupCode}</td>`;
     h += `<td class="col-meta col-pref" style="background:#efe6d8;font-weight:800;font-size:12px;text-align:center;color:#5b4a35">${st}</td>`;
@@ -5400,7 +5429,7 @@ function renderAideGroupStatRows(groupCode, days) {
       if (isHoliday(state.month, d)) cls = 'holiday';
       else if (dow === 0) cls = 'dow-sun';
       else if (dow === 6) cls = 'dow-sat';
-      h += `<td class="${cls}" style="font-weight:800;font-size:12px;background:#faf6ee;color:#3f3527">${count}</td>`;
+      h += `<td class="${cls}" style="font-weight:800;font-size:12px;color:#3f3527">${count}</td>`;
     }
     for (let k = 0; k < 4; k++) h += `<td style="background:#efe6d8"></td>`;
     h += '</tr>';
@@ -5493,7 +5522,12 @@ function renderTable() {
         '事': 'linear-gradient(90deg, #6b21a8 0%, #581c87 100%)',     // 深紫(事務員)
       };
       const bg = GROUP_COLORS[myType] || 'linear-gradient(90deg, #374151 0%, #1f2937 100%)';
-      html += `<tr class="type-group-row" style="background: ${bg}"><td colspan="${totalCols}" style="padding: 8px 14px; color: white; font-weight: 800; font-size: 1rem; text-align: left; letter-spacing: 2px; text-shadow: 0 1px 2px rgba(0,0,0,0.3)">═══ ${typeName} ═══</td></tr>`;
+      const hasStats = (myType === '技' || myType === '助');
+      const statsHidden = _aideStatsCollapsed[myType] === true;
+      const statsBtn = hasStats
+        ? `<span class="aide-stats-toggle" onclick="toggleAideGroupStats('${myType}')" title="收合/展開這組的人力統計">${statsHidden ? '▶ 展開人力' : '▼ 收合人力'}</span>`
+        : '';
+      html += `<tr class="type-group-row" style="background: ${bg}"><td colspan="${totalCols}" style="padding: 8px 14px; color: white; font-weight: 800; font-size: 1rem; text-align: left; letter-spacing: 2px; text-shadow: 0 1px 2px rgba(0,0,0,0.3)">═══ ${typeName} ═══${statsBtn}</td></tr>`;
       prevType = myType;
     }
 
