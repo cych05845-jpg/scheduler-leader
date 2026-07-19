@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- VIEW-VERSION: 2026-07-18-v3 (劃假不算人力+調班紅框註記) -->
+<!-- VIEW-VERSION: 2026-07-19-v4 (工讀不算人力) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
@@ -1950,6 +1950,8 @@ function renderMonthTable() {
         let count = 0;
         state.staff.forEach(p => {
           if (!matchFn(p)) return;
+          // 工讀生顯示上併入助理員組,但不列入人力統計
+          if (p.level === '工讀') return;
           if (p._countAsCapacity === false) return;
           const v = (state.schedule[p.id] || {})[d];
           if (v !== sh) return;

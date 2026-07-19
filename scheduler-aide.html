@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
+<!-- AIDE-VERSION: 2026-07-19-v4 (組內統計+工讀不算人力+底部可收合+備份還原) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診技助事員排班工具 | ED Aide Scheduling</title>
@@ -262,7 +263,7 @@ body {
   min-height: 100px;
 }
 .schedule-divider {
-  flex: 0 0 6px;
+  flex: 0 0 20px;
   background: var(--ink);
   cursor: row-resize;
   position: relative;
@@ -279,12 +280,19 @@ body {
   background: rgba(255,255,255,0.6);
   border-radius: 1px;
 }
+.bottom-toggle-btn {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  padding: 2px 12px; font-size: 0.74rem; font-weight: 700; line-height: 1.5;
+  background: rgba(255,255,255,0.92); color: #374151;
+  border: none; border-radius: 5px; cursor: pointer; z-index: 2;
+}
+.bottom-toggle-btn:hover { background: #fff; }
 .schedule-divider:hover { background: var(--accent); }
 .schedule-divider.dragging { background: var(--accent); }
 .schedule-bottom {
   flex: 0 0 auto;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: auto;   /* 技助系統有 技/助 兩組共 8 列,高度不夠時要能捲動 */
   background: var(--paper);
   /* 預設高度由 JS 設定(讀 localStorage 或 fallback) */
 }
@@ -1483,6 +1491,23 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
         </button>
         <span style="color: var(--ink-mute); font-size: 0.85rem; margin-left: 0.5rem">(僅在特殊情況使用,通常公告會自動存)</span>
       </div>
+
+      <div style="border-top: 2px solid #fecaca; padding-top: 1rem; margin-top: 1rem; background:#fffbfb; border-radius:8px; padding:12px">
+        <div style="font-weight: 800; color: #b91c1c; margin-bottom: 6px">🛟 備份與還原(建議每次排完班下載一次)</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+          <button onclick="exportAideBackup()" style="padding: 7px 14px; background: #b91c1c; border: none; color: white; border-radius: 6px; cursor: pointer; font-family: inherit; font-weight: 700">
+            ⬇ 匯出全部班表備份
+          </button>
+          <button onclick="document.getElementById('aide-backup-file').click()" style="padding: 7px 14px; background: white; border: 1.5px solid #b91c1c; color: #b91c1c; border-radius: 6px; cursor: pointer; font-family: inherit; font-weight: 700">
+            ⬆ 匯入備份還原班表
+          </button>
+          <input type="file" id="aide-backup-file" accept=".json,application/json" style="display:none" onchange="importAideBackup(event)">
+        </div>
+        <div style="color: var(--ink-mute); font-size: 0.82rem; margin-top: 6px">
+          匯出:把目前畫面 + 雲端所有月份存成一個 .json 檔到你電腦。<br>
+          匯入:用那個 .json 檔把班表還原回畫面(還原前會先問你確認)。
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button onclick="closeModal('cloud-schedules-modal')">關閉</button>
@@ -1586,7 +1611,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
         <div class="schedule-top" id="schedule-top">
           <table class="sched-table" id="sched-table"></table>
         </div>
-        <div class="schedule-divider" id="schedule-divider" title="拖動調整下半高度"></div>
+        <div class="schedule-divider" id="schedule-divider" title="拖動調整下半高度"><button class="bottom-toggle-btn" id="bottom-toggle-btn" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()" onclick="toggleBottomPanel()">▼ 收合人力統計</button></div>
         <div class="schedule-bottom" id="schedule-bottom">
           <table class="sched-table" id="sched-table-bottom"></table>
         </div>
@@ -5224,6 +5249,165 @@ document.querySelectorAll('.brush-btn').forEach(btn => {
 // ============================================================
 // RENDER TABLE
 // ============================================================
+
+// ===== 🛟 備份與還原(技助系統)=====
+// ⬇ 匯出:目前畫面 + 雲端所有月份 → 一個 .json 檔
+async function exportAideBackup() {
+  const btnMsg = (t) => { try { const b = event && event.target; if (b) b.textContent = t; } catch (e) {} };
+  try {
+    btnMsg('\u23f3 收集資料中...');
+    const backup = {
+      backupVersion: 1,
+      system: 'aide',
+      exportedAt: new Date().toISOString(),
+      note: '\u6280\u52a9\u4e8b\u54e1\u6392\u73ed\u7cfb\u7d71\u5099\u4efd\u6a94\u3002\u8981\u9084\u539f\u6642\u7528\u300c\u2191 \u532f\u5165\u5099\u4efd\u9084\u539f\u73ed\u8868\u300d\u3002',
+      currentView: {
+        month: state.month,
+        staff: state.staff,
+        schedule: state.schedule,
+        scheduleFlags: state.scheduleFlags,
+        notes: state.notes,
+        dateNotes: state.dateNotes,
+        fixed: state.fixed,
+        holidays: state.holidays,
+        rules: state.rules,
+      },
+      cloud: { aideSchedules: {} },
+    };
+
+    try {
+      await ensureFirebase();
+      const { ref, get } = window._fbHelpers;
+      const snap = await get(ref(_firebaseDb, 'aide-schedules'));
+      if (snap && snap.exists()) backup.cloud.aideSchedules = snap.val();
+    } catch (e) {
+      console.warn('\u5099\u4efd\uff1aFirebase \u8b80\u53d6\u5931\u6557\uff0c\u81f3\u5c11\u4fdd\u7559\u76ee\u524d\u756b\u9762', e);
+    }
+
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    a.href = url;
+    a.download = `\u6280\u52a9\u6392\u73ed\u5099\u4efd_${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    const monthCount = Object.keys(backup.cloud.aideSchedules || {}).length;
+    btnMsg('\u2713 \u5df2\u4e0b\u8f09');
+    alert('\u2705 \u5099\u4efd\u5df2\u4e0b\u8f09\u5230\u4f60\u7684\u96fb\u8166\n\n\u6a94\u540d\uff1a\u6280\u52a9\u6392\u73ed\u5099\u4efd_' + stamp + '.json\n\u5305\u542b\uff1a\u76ee\u524d\u756b\u9762\u73ed\u8868 + \u96f2\u7aef ' + monthCount + ' \u7b46\u6708\u4efd\u8cc7\u6599\n\n\u8acb\u628a\u9019\u500b\u6a94\u6848\u5b58\u597d\u3002');
+    setTimeout(() => btnMsg('\u2b07 \u532f\u51fa\u5168\u90e8\u73ed\u8868\u5099\u4efd'), 2000);
+  } catch (e) {
+    alert('\u532f\u51fa\u5099\u4efd\u5931\u6557\uff1a' + e.message);
+    btnMsg('\u2b07 \u532f\u51fa\u5168\u90e8\u73ed\u8868\u5099\u4efd');
+  }
+}
+
+// ⬆ 匯入:用備份檔把 currentView 載回畫面
+async function importAideBackup(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';
+  try {
+    const text = await file.text();
+    const backup = JSON.parse(text);
+    const cv = backup.currentView;
+    if (!cv || !cv.staff || !cv.month) {
+      alert('\u9019\u500b\u6a94\u6848\u770b\u8d77\u4f86\u4e0d\u662f\u6709\u6548\u7684\u73ed\u8868\u5099\u4efd\uff08\u7f3a currentView\uff09\u3002');
+      return;
+    }
+    if (backup.system && backup.system !== 'aide') {
+      if (!confirm('\u26a0 \u9019\u500b\u5099\u4efd\u6a94\u4e0d\u662f\u6280\u52a9\u7cfb\u7d71\u7684\uff08\u53ef\u80fd\u662f\u8b77\u7406\u5e2b\u7cfb\u7d71\uff09\u3002\n\u78ba\u5b9a\u8981\u7e7c\u7e8c\u55ce\uff1f')) return;
+    }
+
+    const sf = cv.scheduleFlags || {};
+    let deptCount = 0;
+    for (const pid in sf) for (const d in sf[pid]) {
+      const cell = sf[pid][d];
+      if (cell && typeof cell === 'object' && cell.dept) deptCount++;
+    }
+    const staffCount = (cv.staff || []).length;
+    const msg = '\u78ba\u5b9a\u7528\u9019\u500b\u5099\u4efd\u9084\u539f\u73ed\u8868\uff1f\n\n' +
+      '\u6708\u4efd\uff1a' + cv.month + '\n\u4eba\u54e1\uff1a' + staffCount + ' \u4eba\n\u79d1\u5225\uff1a' + deptCount + ' \u683c\n' +
+      '\u532f\u51fa\u6642\u9593\uff1a' + (backup.exportedAt ? new Date(backup.exportedAt).toLocaleString('zh-TW') : '\u672a\u77e5') + '\n\n' +
+      '\u26a0 \u9019\u6703\u7528\u5099\u4efd\u7684\u5167\u5bb9\u53d6\u4ee3\u76ee\u524d\u756b\u9762\u7684\u73ed\u8868\u3002';
+    if (!confirm(msg)) return;
+
+    if (typeof snapshotState === 'function') snapshotState('\u532f\u5165\u5099\u4efd\u9084\u539f');
+
+    state.month = cv.month;
+    state.staff = cv.staff || [];
+    state.schedule = cv.schedule || {};
+    state.scheduleFlags = cv.scheduleFlags || {};
+    state.notes = cv.notes || {};
+    if (cv.dateNotes) state.dateNotes = cv.dateNotes;
+    state.fixed = cv.fixed || {};
+    state.holidays = cv.holidays || [];
+    if (cv.rules) state.rules = cv.rules;
+
+    if (typeof applySavedStaffOrder === 'function') applySavedStaffOrder();
+    try { if (typeof saveScheduleLocalNow === 'function') saveScheduleLocalNow(); } catch (e) { console.warn(e); }
+    try { if (typeof saveStaffData === 'function') saveStaffData(); } catch (e) { console.warn(e); }
+    try { if (typeof saveRules === 'function') saveRules(); } catch (e) { console.warn(e); }
+
+    const mi = document.getElementById('month-input');
+    if (mi) mi.value = cv.month;
+    const es = document.getElementById('empty-state');
+    if (es) es.style.display = 'none';
+    const mc = document.getElementById('main-content');
+    if (mc) mc.style.display = 'block';
+    const sp = document.getElementById('side-panel');
+    if (sp) sp.style.display = 'block';
+    if (typeof renderTable === 'function') renderTable();
+    if (typeof closeModal === 'function') closeModal('cloud-schedules-modal');
+
+    alert('\u2705 \u5df2\u5f9e\u5099\u4efd\u9084\u539f\n\n\u6708\u4efd\uff1a' + cv.month + '\n\u4eba\u54e1\uff1a' + staffCount + ' \u4eba\n\u79d1\u5225\uff1a' + deptCount + ' \u683c\n\n\u8acb\u78ba\u8a8d\u756b\u9762\u5c0d\u4e0d\u5c0d\uff0c\u5c0d\u4e86\u518d\u624b\u52d5\u5132\u5b58\u5230\u96f2\u7aef\u3002');
+  } catch (e) {
+    alert('\u532f\u5165\u5099\u4efd\u5931\u6557\uff1a' + e.message);
+  }
+}
+
+// 各職類的人力統計列(插在該組人員正下方)
+// 技/助 才統計;事務員只有一人,不統計。
+// 注意:工讀生顯示上併入助理員組,但「人力統計不算工讀生」。
+function renderAideGroupStatRows(groupCode, days) {
+  const GROUP_SHIFTS = { '技': ['D', 'E', '12-20'], '助': ['D', 'E', '12-20'] };
+  const shifts = GROUP_SHIFTS[groupCode];
+  if (!shifts) return '';   // 事務員/其他 → 不統計
+  const GROUP_LABEL = { '技': '技術員', '助': '助理員' };
+  let h = '';
+  shifts.forEach(st => {
+    h += `<tr class="aide-group-stat">`;
+    h += `<td class="col-meta col-name" style="background:#efe6d8;font-weight:800;font-size:12px;text-align:center;color:#5b4a35">${GROUP_LABEL[groupCode] || groupCode}</td>`;
+    h += `<td class="col-meta col-level" style="background:#efe6d8;font-weight:800;font-size:12px;text-align:center;color:#5b4a35">${groupCode}</td>`;
+    h += `<td class="col-meta col-pref" style="background:#efe6d8;font-weight:800;font-size:12px;text-align:center;color:#5b4a35">${st}</td>`;
+    for (let d = 1; d <= days; d++) {
+      let count = 0;
+      state.staff.forEach(p => {
+        if (p.level === '工讀') return;      // 工讀生不算人力
+        if ((p.level || '其他') !== groupCode) return;
+        if (!isCountingForCapacity(p)) return;
+        if ((state.schedule[p.id] || {})[d] !== st) return;
+        const flag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d]) || {};
+        if (flag.marker === 'preceptor' || flag.marker === 'trainee') return;
+        if (flag.halfdayTime) return;
+        count++;
+      });
+      const dow = getDayOfWeek(state.month, d);
+      let cls = '';
+      if (isHoliday(state.month, d)) cls = 'holiday';
+      else if (dow === 0) cls = 'dow-sun';
+      else if (dow === 6) cls = 'dow-sat';
+      h += `<td class="${cls}" style="font-weight:800;font-size:12px;background:#faf6ee;color:#3f3527">${count}</td>`;
+    }
+    for (let k = 0; k < 4; k++) h += `<td style="background:#efe6d8"></td>`;
+    h += '</tr>';
+  });
+  return h;
+}
+
 function renderTable() {
   if (state.staff.length === 0) return;
 
@@ -5286,15 +5470,18 @@ function renderTable() {
   // Filter: skip people who are on leave OR resigned-before-this-month
   const visibleStaff = state.staff.filter(p => !shouldHideStaff(p, state.month));
 
-  // 按類型分組:技 → 助 → 工讀 → 事 → 其他
-  const TYPE_ORDER = { '技': 1, '助': 2, '工讀': 3, '事': 4 };
-  const TYPE_NAMES = { '技': '技術員', '助': '助理員', '工讀': '工讀生', '事': '事務員' };
+  // 按類型分組:技 → 助(含工讀生) → 事 → 其他
+  // 工讀生併入助理員,跟公告頁一致
+  const GROUP_OF = (lv) => (lv === '工讀' ? '助' : (lv || '其他'));
+  const TYPE_NAMES = { '技': '技術員', '助': '助理員', '事': '事務員' };
   let prevType = null;
 
   visibleStaff.forEach(p => {
     // 插入分組標題列(當該類型第一次出現時)
-    const myType = p.level || '其他';
+    const myType = GROUP_OF(p.level);
     if (myType !== prevType) {
+      // 換組前,先把「上一組」的人力統計列補上(統計跟著各組走)
+      if (prevType !== null) html += renderAideGroupStatRows(prevType, days);
       const typeName = TYPE_NAMES[myType] || myType || '其他';
       const totalDayCols = state.days || getDaysInMonth(state.month);
       const totalCols = 5 + totalDayCols + 4;  // 5 個 meta 欄 + N 個日期 + 4 個統計欄
@@ -5471,6 +5658,8 @@ function renderTable() {
 
     html += '</tr>';
   });
+  // 迴圈跑完,補上「最後一組」的人力統計列
+  if (prevType !== null) html += renderAideGroupStatRows(prevType, days);
   html += '</tbody>';
 
   // 上半不再有 tfoot 統計列,改由下半 table 永遠顯示
@@ -5499,7 +5688,31 @@ function renderTable() {
 // ============================================================
 // SPLIT VIEW: 下半永遠顯示的 D/E/N 統計列
 // ============================================================
-const SPLIT_LS_KEY = 'splitView.bottomHeight.v1';
+const SPLIT_LS_KEY = 'splitView.bottomHeight.aide.v2';  // 換 key:讓舊的 110px 設定失效,改用適合技助系統的 260px
+const BOTTOM_COLLAPSE_KEY = 'splitView.bottomCollapsed.aide.v1';
+
+// 收合 / 展開底部人力統計面板(統計已跟在各組下面,底部這個是「捲到哪都看得到」的固定版)
+window.toggleBottomPanel = function(force) {
+  const bottom = document.getElementById('schedule-bottom');
+  const btn = document.getElementById('bottom-toggle-btn');
+  if (!bottom) return;
+  const isCollapsed = bottom.dataset.collapsed === '1';
+  const collapse = (typeof force === 'boolean') ? force : !isCollapsed;
+  if (collapse) {
+    if (!isCollapsed) {
+      const h = bottom.offsetHeight || parseInt(bottom.style.height, 10) || 260;
+      if (h > 20) bottom.dataset.prevH = String(h);
+    }
+    bottom.style.height = '0px';
+    bottom.dataset.collapsed = '1';
+    if (btn) btn.textContent = '▲ 展開人力統計';
+  } else {
+    bottom.style.height = (bottom.dataset.prevH || '260') + 'px';
+    bottom.dataset.collapsed = '0';
+    if (btn) btn.textContent = '▼ 收合人力統計';
+  }
+  try { localStorage.setItem(BOTTOM_COLLAPSE_KEY, collapse ? '1' : '0'); } catch (e) {}
+};
 let _syncingScroll = false;  // 防止滾動同步無限迴圈
 
 function renderBottomTable() {
@@ -5550,8 +5763,9 @@ function renderBottomTable() {
         const dow = getDayOfWeek(state.month, d);
         let count = 0;
         state.staff.forEach(p => {
-          // 只算該類型(技/助)
-          if (p.level !== typeGroup.code && !(typeGroup.code === '助' && p.level === '工讀')) return;
+          // 只算該類型;工讀生顯示上併入助理員,但不算人力
+          if (p.level === '工讀') return;
+          if (p.level !== typeGroup.code) return;
           if (!isCountingForCapacity(p)) return;
           if ((state.schedule[p.id] || {})[d] !== st) return;
           const flag = (state.scheduleFlags && state.scheduleFlags[p.id] && state.scheduleFlags[p.id][d]) || {};
@@ -5678,8 +5892,14 @@ function initSplitDivider() {
 
   // 還原上次的高度
   let savedH = parseInt(localStorage.getItem(SPLIT_LS_KEY) || '0', 10);
-  if (!savedH || savedH < 50) savedH = 110;  // fallback:三列約 90px + 一點呼吸空間
+  if (!savedH || savedH < 50) savedH = 260;  // fallback:技/助兩組共 8 列,約 260px 才裝得下
   bottom.style.height = savedH + 'px';
+  bottom.dataset.prevH = String(savedH);
+
+  // 還原「收合」狀態
+  try {
+    if (localStorage.getItem(BOTTOM_COLLAPSE_KEY) === '1') toggleBottomPanel(true);
+  } catch (e) {}
 
   let dragging = false;
   let startY = 0, startH = 0;
