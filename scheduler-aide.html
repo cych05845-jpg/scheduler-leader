@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- AIDE-VERSION: 2026-07-19-v5 (修假日綠條+組內統計可收合) -->
+<!-- AIDE-VERSION: 2026-07-27-v6 (責任分配加AIDE-前綴,與護理師隔離) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診技助事員排班工具 | ED Aide Scheduling</title>
@@ -4529,7 +4529,10 @@ async function loadAssignments(forceRefresh) {
   try {
     const result = await apiCall('listAssignments', { token });
     if (result.ok) {
-      _assignmentsCache = result.assignments || [];
+      // 技助系統:只留「AIDE-」開頭的責任分配(其餘是護理師系統的,不該混進來)
+      let list = result.assignments || [];
+      list = list.filter(a => a.month && String(a.month).startsWith('AIDE-'));
+      _assignmentsCache = list;
       _assignmentsCacheTime = Date.now();
       return _assignmentsCache;
     }
@@ -4588,7 +4591,7 @@ async function refreshAssignments(forceRefresh) {
     assignments.forEach(a => {
       const dateStr = a.createdAt ? new Date(a.createdAt).toLocaleDateString('zh-TW') : '';
       html += `<tr>
-        <td style="padding: 8px; border-bottom: 1px solid var(--line-soft)">${a.month}</td>
+        <td style="padding: 8px; border-bottom: 1px solid var(--line-soft)">${String(a.month).replace(/^AIDE-/, '')}</td>
         <td style="padding: 8px; border-bottom: 1px solid var(--line-soft)"><strong>${a.assignedToName || a.assignedTo}</strong> <span style="color: var(--ink-mute); font-size: 0.85rem">(${a.assignedTo})</span></td>
         <td style="padding: 8px; border-bottom: 1px solid var(--line-soft); color: var(--ink-mute); font-size: 0.85rem">${dateStr}</td>
         <td style="padding: 8px; border-bottom: 1px solid var(--line-soft); text-align: center"><button onclick="deleteAssignment('${a.month}')" style="padding: 3px 10px; background: white; border: 1px solid var(--err); color: var(--err); border-radius: 4px; font-size: 0.85rem">刪除</button></td>
@@ -4624,7 +4627,9 @@ async function addAssignment() {
   }
 
   try {
-    const result = await apiCall('setAssignment', { token, month, assignedTo });
+    // 技助系統的責任分配加「AIDE-」前綴,才不會跟護理師系統存到同一個 key 互相覆蓋
+    const aideMonth = month.startsWith('AIDE-') ? month : ('AIDE-' + month);
+    const result = await apiCall('setAssignment', { token, month: aideMonth, assignedTo });
     if (result.ok) {
       // 寫入後 invalidate cache
       _assignmentsCache = null;
@@ -4649,7 +4654,7 @@ async function addAssignment() {
 }
 
 async function deleteAssignment(month) {
-  if (!confirm(`確定刪除「${month}」的指派?`)) return;
+  if (!confirm(`確定刪除「${String(month).replace(/^AIDE-/, '')}」的指派?`)) return;
   const token = getAuthToken();
   try {
     const result = await apiCall('deleteAssignment', { token, month });

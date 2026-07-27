@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-18-v24 (排科排除劃假的人) -->
+<!-- VERSION: 2026-07-27-v25 (責任分配濾掉AIDE-,不再與技助互蓋) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4731,7 +4731,10 @@ async function loadAssignments(forceRefresh) {
   try {
     const result = await apiCall('listAssignments', { token });
     if (result.ok) {
-      _assignmentsCache = result.assignments || [];
+      // 護理師系統:濾掉「AIDE-」開頭的(那些是技助系統的責任分配,不該混進來)
+      let list = result.assignments || [];
+      list = list.filter(a => !(a.month && String(a.month).startsWith('AIDE-')));
+      _assignmentsCache = list;
       _assignmentsCacheTime = Date.now();
       return _assignmentsCache;
     }
