@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- AIDE-VERSION: 2026-07-27-v6 (責任分配加AIDE-前綴,與護理師隔離) -->
+<!-- AIDE-VERSION: 2026-07-27-v7 (月狀態列也隔離AIDE) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診技助事員排班工具 | ED Aide Scheduling</title>
@@ -3975,8 +3975,12 @@ async function refreshMonthlyStatus() {
   try {
     const result = await apiCall('getMonthlyStatus', { token });
     if (result.ok && result.status) {
+      // 技助系統:只認「AIDE-」開頭的月狀態,拿到護理師的就忽略;顯示時去掉前綴
+      if (result.status.month && !String(result.status.month).startsWith('AIDE-')) {
+        return;
+      }
       _monthlyStatusCache = result.status;
-      document.getElementById('status-month').textContent = result.status.month || '─';
+      document.getElementById('status-month').textContent = String(result.status.month || '─').replace(/^AIDE-/, '');
       document.getElementById('status-owner').textContent = result.status.owner || '─ 未指定 ─';
       document.getElementById('status-stage').textContent = result.status.stage || '─ 未開始 ─';
     }
