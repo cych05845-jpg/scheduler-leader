@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-29-v29 (修根因:載入公告月份時讀對data.flags科別+自動補能力) -->
+<!-- VERSION: 2026-07-29-v30 (清單也列公告過的月份如8月) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4285,14 +4285,20 @@ async function loadSchedulesList(forceRefresh) {
       const all = snap.val() || {};
       for (const monthKey in all) {
         const node = all[monthKey];
-        if (!node || !node.fullBackup) continue;   // 只列有 fullBackup 的月份
+        if (!node) continue;
+        // 有 fullBackup(自己存的完整檔)或 有 data(leader 公告過的,如 8 月)都列出來
         const fb = node.fullBackup;
+        const hasData = node.data && node.data.staff && node.data.staff.length;
+        if (!fb && !hasData) continue;
         const m = monthKey.replace(/_/g, '-');
+        // AIDE- 前綴的是技助系統的,護理師清單不列
+        if (m.startsWith('AIDE-')) continue;
         merged[m] = {
           month: m,
-          savedAt: fb.savedAt || 0,
-          savedByName: fb.savedByName || '─',
+          savedAt: (fb && fb.savedAt) || (node.meta && node.meta.savedAt) || 0,
+          savedByName: (fb && fb.savedByName) || (node.meta && (node.meta.savedBy || node.meta.createdBy)) || '─',
           source: 'firebase',
+          publishedOnly: !fb && hasData,   // 標記:只有公告 data、沒有 fullBackup
         };
       }
     }
