@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-27-v26 (月狀態列也隔離AIDE) -->
+<!-- VERSION: 2026-07-29-v29 (修根因:載入公告月份時讀對data.flags科別+自動補能力) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -1682,6 +1682,22 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
           <button onclick="renderHolidayFairness()" style="float:right; padding:2px 8px; font-size:0.8rem; background:#dbeafe; color:#1e40af; border:1px solid #93c5fd; border-radius:3px; cursor:pointer">🔄 重算</button>
         </div>
         <div id="holiday-fairness-table" style="max-height: 500px; overflow-y: auto; font-size:0.85rem"></div>
+      </div>
+    </div>
+
+    <!-- 🏖 連休統計(≥4天,跨月合併,6月至今) -->
+    <div class="section side-collapsible" id="sec-longrest" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-longrest')">
+        <span class="side-arrow">▶</span> 🏖 連休統計(≥4天)
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
+        <div style="font-size: 0.85rem; color: var(--ink-mute); margin-bottom: 0.4rem">
+          每人連休 ≥4 天的次數(off/OFF/V 都算,跨月接續合併,從 6 月起算)
+          <button onclick="renderLongRestStats()" style="float:right; padding:2px 8px; font-size:0.8rem; background:#dcfce7; color:#166534; border:1px solid #86efac; border-radius:3px; cursor:pointer">🔄 計算</button>
+        </div>
+        <div id="long-rest-table" style="max-height: 500px; overflow-y: auto; font-size:0.85rem">
+          <div style="color:var(--ink-mute); padding:0.5rem">點「🔄 計算」從雲端讀取各月班表統計(需幾秒)。</div>
+        </div>
       </div>
     </div>
 
@@ -4166,6 +4182,30 @@ async function saveScheduleToCloud(month, silent) {
       const mins = Math.round((Date.now() - editing.at) / 60000);
       if (!confirm(`⚠ 注意:${editing.by} 正在排「${month}」班表(約 ${mins} 分鐘前開始)。\n\n你現在存檔會覆蓋掉 ${editing.by} 的內容。\n\n建議先跟對方確認。確定仍要存檔嗎?`)) return false;
     }
+
+    // ★ 版本比對:比對雲端目前的資料量,若比「我載入時」明顯更多,表示別人存過更完整的版本 → 警告
+    try {
+      await ensureFirebase();
+      const { ref, get } = window._fbHelpers;
+      const mk = month.replace(/[.#$\[\]/]/g, '_');
+      const snap = await get(ref(_firebaseDb, `schedules/${mk}/data`));
+      if (snap && snap.exists()) {
+        const cloud = snap.val() || {};
+        // 算雲端科別數
+        let cloudDept = 0;
+        const cf = cloud.flags || {};
+        for (const p in cf) for (const k in cf[p]) { const c = cf[p][k]; if (c && c.dept) cloudDept++; }
+        // 算我要存的科別數
+        let myDept = 0;
+        const mf = state.scheduleFlags || {};
+        for (const p in mf) for (const k in mf[p]) { const c = mf[p][k]; if (c && c.dept) myDept++; }
+        // 雲端明顯比我多(多過 20 格)→ 很可能別人剛存了更完整的,我這份是舊的
+        if (cloudDept > myDept + 20) {
+          const who = cloud.meta && (cloud.meta.savedBy || cloud.meta.lastAdjustBy) || '別人';
+          if (!confirm(`🛑 停一下!雲端「${month}」目前有 ${cloudDept} 格科別,但你現在要存的只有 ${myDept} 格。\n\n很可能 ${who} 剛存了更完整的版本,你現在存會把它蓋掉、變回較舊的內容!\n\n建議:先取消 → 重新「載入」這個月看最新的 → 再決定。\n\n確定仍要用你目前這份覆蓋雲端嗎?`)) return false;
+        }
+      }
+    } catch (e) { /* 比對失敗不擋存檔 */ }
   }
 
   // 完整主檔(跨電腦排班用,含所有欄位;Firebase 無容量限制,不必精簡)
@@ -4293,9 +4333,54 @@ async function loadScheduleFromCloud(month) {
       if (node && node.data) return node.data;   // fullBackup 是完整格式,直接可用
     }
   } catch (fbErr) {
-    console.warn('[雲端載入] fullBackup 讀取失敗,改試 Sheet:', fbErr);
+    console.warn('[雲端載入] fullBackup 讀取失敗,改試公告 data:', fbErr);
   }
-  // 降級:沒有 fullBackup → 試 Google Sheet(舊資料相容)
+
+  // 降級 1:沒有 fullBackup → 讀公告格式的 data(leader 公告的月份只有這個,如 8 月)
+  //   ⚠ 公告格式的科別存在 data.flags(不是 scheduleFlags),schedule 可能是陣列 → 要轉成完整格式
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const monthKey = month.replace(/[.#$\[\]/]/g, '_');
+    const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/data`));
+    if (snap && snap.exists()) {
+      const d = snap.val() || {};
+      if (d.staff && d.staff.length) {
+        // schedule:陣列(index=日)→ 轉成 {day: shift}
+        const schedule = {};
+        const rawSched = d.schedule || {};
+        for (const pid in rawSched) {
+          const days = rawSched[pid];
+          if (Array.isArray(days)) {
+            const obj = {};
+            days.forEach((v, i) => { if (v) obj[i] = v; });
+            schedule[pid] = obj;
+          } else {
+            schedule[pid] = days;
+          }
+        }
+        // 科別/標記:data.flags → scheduleFlags(關鍵!否則科別會漏掉,公告時被覆蓋成空)
+        const scheduleFlags = d.flags || d.scheduleFlags || {};
+        console.log('[雲端載入] 用公告 data 還原(', (d.staff||[]).length, '人),科別欄位取自 data.flags');
+        return {
+          month: month,
+          staff: d.staff,
+          schedule: schedule,
+          scheduleFlags: scheduleFlags,
+          notes: d.notes || {},
+          dateNotes: d.dateNotes || {},
+          fixed: d.fixed || {},
+          holidays: d.holidays || [],
+          rules: d.rules || (state.rules || {}),
+          _fromPublishedData: true,   // 標記:這是公告格式還原的(可能缺能力欄位)
+        };
+      }
+    }
+  } catch (dErr) {
+    console.warn('[雲端載入] 公告 data 讀取失敗,改試 Sheet:', dErr);
+  }
+
+  // 降級 2:試 Google Sheet(舊資料相容)
   try {
     const result = await apiCall('loadSchedule', { token, month });
     if (result.ok && result.data) {
@@ -4415,6 +4500,41 @@ async function loadCloudScheduleDirectly(month) {
   state.fixed = data.fixed || {};
   state.holidays = data.holidays || [];
   if (data.rules) state.rules = data.rules;
+
+  // 若是「公告格式」還原的(缺能力欄位),自動從別月的 fullBackup 補能力,避免人數統計變 0、
+  // 也避免之後公告時把「沒能力」的版本存回去
+  if (data._fromPublishedData) {
+    try {
+      await ensureFirebase();
+      const { ref, get } = window._fbHelpers;
+      let src = null;
+      const tryMonths = ['2026-07', '2026-06', '2026-08'].filter(m => m !== month);
+      for (const m of tryMonths) {
+        const mk = m.replace(/[.#$\[\]/]/g, '_');
+        for (const path of [`schedules/${mk}/fullBackup`, `schedules/${mk}/data`]) {
+          try {
+            const s = await get(ref(_firebaseDb, path));
+            if (s && s.exists()) {
+              const n = s.val(); const dd = n.data || n;
+              const wc = (dd.staff || []).filter(p => p.peakStage || (p.capabilities && p.capabilities.length));
+              if (wc.length > 0) { src = dd.staff; break; }
+            }
+          } catch (e) {}
+        }
+        if (src) break;
+      }
+      if (src) {
+        const cm = {};
+        src.forEach(p => { if (p.peakStage || (p.capabilities && p.capabilities.length)) cm[p.name] = { peakStage: p.peakStage || '', capabilities: p.capabilities || [] }; });
+        let filled = 0;
+        state.staff.forEach(p => {
+          const c = cm[p.name];
+          if (c && !p.peakStage && !(p.capabilities && p.capabilities.length)) { p.peakStage = c.peakStage; p.capabilities = c.capabilities; filled++; }
+        });
+        if (filled > 0) console.log('[雲端載入] 公告格式缺能力,已自動補回', filled, '人');
+      }
+    } catch (e) { console.warn('[雲端載入] 補能力失敗:', e); }
+  }
 
   // 套用使用者調整過的順序(獨立存的 preference,不被雲端覆蓋)
   if (typeof applySavedStaffOrder === 'function') applySavedStaffOrder();
@@ -6429,6 +6549,127 @@ function csApply() {
 // 假日休假公平性 — 統計每人在週六/週日/國定假日的 OFF 數
 // 顯示表格 + 平均值,排序看誰假日休最少
 // ============================================================
+// 🏖 連休統計:每人連休 ≥4 天的次數,跨月接續合併,從 6 月起算
+async function renderLongRestStats() {
+  const container = document.getElementById('long-rest-table');
+  if (!container) return;
+  container.innerHTML = '<div style="padding:0.5rem; color:var(--ink-mute)">⏳ 從雲端讀取各月班表中...</div>';
+
+  const OFF = new Set(['off', 'OFF', 'O', 'o', 'V']);
+  const MIN_RUN = 4;  // 連休 ≥4 天(>3天)
+
+  // 1. 決定要讀哪些月份:6 月起,到「目前月份」或「雲端有的最大月」
+  //    這裡直接掃雲端 schedules 底下所有 2026-06 以後的月份
+  let monthKeys = [];
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const snap = await get(ref(_firebaseDb, 'schedules'));
+    if (snap && snap.exists()) {
+      const all = snap.val() || {};
+      monthKeys = Object.keys(all)
+        .map(k => k.replace(/_/g, '-'))
+        .filter(m => /^\d{4}-\d{2}$/.test(m) && m >= '2026-06')
+        .sort();
+    }
+  } catch (e) {
+    container.innerHTML = '<div style="color:#b91c1c; padding:0.5rem">讀取雲端失敗:' + escapeHTML(e.message || '') + '</div>';
+    return;
+  }
+  if (monthKeys.length === 0) {
+    container.innerHTML = '<div style="color:var(--ink-mute); padding:0.5rem">雲端沒有 6 月以後的班表。</div>';
+    return;
+  }
+
+  // 2. 逐月讀 data(公告格式,schedule 可能是陣列),建「名字 → 各月每日班別」
+  const { ref, get } = window._fbHelpers;
+  const monthData = {};   // month -> { name -> {day: shift} }
+  for (const m of monthKeys) {
+    try {
+      const mk = m.replace(/[.#$\[\]/]/g, '_');
+      const s = await get(ref(_firebaseDb, `schedules/${mk}/data`));
+      if (!s || !s.exists()) continue;
+      const d = s.val() || {};
+      const id2name = {};
+      (d.staff || []).forEach(p => { if (p && p.id) id2name[p.id] = p.name; });
+      const sched = d.schedule || {};
+      const byName = {};
+      for (const pid in sched) {
+        const name = id2name[pid];
+        if (!name) continue;
+        const days = sched[pid];
+        const dayMap = {};
+        if (Array.isArray(days)) days.forEach((v, i) => { if (v) dayMap[i] = v; });
+        else for (const k in days) { if (days[k]) dayMap[+k] = days[k]; }
+        byName[name] = dayMap;
+      }
+      monthData[m] = byName;
+    } catch (e) { /* 略過讀不到的月 */ }
+  }
+
+  // 3. 蒐集所有出現過的人
+  const allNames = new Set();
+  Object.values(monthData).forEach(byName => Object.keys(byName).forEach(n => allNames.add(n)));
+
+  // 4. 把每個人的班別「跨月接成一條連續序列」,再掃 ≥4 連休
+  //    序列 = 6月1日...6月底, 7月1日...7月底, 8月... 依 monthKeys 順序串起來
+  const daysInMonth = (m) => { const [y, mo] = m.split('-').map(Number); return new Date(y, mo, 0).getDate(); };
+  const perMonthCount = {};  // name -> {month: 次數}(次數歸屬到該連休「開始」的月份)
+  const totalCount = {};     // name -> 總次數
+
+  allNames.forEach(name => {
+    // 串成 [{m, day, shift}]
+    const seq = [];
+    monthKeys.forEach(m => {
+      const dim = daysInMonth(m);
+      const dayMap = (monthData[m] || {})[name] || {};
+      for (let d = 1; d <= dim; d++) seq.push({ m, day: d, shift: dayMap[d] });
+    });
+    // 掃連續 OFF 段
+    let run = 0, startMonth = null;
+    const bump = () => {
+      if (run >= MIN_RUN && startMonth) {
+        perMonthCount[name] = perMonthCount[name] || {};
+        perMonthCount[name][startMonth] = (perMonthCount[name][startMonth] || 0) + 1;
+        totalCount[name] = (totalCount[name] || 0) + 1;
+      }
+    };
+    seq.forEach(cell => {
+      if (cell.shift && OFF.has(cell.shift)) {
+        if (run === 0) startMonth = cell.m;
+        run++;
+      } else {
+        bump(); run = 0; startMonth = null;
+      }
+    });
+    bump();
+  });
+
+  // 5. 產生表格(依總次數排序,只列有連休的人)
+  const rows = Array.from(allNames)
+    .map(n => ({ name: n, total: totalCount[n] || 0, months: perMonthCount[n] || {} }))
+    .filter(r => r.total > 0)
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+
+  const monthLabel = (m) => m.slice(5) + '月';  // 2026-06 → 06月
+  let html = `<div style="font-size:0.78rem; color:var(--ink-mute); margin-bottom:4px">統計月份:${monthKeys.map(monthLabel).join('、')}(跨月接續合併)</div>`;
+  html += `<table style="width:100%; border-collapse:collapse; font-size:0.82rem">`;
+  html += `<tr style="background:#f1f5f9"><th style="text-align:left; padding:3px 6px">姓名</th>`;
+  monthKeys.forEach(m => { html += `<th style="padding:3px 4px; text-align:center">${monthLabel(m)}</th>`; });
+  html += `<th style="padding:3px 6px; text-align:center; background:#dcfce7">合計</th></tr>`;
+  rows.forEach(r => {
+    html += `<tr style="border-bottom:1px solid #eef2f7"><td style="padding:3px 6px; font-weight:600">${escapeHTML(r.name)}</td>`;
+    monthKeys.forEach(m => {
+      const v = r.months[m] || 0;
+      html += `<td style="padding:3px 4px; text-align:center; color:${v ? '#166534' : '#cbd5e1'}">${v || '·'}</td>`;
+    });
+    html += `<td style="padding:3px 6px; text-align:center; font-weight:800; background:#f0fdf4; color:#166534">${r.total}</td></tr>`;
+  });
+  html += `</table>`;
+  html += `<div style="font-size:0.78rem; color:var(--ink-mute); margin-top:6px">共 ${rows.length} 人排過連休 ≥4 天。連休次數歸在「開始那個月」。</div>`;
+  container.innerHTML = html;
+}
+
 function renderHolidayFairness() {
   const container = document.getElementById('holiday-fairness-table');
   if (!container) return;
@@ -15593,6 +15834,27 @@ function copyPublishLink() {
 
 // 公告 = 寫入 Firebase + 設 status: 'published'
 async function doPublishView() {
+  // ★ 公告前版本比對:雲端科別若明顯比我多,警告(防蓋掉別人剛存的完整版)
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const mk = state.month.replace(/[.#$\[\]/]/g, '_');
+    const snap = await get(ref(_firebaseDb, `schedules/${mk}/data`));
+    if (snap && snap.exists()) {
+      const cloud = snap.val() || {};
+      let cloudDept = 0;
+      const cf = cloud.flags || {};
+      for (const p in cf) for (const k in cf[p]) { const c = cf[p][k]; if (c && c.dept) cloudDept++; }
+      let myDept = 0;
+      const mf = state.scheduleFlags || {};
+      for (const p in mf) for (const k in mf[p]) { const c = mf[p][k]; if (c && c.dept) myDept++; }
+      if (cloudDept > myDept + 20) {
+        const who = cloud.meta && (cloud.meta.savedBy || cloud.meta.lastAdjustBy) || '別人';
+        if (!confirm(`🛑 停一下!雲端「${state.month}」目前有 ${cloudDept} 格科別,你要公告的只有 ${myDept} 格。\n\n很可能 ${who} 剛存了更完整的版本,你公告會把它蓋掉!\n\n建議:先取消 → 重新「載入」看最新的 → 再公告。\n\n確定仍要用你目前這份公告嗎?`)) return;
+      }
+    }
+  } catch (e) { /* 比對失敗不擋公告 */ }
+
   if (!confirm(`確定公告 ${state.month} 班表?\n\n同仁打開連結會「即時」看到當前班表內容。\n之後任何修改(包含科別)會自動同步,不用再按公告。`)) return;
 
   try {
