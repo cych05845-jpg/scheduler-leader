@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-29-v30 (清單也列公告過的月份如8月) -->
+<!-- VERSION: 2026-07-29-v33 (移除v31內建方宏榮,改由v32公告保留能力根治) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -15960,6 +15960,11 @@ function buildPublishViewPayload() {
     preferredShift: p.preferredShift || '',
     canSwapTo: p.canSwapTo || [],
     dispatch: p.dispatch || '',
+    // ★ 能力欄位:保留!否則公告會把大家的能力洗掉,載入後變「尚未設定」
+    //   (這是「設好能力→公告→被洗掉」的根本原因)
+    peakStage: p.peakStage || '',
+    capabilities: p.capabilities || [],
+    status: p.status || 'active',
     // 此人是否計入「每日人力統計」— 跟主班表底部 D/E/N 統計邏輯一致
     // false = 新進(無能力階段)/實習/半日/留停/外派/有特殊備註者
     _countAsCapacity: isCountingForCapacity(p),
