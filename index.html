@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-29-v33 (移除v31內建方宏榮,改由v32公告保留能力根治) -->
+<!-- VERSION: 2026-07-29-v34 (修當日備註dateNotes存檔+載入漏失,不再消失) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4214,6 +4214,7 @@ async function saveScheduleToCloud(month, silent) {
     schedule: state.schedule,
     scheduleFlags: state.scheduleFlags || {},
     notes: state.notes || {},
+    dateNotes: state.dateNotes || {},
     fixed: state.fixed,
     holidays: state.holidays,
     rules: state.rules,
@@ -4503,6 +4504,7 @@ async function loadCloudScheduleDirectly(month) {
   state.schedule = data.schedule || {};
   state.scheduleFlags = data.scheduleFlags || {};
   state.notes = data.notes || {};
+  if (data.dateNotes) state.dateNotes = data.dateNotes;
   state.fixed = data.fixed || {};
   state.holidays = data.holidays || [];
   if (data.rules) state.rules = data.rules;
