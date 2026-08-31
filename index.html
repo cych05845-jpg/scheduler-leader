@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-29-v34 (修當日備註dateNotes存檔+載入漏失,不再消失) -->
+<!-- VERSION: 2026-07-29-v35 (根治:自動同步前防護,畫面不完整就不覆蓋雲端-備註不再被洗掉) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -16262,6 +16262,32 @@ function triggerAutoSync() {
       await ensureFirebase();
       const { ref, update, get, set } = window._fbHelpers;
       const monthKey = state.month.replace(/[.#$\[\]/]/g, '_');
+
+      // ★ 防護:自動同步前先比對雲端,若「畫面明顯比雲端不完整」就跳過,
+      //   避免載入到空/不完整的畫面後,自動同步把雲端完整資料洗掉。
+      //   (這是「備註/科別總被洗掉」的根本原因:renderTable 會觸發自動同步)
+      if (get) {
+        try {
+          const snap0 = await get(ref(_firebaseDb, `schedules/${monthKey}/data`));
+          if (snap0 && snap0.exists()) {
+            const cd = snap0.val() || {};
+            // 雲端備註數 vs 畫面備註數
+            const cpn = cd.personNotes || {};
+            let cloudNotes = 0; for (const p in cpn) cloudNotes += Object.keys(cpn[p] || {}).length;
+            let myNotes = 0; for (const p in (state.notes || {})) myNotes += Object.keys(state.notes[p] || {}).length;
+            // 雲端科別數 vs 畫面科別數
+            const cf = cd.flags || {};
+            let cloudDept = 0; for (const p in cf) { const days = cf[p] || {}; for (const k in days) { if (days[k] && days[k].dept) cloudDept++; } }
+            let myDept = 0; for (const p in (state.scheduleFlags || {})) { const days = state.scheduleFlags[p] || {}; for (const k in days) { if (days[k] && days[k].dept) myDept++; } }
+            // 雲端有備註但畫面完全沒有,或雲端科別明顯多 → 畫面可能是空/舊的,跳過同步保護雲端
+            if ((cloudNotes > 0 && myNotes === 0) || cloudDept > myDept + 20) {
+              console.warn('[自動同步] 已跳過:畫面(備註' + myNotes + '/科別' + myDept + ')比雲端(備註' + cloudNotes + '/科別' + cloudDept + ')不完整,不覆蓋雲端。請重新載入本月看最新版。');
+              return;
+            }
+          }
+        } catch (e) { /* 比對失敗不擋,繼續原流程 */ }
+      }
+
       const viewData = buildPublishViewPayload();
 
       // 關鍵:合併 leader 現場調整頁加的請假/臨時異動/換班(存在雲端,但不在 index 的 state)
