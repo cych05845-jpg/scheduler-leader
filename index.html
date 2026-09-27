@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-07-29-v35 (根治:自動同步前防護,畫面不完整就不覆蓋雲端-備註不再被洗掉) -->
+<!-- VERSION: 2026-09-27-v37 (三條存檔路徑都保住備註+公告不再刪掉fullBackup) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -1453,6 +1453,50 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 </div>
 
 <!-- Cloud Schedules Modal -->
+<!-- 🌴 預約假期 -->
+<div class="modal-backdrop" id="booking-modal">
+  <div class="modal" style="max-width: 900px; max-height: 90vh">
+    <div class="modal-header" style="background:#0d9488">
+      <h3>🌴 預約假期</h3>
+      <button onclick="closeModal('booking-modal')" style="background:transparent;color:white;border:none;font-size:1.2rem">×</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh; overflow-y:auto">
+
+      <div style="background:#f0fdfa; border-left:4px solid #0d9488; padding:10px 12px; border-radius:0 8px 8px 0; margin-bottom:12px; font-size:0.9rem">
+        <strong>流程</strong>:同仁上預約頁登記 → 你按「🎲 開始抽籤」→ 抽籤結果寫入預約班表 → 公告 → 排班時按「📥 帶入預約班表」<br>
+        <strong>規則</strong>:依班表順序每 13 人一組,每組抽 1 個「一定可放」;沒抽中標記 <strong>O</strong>。
+      </div>
+
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px">
+        <label style="font-weight:600">預約月份:</label>
+        <input type="month" id="booking-month" style="padding:6px 10px; border:1px solid var(--line); border-radius:6px" onchange="loadBookings()">
+        <button onclick="loadBookings()" style="padding:6px 12px">🔄 重新載入</button>
+        <button onclick="copyBookingLink()" style="padding:6px 12px; background:#0d9488; color:#fff; border:none; border-radius:6px">🔗 複製預約頁連結</button>
+      </div>
+
+      <div id="booking-summary" style="margin-bottom:12px"></div>
+      <div id="booking-list" style="font-size:0.88rem"></div>
+
+      <div style="border-top:2px solid #99f6e4; margin-top:14px; padding-top:12px">
+        <div style="font-weight:700; color:#0f766e; margin-bottom:6px">🎲 抽籤與帶入</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <button onclick="runBookingLottery()" style="padding:8px 16px; background:#0d9488; color:#fff; border:none; border-radius:6px; font-weight:700">🎲 開始抽籤</button>
+          <button onclick="applyBookingToSchedule()" style="padding:8px 16px; background:#fff; border:1.5px solid #0d9488; color:#0f766e; border-radius:6px; font-weight:700">📥 帶入預約班表</button>
+        </div>
+        <div style="color:var(--ink-mute); font-size:0.82rem; margin-top:6px">
+          抽籤:計算誰抽中(OFF)、誰沒抽中(O),結果存雲端。<br>
+          帶入:把抽籤結果寫進目前畫面的班表(抽中→OFF、沒抽中→O)。
+        </div>
+        <div id="lottery-result" style="margin-top:10px"></div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal('booking-modal')">關閉</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="cloud-schedules-modal">
   <div class="modal" style="max-width: 700px">
     <div class="modal-header">
@@ -1563,6 +1607,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
         <button onclick="openNewMonthDialog()" title="從主檔建立新月份的空白班表" style="background: #5b21b6; color: white; border-color: #5b21b6">📅 新月份</button>
         <button onclick="document.getElementById('vacation-quick-import').click()" title="排班中途匯入預假摘要表(只填 OFF/off,不影響其他)" style="background: #b91c1c; color: white; border-color: #b91c1c">⬆ 匯入預假</button>
         <input type="file" id="vacation-quick-import" accept=".xlsx,.xls" style="display: none" onchange="importVacationSummary(event)">
+        <button onclick="openBookingModal()" title="預約假期:看同仁預約、抽籤、帶入班表" style="background: #0d9488; color: white; border-color: #0d9488">🌴 預約假期</button>
         <button onclick="openAnalyzeModal()" style="background: #5b21b6; color: white; border-color: #5b21b6">🔍 分析偏好</button>
         <button onclick="openBatchModal()">🔁 固定班填滿</button>
         <button onclick="openClearModal()">🗑 清空班表...</button>
@@ -6557,6 +6602,217 @@ function csApply() {
 // 假日休假公平性 — 統計每人在週六/週日/國定假日的 OFF 數
 // 顯示表格 + 平均值,排序看誰假日休最少
 // ============================================================
+
+// ===== 🌴 預約假期(抽籤 + 帶入班表)=====
+const BOOKING_GROUP_SIZE = 13;   // 每 13 人一組,每組抽 1 個
+let _bookingCache = { month: '', data: {}, lottery: null };
+
+function openBookingModal() {
+  const mi = document.getElementById('booking-month');
+  if (mi && !mi.value) {
+    // 預設:目前排的月份,沒有就下個月
+    if (state.month) mi.value = state.month;
+    else { const n = new Date(); n.setMonth(n.getMonth() + 1); mi.value = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`; }
+  }
+  document.getElementById('booking-modal').classList.add('active');
+  loadBookings();
+}
+
+function copyBookingLink() {
+  const m = (document.getElementById('booking-month') || {}).value || state.month;
+  const base = location.href.replace(/[^/]*$/, '');
+  const url = base + 'booking.html?m=' + m;
+  try {
+    navigator.clipboard.writeText(url);
+    alert('✓ 預約頁連結已複製\n\n' + url + '\n\n貼到 LINE 群組給同仁。');
+  } catch (e) {
+    prompt('複製這個連結給同仁:', url);
+  }
+}
+
+async function loadBookings() {
+  const month = (document.getElementById('booking-month') || {}).value;
+  const sumEl = document.getElementById('booking-summary');
+  const listEl = document.getElementById('booking-list');
+  if (!month) { if (sumEl) sumEl.innerHTML = '<span class="muted">請先選月份</span>'; return; }
+  if (listEl) listEl.innerHTML = '<div style="padding:10px;color:var(--ink-mute)">⏳ 載入中...</div>';
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const snap = await get(ref(_firebaseDb, `bookings/${month}`));
+    const data = (snap && snap.exists()) ? (snap.val() || {}) : {};
+    _bookingCache = { month, data, lottery: null };
+    // 也讀已抽過的結果
+    try {
+      const ls = await get(ref(_firebaseDb, `bookings/${month}_result`));
+      if (ls && ls.exists()) _bookingCache.lottery = ls.val();
+    } catch (e) {}
+    renderBookingList();
+  } catch (e) {
+    if (listEl) listEl.innerHTML = '<div style="color:#b91c1c;padding:10px">載入失敗:' + escapeHTML(e.message || '') + '</div>';
+  }
+}
+
+function renderBookingList() {
+  const { month, data, lottery } = _bookingCache;
+  const sumEl = document.getElementById('booking-summary');
+  const listEl = document.getElementById('booking-list');
+  const people = Object.keys(data);
+  const days = new Date(+month.split('-')[0], +month.split('-')[1], 0).getDate();
+
+  // 每日人數
+  const byDay = {};
+  people.forEach(pid => {
+    const b = data[pid] || {};
+    (b.days || []).forEach(d => { (byDay[d] = byDay[d] || []).push(b.name || pid); });
+  });
+  let totalPicks = 0; for (const d in byDay) totalPicks += byDay[d].length;
+
+  if (sumEl) {
+    sumEl.innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:8px 14px">
+        <div style="font-size:1.3rem;font-weight:800;color:#0f766e">${people.length}</div>
+        <div style="font-size:0.78rem;color:var(--ink-mute)">人已預約</div></div>
+      <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:8px 14px">
+        <div style="font-size:1.3rem;font-weight:800;color:#0f766e">${totalPicks}</div>
+        <div style="font-size:0.78rem;color:var(--ink-mute)">總預約人次</div></div>
+      ${lottery ? `<div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px 14px">
+        <div style="font-size:0.9rem;font-weight:700;color:#166534">✓ 已抽籤</div>
+        <div style="font-size:0.78rem;color:var(--ink-mute)">${new Date(lottery.at).toLocaleString('zh-TW')}</div></div>` : ''}
+    </div>`;
+  }
+
+  if (!people.length) {
+    if (listEl) listEl.innerHTML = '<div style="padding:14px;color:var(--ink-mute);text-align:center">目前還沒有人預約。把連結給同仁吧!</div>';
+    return;
+  }
+
+  // 逐日列表
+  let html = '<table style="width:100%;border-collapse:collapse"><tr style="background:#f1f5f9">' +
+    '<th style="padding:4px 8px;text-align:left;width:60px">日期</th><th style="padding:4px 8px;text-align:left">預約者</th><th style="padding:4px 8px;width:50px">人數</th></tr>';
+  for (let d = 1; d <= days; d++) {
+    const names = byDay[d] || [];
+    if (!names.length) continue;
+    const dow = new Date(+month.split('-')[0], +month.split('-')[1]-1, d).getDay();
+    const isHol = dow === 0;
+    // 抽籤結果標示
+    let disp = names.map(n => {
+      if (!lottery) return escapeHTML(n);
+      const win = (lottery.picked && lottery.picked[d] || []).includes(n);
+      return win
+        ? `<span style="background:#dcfce7;color:#166534;border-radius:4px;padding:1px 6px;font-weight:700">${escapeHTML(n)} ✓</span>`
+        : `<span style="color:#92400e">${escapeHTML(n)} (O)</span>`;
+    }).join('、');
+    html += `<tr style="border-bottom:1px solid #eef2f7">
+      <td style="padding:4px 8px;font-weight:700;${isHol?'color:#dc2626':''}">${d}日${isHol?'(日)':''}</td>
+      <td style="padding:4px 8px">${disp}</td>
+      <td style="padding:4px 8px;text-align:center;font-weight:700">${names.length}</td></tr>`;
+  }
+  html += '</table>';
+  if (listEl) listEl.innerHTML = html;
+}
+
+// 🎲 抽籤:依班表順序每 13 人一組,每組抽 1 個
+async function runBookingLottery() {
+  const { month, data } = _bookingCache;
+  if (!month) { alert('請先選月份並載入'); return; }
+  const people = Object.keys(data);
+  if (!people.length) { alert('目前沒有人預約,無法抽籤。'); return; }
+
+  // 用「目前畫面班表的人員順序」分組;若畫面不是該月,提醒
+  if (state.month !== month) {
+    if (!confirm(`⚠ 目前畫面是「${state.month}」,但你要抽「${month}」的籤。\n\n分組會用目前畫面的人員順序。確定繼續嗎?`)) return;
+  }
+  const order = (state.staff || []).map(p => p.name).filter(n => n);
+  if (!order.length) { alert('目前畫面沒有人員資料,請先載入班表。'); return; }
+
+  if (!confirm(`確定開始抽籤?\n\n月份:${month}\n預約人數:${people.length} 人\n分組:每 ${BOOKING_GROUP_SIZE} 人一組,每組抽 1 個名額\n\n抽完會覆蓋先前的抽籤結果。`)) return;
+
+  // 名字 → 組別
+  const groupOf = {};
+  order.forEach((nm, i) => { groupOf[nm] = Math.floor(i / BOOKING_GROUP_SIZE); });
+  const groupCount = Math.ceil(order.length / BOOKING_GROUP_SIZE);
+
+  // 逐日抽
+  const days = new Date(+month.split('-')[0], +month.split('-')[1], 0).getDate();
+  const picked = {};   // {日: [中籤者名字]}
+  const missed = {};   // {日: [未中籤者名字]}
+  for (let d = 1; d <= days; d++) {
+    // 該日各組的預約者
+    const byGroup = {};
+    for (const pid in data) {
+      const b = data[pid] || {};
+      if (!(b.days || []).includes(d)) continue;
+      const nm = b.name || '';
+      const g = (groupOf[nm] !== undefined) ? groupOf[nm] : -1;   // 不在名單的歸 -1 組
+      (byGroup[g] = byGroup[g] || []).push(nm);
+    }
+    const win = [], lose = [];
+    for (const g in byGroup) {
+      const arr = byGroup[g];
+      if (arr.length <= 1) { win.push(...arr); continue; }   // 沒超過名額 → 全部可放
+      const w = arr[Math.floor(Math.random() * arr.length)];
+      win.push(w);
+      arr.forEach(n => { if (n !== w) lose.push(n); });
+    }
+    if (win.length) picked[d] = win;
+    if (lose.length) missed[d] = lose;
+  }
+
+  const result = { at: Date.now(), month, groupSize: BOOKING_GROUP_SIZE, groupCount, picked, missed };
+  try {
+    await ensureFirebase();
+    const { ref, set } = window._fbHelpers;
+    await set(ref(_firebaseDb, `bookings/${month}_result`), result);
+    _bookingCache.lottery = result;
+    renderBookingList();
+    let winN = 0, loseN = 0;
+    for (const d in picked) winN += picked[d].length;
+    for (const d in missed) loseN += missed[d].length;
+    const el = document.getElementById('lottery-result');
+    if (el) el.innerHTML = `<div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:10px">
+      ✅ 抽籤完成:<strong>${winN}</strong> 人次抽中(OFF)、<strong>${loseN}</strong> 人次未中(標記 O)。<br>
+      <span style="font-size:0.85rem;color:var(--ink-mute)">結果已存雲端。接著可按「📥 帶入預約班表」寫進班表。</span></div>`;
+    alert(`🎲 抽籤完成\n\n抽中:${winN} 人次(排 OFF)\n未中:${loseN} 人次(標記 O)\n分 ${groupCount} 組,每組 1 個名額`);
+  } catch (e) {
+    alert('抽籤結果儲存失敗:' + (e.message || ''));
+  }
+}
+
+// 📥 帶入:把抽籤結果寫進目前畫面班表
+function applyBookingToSchedule() {
+  const { month, data, lottery } = _bookingCache;
+  if (!lottery) { alert('還沒抽籤。請先按「🎲 開始抽籤」。'); return; }
+  if (state.month !== month) {
+    if (!confirm(`⚠ 目前畫面是「${state.month}」,抽籤結果是「${month}」。\n\n確定要帶入嗎?`)) return;
+  }
+  const byName = {};
+  (state.staff || []).forEach(p => { if (p.name) byName[p.name] = p.id; });
+
+  let offN = 0, oN = 0, miss = [];
+  const apply = (map, code) => {
+    for (const d in map) {
+      map[d].forEach(nm => {
+        const id = byName[nm];
+        if (!id) { if (!miss.includes(nm)) miss.push(nm); return; }
+        if (!state.schedule[id]) state.schedule[id] = {};
+        state.schedule[id][d] = code;
+        if (code === 'OFF') offN++; else oN++;
+      });
+    }
+  };
+  if (typeof snapshotState === 'function') snapshotState('帶入預約班表');
+  apply(lottery.picked || {}, 'OFF');
+  apply(lottery.missed || {}, 'O');
+
+  if (typeof renderTable === 'function') renderTable();
+  let msg = `📥 已帶入預約結果\n\n抽中排 OFF:${offN} 格\n未中標記 O:${oN} 格`;
+  if (miss.length) msg += `\n\n⚠ 找不到的人(名字可能不同):${miss.join('、')}`;
+  msg += '\n\n請確認畫面,對了再存檔。';
+  alert(msg);
+  closeModal('booking-modal');
+}
+
 // 🏖 連休統計:每人連休 ≥4 天的次數,跨月接續合併,從 6 月起算
 async function renderLongRestStats() {
   const container = document.getElementById('long-rest-table');
@@ -15867,10 +16123,16 @@ async function doPublishView() {
 
   try {
     await ensureFirebase();
-    const { ref, set, serverTimestamp } = window._fbHelpers;
+    const { ref, set, get, update, serverTimestamp } = window._fbHelpers;
 
     const viewData = buildPublishViewPayload();
     const monthKey = state.month.replace(/[.#$\[\]/]/g, '_');
+
+    // ★ 公告前把雲端既有的備註合併回來,避免用「沒載到備註的畫面」把雲端備註洗掉
+    try {
+      const cs = await get(ref(_firebaseDb, `schedules/${monthKey}/data`));
+      if (cs && cs.exists()) mergeCloudNotesIntoPayload(viewData, cs.val() || {});
+    } catch (e) { console.warn('[公告] 合併雲端備註失敗:', e); }
 
     const btn = event.target;
     const origText = btn.textContent;
@@ -15880,7 +16142,9 @@ async function doPublishView() {
     const publishedAt = Date.now();
     const publishedBy = (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '';
 
-    await set(ref(_firebaseDb, `schedules/${monthKey}`), {
+    // ★ 用 update 不用 set:set 會把整個月份節點覆蓋掉(連 fullBackup 一起刪),
+    //   update 只改 data 和 meta,fullBackup/editing 等其他子節點保留。
+    await update(ref(_firebaseDb, `schedules/${monthKey}`), {
       data: viewData,
       meta: {
         status: 'published',
@@ -15924,6 +16188,52 @@ async function doUnpublishView() {
 }
 
 // 組裝給 view 端的精簡 payload
+
+// ★ 共用:把雲端既有的「備註」合併進要存出去的 payload
+//   為什麼需要:存檔/公告/排科存檔都是用「目前畫面」整份覆蓋雲端 data,
+//   一旦畫面沒載到備註(別台電腦、舊版、只載部分),存下去就把雲端的備註洗掉。
+//   規則:某人的備註「畫面上完全沒有」才補回雲端(代表畫面沒載到);
+//   畫面上有任何一筆 → 以畫面為準,所以你仍然可以正常刪掉某一天的備註。
+function mergeCloudNotesIntoPayload(viewData, cloud) {
+  if (!viewData || !cloud) return;
+  try {
+    const cloudStaff = cloud.staff || [];
+    const cloudIdToName = {};
+    cloudStaff.forEach(p => { if (p && p.id) cloudIdToName[p.id] = p.name; });
+    const nameToViewPid = {};
+    (viewData.staff || []).forEach(p => { if (p && p.name) nameToViewPid[p.name] = p.id; });
+
+    // 1) 逐日個人備註(pid 跨月會變,一律用名字對應)
+    const cloudPN = cloud.personNotes || {};
+    if (!viewData.personNotes) viewData.personNotes = {};
+    for (const pid in cloudPN) {
+      const nm = cloudIdToName[pid];
+      const vpid = nm ? nameToViewPid[nm] : pid;
+      if (!vpid) continue;
+      const src = cloudPN[pid] || {};
+      const mine = viewData.personNotes[vpid];
+      const iHaveAny = mine && Object.keys(mine).some(k => mine[k]);
+      if (iHaveAny) continue;
+      const copy = {};
+      for (const day in src) { if (src[day]) copy[day] = src[day]; }
+      if (Object.keys(copy).length) viewData.personNotes[vpid] = copy;
+    }
+    // 2) 當日備註
+    const cloudDN = cloud.dateNotes || {};
+    if (!viewData.dateNotes) viewData.dateNotes = {};
+    const myDN = viewData.dateNotes;
+    if (!Object.keys(myDN).some(k => myDN[k])) {
+      for (const day in cloudDN) { if (cloudDN[day]) viewData.dateNotes[day] = cloudDN[day]; }
+    }
+    // 3) 人員固定備註
+    const cloudNoteByName = {};
+    cloudStaff.forEach(p => { if (p && p.name && p.note) cloudNoteByName[p.name] = p.note; });
+    (viewData.staff || []).forEach(p => {
+      if (p && p.name && !p.note && cloudNoteByName[p.name]) p.note = cloudNoteByName[p.name];
+    });
+  } catch (e) { console.warn('[存檔] 合併雲端備註失敗:', e); }
+}
+
 function buildPublishViewPayload() {
   const days = (typeof getDaysInMonth === 'function') ? getDaysInMonth(state.month) : 31;
   // 計算當月國定假日(對齊 state.rules.holidays 而非舊的 state.holidays)
@@ -16204,6 +16514,9 @@ async function saveScheduleFirebaseOnly(month) {
         const nameToViewPid = {};
         (viewData.staff || []).forEach(p => { if (p && p.name) nameToViewPid[p.name] = p.id; });
 
+        // ★ 保住備註:排科存檔用畫面整份覆蓋雲端,畫面沒載到備註就會洗掉雲端的
+        mergeCloudNotesIntoPayload(viewData, cloud);
+
         if (!viewData.flags) viewData.flags = {};
         if (!viewData.schedule) viewData.schedule = {};
         for (const pid in cloudFlags) {
@@ -16297,6 +16610,8 @@ function triggerAutoSync() {
           const snap = await get(ref(_firebaseDb, `schedules/${monthKey}/data`));
           if (snap && snap.exists()) {
             const cloud = snap.val() || {};
+            // ★ 自動同步也會整份覆蓋雲端 data,先把既有備註合併回來
+            mergeCloudNotesIntoPayload(viewData, cloud);
             const cloudFlags = cloud.flags || {};
             const cloudSched = cloud.schedule || {};
             const cloudStaff = cloud.staff || [];

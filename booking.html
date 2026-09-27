@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<!-- BOOKING-VERSION: 2026-07-29-v1 (預約假期頁,同仁用) -->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>急診預約假期</title>
+<style>
+  :root{
+    --ink:#1f2937; --ink-mute:#6b7280; --line:#e5e7eb; --line-soft:#f3f4f6;
+    --paper:#fff; --bg:#f7f6f3; --accent:#b45309; --accent-soft:#fef3c7;
+    --ok:#16a34a; --ok-soft:#dcfce7; --warn:#d97706; --err:#dc2626; --err-soft:#fee2e2;
+    --radius:10px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+    font-size:16px; line-height:1.6; padding-bottom:90px;
+  }
+  .wrap{max-width:560px; margin:0 auto; padding:0 12px}
+  header{
+    background:var(--ink); color:#fff; padding:14px 16px;
+    position:sticky; top:0; z-index:20;
+  }
+  header h1{margin:0; font-size:1.05rem; font-weight:700}
+  header .sub{font-size:0.8rem; opacity:0.75; margin-top:2px}
+  .card{
+    background:var(--paper); border:1px solid var(--line); border-radius:var(--radius);
+    padding:14px; margin-top:12px;
+  }
+  .card h2{margin:0 0 8px; font-size:0.98rem; font-weight:700}
+  .muted{color:var(--ink-mute); font-size:0.85rem}
+  button{font-family:inherit; font-size:1rem; cursor:pointer; border-radius:8px}
+  .btn{
+    padding:11px 16px; background:var(--accent); color:#fff; border:none;
+    font-weight:700; width:100%;
+  }
+  .btn.ghost{background:#fff; color:var(--accent); border:1.5px solid var(--accent)}
+  .btn.small{width:auto; padding:6px 12px; font-size:0.85rem}
+  select,input{
+    font-family:inherit; font-size:1rem; padding:10px; width:100%;
+    border:1px solid var(--line); border-radius:8px; background:#fff;
+  }
+
+  /* 額度條 */
+  .quota{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px}
+  .quota-item{
+    flex:1; min-width:120px; background:var(--line-soft); border-radius:8px;
+    padding:8px 10px; text-align:center;
+  }
+  .quota-item .n{font-size:1.4rem; font-weight:800; line-height:1.2}
+  .quota-item .l{font-size:0.75rem; color:var(--ink-mute)}
+  .quota-item.full .n{color:var(--err)}
+
+  /* 月曆 */
+  .cal-head,.cal{display:grid; grid-template-columns:repeat(7,1fr); gap:4px}
+  .cal-head div{
+    text-align:center; font-size:0.75rem; color:var(--ink-mute);
+    padding:4px 0; font-weight:600;
+  }
+  .cal-head div.sun{color:var(--err)}
+  .cell{
+    aspect-ratio:1/1.15; border:1px solid var(--line); border-radius:8px;
+    background:#fff; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:1px; padding:2px; position:relative;
+    cursor:pointer; transition:transform .08s;
+  }
+  .cell:active{transform:scale(0.94)}
+  .cell.empty{border:none; background:transparent; cursor:default}
+  .cell .d{font-size:1rem; font-weight:700; line-height:1}
+  .cell .cnt{font-size:0.62rem; color:var(--ink-mute); line-height:1}
+  .cell.holiday{background:#fff5f5; border-color:#fecaca}
+  .cell.holiday .d{color:var(--err)}
+  .cell.picked{background:var(--ok-soft); border-color:var(--ok); border-width:2px}
+  .cell.picked .d{color:#166534}
+  .cell .tick{
+    position:absolute; top:2px; right:4px; font-size:0.7rem; color:var(--ok); font-weight:800;
+  }
+  .cell.disabled{opacity:0.35; cursor:not-allowed}
+  .cell.hot .cnt{color:var(--warn); font-weight:700}
+
+  /* 底部固定列 */
+  .bottom{
+    position:fixed; left:0; right:0; bottom:0; background:var(--paper);
+    border-top:1px solid var(--line); padding:10px 12px;
+    box-shadow:0 -2px 10px rgba(0,0,0,0.06); z-index:30;
+  }
+  .bottom .inner{max-width:560px; margin:0 auto; display:flex; gap:8px; align-items:center}
+  .bottom .info{flex:1; font-size:0.82rem; color:var(--ink-mute)}
+  .bottom .btn{width:auto; padding:11px 22px; flex-shrink:0}
+
+  .picked-list{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px}
+  .chip{
+    background:var(--ok-soft); color:#166534; border:1px solid var(--ok);
+    border-radius:20px; padding:4px 12px; font-size:0.85rem; font-weight:600;
+  }
+  .chip.hol{background:var(--err-soft); color:#991b1b; border-color:#fca5a5}
+
+  .notice{
+    background:var(--accent-soft); border-left:4px solid var(--accent);
+    border-radius:0 8px 8px 0; padding:10px 12px; margin-top:12px; font-size:0.85rem;
+  }
+  .status{text-align:center; padding:28px 12px; color:var(--ink-mute)}
+  .hide{display:none !important}
+  .row{display:flex; gap:8px; align-items:center}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>🌴 急診預約假期</h1>
+    <div class="sub" id="hd-sub">載入中...</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- 狀態 -->
+  <div id="status" class="status">⏳ 載入中...</div>
+
+  <!-- 選人 -->
+  <div id="pick-person" class="card hide">
+    <h2>請選擇你的名字</h2>
+    <select id="person-select"><option value="">— 選擇 —</option></select>
+    <div style="margin-top:10px"><button class="btn" onclick="confirmPerson()">確定</button></div>
+  </div>
+
+  <!-- 主畫面 -->
+  <div id="main" class="hide">
+
+    <div class="card">
+      <div class="row">
+        <div style="flex:1">
+          <h2 style="margin:0" id="my-name">—</h2>
+          <div class="muted" id="my-month">—</div>
+        </div>
+        <button class="btn ghost small" onclick="switchPerson()">換人</button>
+      </div>
+      <div class="quota">
+        <div class="quota-item" id="q-total">
+          <div class="n"><span id="q-used">0</span>/3</div>
+          <div class="l">本月已預約</div>
+        </div>
+        <div class="quota-item" id="q-hol">
+          <div class="n"><span id="q-hol-used">0</span>/1</div>
+          <div class="l">假日已預約</div>
+        </div>
+      </div>
+      <div class="picked-list" id="picked-list"></div>
+    </div>
+
+    <div class="card">
+      <h2>點日期預約 <span class="muted" style="font-weight:400">(再點一次取消)</span></h2>
+      <div class="cal-head">
+        <div class="sun">日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+      </div>
+      <div class="cal" id="cal"></div>
+      <div class="muted" style="margin-top:10px; font-size:0.78rem">
+        數字下方小字 = 那天已有幾人預約。紅底 = 假日(週日/國定),假日最多只能預約 1 天。
+      </div>
+    </div>
+
+    <div class="notice">
+      <strong>預約規則</strong><br>
+      • 每人每月最多 <strong>3 天</strong>,其中假日最多 <strong>1 天</strong><br>
+      • 截止前可隨時修改<br>
+      • 截止後由系統抽籤:抽中的確定放假,未抽中的會標記為 <strong>O</strong>(仍會盡量安排)
+    </div>
+
+  </div>
+</div>
+
+<!-- 底部送出 -->
+<div class="bottom hide" id="bottom">
+  <div class="inner">
+    <div class="info" id="save-info">尚未儲存</div>
+    <button class="btn" id="save-btn" onclick="saveBooking()">💾 儲存預約</button>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getDatabase, ref, get, set, onValue } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
+
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDiR4V_KZTBaLIuPLZOben9r4HFprGTW1k",
+  authDomain: "cych-ed-scheduling.firebaseapp.com",
+  databaseURL: "https://cych-ed-scheduling-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "cych-ed-scheduling",
+  storageBucket: "cych-ed-scheduling.firebasestorage.app",
+  messagingSenderId: "1017004700616",
+  appId: "1:1017004700616:web:3ae45a3a26957249cc46fd"
+};
+
+const app = initializeApp(FIREBASE_CONFIG);
+const db = getDatabase(app);
+
+const MAX_TOTAL = 3;    // 每人每月額度
+const MAX_HOLIDAY = 1;  // 假日最多幾天
+const LS_KEY = 'booking.myPersonId.v1';
+
+const S = {
+  month: '',
+  days: 0,
+  staff: [],           // [{id,name,level}]
+  holidays: [],        // [日] 國定假日(從班表帶,加上週日)
+  myId: '',
+  myName: '',
+  myPicks: [],         // [日]
+  allBookings: {},     // {pid:{name,days:[..],savedAt}}
+  dirty: false,
+};
+
+// ---------- 工具 ----------
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const daysInMonth = (m) => { const [y, mo] = m.split('-').map(Number); return new Date(y, mo, 0).getDate(); };
+const dowOf = (m, d) => { const [y, mo] = m.split('-').map(Number); return new Date(y, mo - 1, d).getDay(); };
+const isHoliday = (d) => dowOf(S.month, d) === 0 || S.holidays.includes(d);
+
+function showStatus(msg) { $('status').innerHTML = msg; $('status').classList.remove('hide'); }
+function hideStatus() { $('status').classList.add('hide'); }
+
+// ---------- 決定月份:預約下個月 ----------
+function targetMonth() {
+  const u = new URLSearchParams(location.search).get('m');
+  if (u && /^\d{4}-\d{2}$/.test(u)) return u;
+  const n = new Date();
+  n.setMonth(n.getMonth() + 1);
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// ---------- 載入 ----------
+async function boot() {
+  S.month = targetMonth();
+  S.days = daysInMonth(S.month);
+  $('hd-sub').textContent = S.month.replace('-', ' 年 ') + ' 月';
+
+  // 1. 人員名單:從該月或近月班表拿
+  let staff = null;
+  const tryMonths = [S.month];
+  const [y, mo] = S.month.split('-').map(Number);
+  for (let k = 1; k <= 3; k++) {
+    const d = new Date(y, mo - 1 - k, 1);
+    tryMonths.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  for (const m of tryMonths) {
+    try {
+      const snap = await get(ref(db, `schedules/${m}/data`));
+      if (snap.exists()) {
+        const d = snap.val() || {};
+        if (d.staff && d.staff.length) {
+          staff = d.staff.filter(p => p && p.name && p.level !== '事' && p.status !== 'left');
+          if (Array.isArray(d.holidays)) {
+            S.holidays = d.holidays.map(h => (typeof h === 'object' ? h.day : h)).filter(x => typeof x === 'number');
+          }
+          break;
+        }
+      }
+    } catch (e) { /* 試下一個月 */ }
+  }
+  if (!staff || !staff.length) {
+    showStatus('⚠ 目前還沒有人員名單,請稍後再試,或聯絡護理長。');
+    return;
+  }
+  S.staff = staff;
+
+  // 2. 監聽預約資料(即時看到別人預約)
+  onValue(ref(db, `bookings/${S.month}`), (snap) => {
+    S.allBookings = (snap.exists() ? snap.val() : {}) || {};
+    if (S.myId) { renderCal(); renderQuota(); }
+  });
+
+  // 3. 記住的人
+  const savedId = localStorage.getItem(LS_KEY);
+  const me = savedId && S.staff.find(p => p.id === savedId);
+  if (me) { enterAs(me); }
+  else { showPersonPicker(); }
+}
+
+function showPersonPicker() {
+  hideStatus();
+  $('main').classList.add('hide');
+  $('bottom').classList.add('hide');
+  const sel = $('person-select');
+  sel.innerHTML = '<option value="">— 選擇 —</option>' +
+    S.staff.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${p.level ? ' (' + esc(p.level) + ')' : ''}</option>`).join('');
+  $('pick-person').classList.remove('hide');
+}
+
+window.confirmPerson = function () {
+  const id = $('person-select').value;
+  if (!id) { alert('請先選擇你的名字'); return; }
+  const p = S.staff.find(x => x.id === id);
+  if (!p) return;
+  try { localStorage.setItem(LS_KEY, id); } catch (e) {}
+  enterAs(p);
+};
+
+window.switchPerson = function () {
+  if (S.dirty && !confirm('你有未儲存的預約,換人會放棄這些變更。確定嗎?')) return;
+  try { localStorage.removeItem(LS_KEY); } catch (e) {}
+  S.myId = ''; S.myPicks = []; S.dirty = false;
+  showPersonPicker();
+};
+
+function enterAs(p) {
+  S.myId = p.id; S.myName = p.name;
+  const mine = S.allBookings[p.id];
+  S.myPicks = (mine && Array.isArray(mine.days)) ? mine.days.slice() : [];
+  S.dirty = false;
+  hideStatus();
+  $('pick-person').classList.add('hide');
+  $('main').classList.remove('hide');
+  $('bottom').classList.remove('hide');
+  $('my-name').textContent = p.name;
+  $('my-month').textContent = S.month.replace('-', ' 年 ') + ' 月預約';
+  renderCal(); renderQuota(); markSaved();
+}
+
+// ---------- 渲染 ----------
+function countOn(day) {
+  let n = 0;
+  for (const pid in S.allBookings) {
+    const b = S.allBookings[pid];
+    if (b && Array.isArray(b.days) && b.days.includes(day)) n++;
+  }
+  return n;
+}
+
+function renderCal() {
+  const first = dowOf(S.month, 1);
+  let html = '';
+  for (let i = 0; i < first; i++) html += '<div class="cell empty"></div>';
+  for (let d = 1; d <= S.days; d++) {
+    const picked = S.myPicks.includes(d);
+    const hol = isHoliday(d);
+    let n = countOn(d);
+    // 我剛點但還沒存的,也要算進去
+    const savedMine = (S.allBookings[S.myId] && S.allBookings[S.myId].days) || [];
+    if (picked && !savedMine.includes(d)) n++;
+    if (!picked && savedMine.includes(d)) n--;
+    let cls = 'cell';
+    if (hol) cls += ' holiday';
+    if (picked) cls += ' picked';
+    if (n >= 8) cls += ' hot';
+    html += `<div class="${cls}" onclick="toggleDay(${d})">
+      ${picked ? '<span class="tick">✓</span>' : ''}
+      <div class="d">${d}</div>
+      <div class="cnt">${n > 0 ? n + '人' : ''}</div>
+    </div>`;
+  }
+  $('cal').innerHTML = html;
+}
+
+function renderQuota() {
+  const used = S.myPicks.length;
+  const holUsed = S.myPicks.filter(isHoliday).length;
+  $('q-used').textContent = used;
+  $('q-hol-used').textContent = holUsed;
+  $('q-total').classList.toggle('full', used >= MAX_TOTAL);
+  $('q-hol').classList.toggle('full', holUsed >= MAX_HOLIDAY);
+  $('picked-list').innerHTML = S.myPicks.length
+    ? S.myPicks.slice().sort((a, b) => a - b).map(d =>
+        `<span class="chip${isHoliday(d) ? ' hol' : ''}">${d}日${isHoliday(d) ? ' (假日)' : ''}</span>`).join('')
+    : '<span class="muted">還沒預約任何日期</span>';
+}
+
+window.toggleDay = function (d) {
+  const i = S.myPicks.indexOf(d);
+  if (i >= 0) {
+    S.myPicks.splice(i, 1);
+  } else {
+    if (S.myPicks.length >= MAX_TOTAL) { alert(`每月最多只能預約 ${MAX_TOTAL} 天。\n請先取消其他日期。`); return; }
+    if (isHoliday(d) && S.myPicks.filter(isHoliday).length >= MAX_HOLIDAY) {
+      alert(`假日(週日/國定假日)最多只能預約 ${MAX_HOLIDAY} 天。\n請先取消原本的假日預約。`); return;
+    }
+    S.myPicks.push(d);
+  }
+  S.dirty = true;
+  renderCal(); renderQuota(); markUnsaved();
+};
+
+function markUnsaved() {
+  $('save-info').innerHTML = '<span style="color:var(--warn);font-weight:700">● 尚未儲存</span>';
+  $('save-btn').disabled = false;
+}
+function markSaved() {
+  S.dirty = false;
+  $('save-info').innerHTML = '<span style="color:var(--ok)">✓ 已儲存</span>';
+}
+
+window.saveBooking = async function () {
+  if (!S.myId) return;
+  const btn = $('save-btn');
+  btn.disabled = true; btn.textContent = '⏳ 儲存中...';
+  try {
+    const days = S.myPicks.slice().sort((a, b) => a - b);
+    await set(ref(db, `bookings/${S.month}/${S.myId}`), {
+      name: S.myName,
+      days: days,
+      savedAt: Date.now(),
+    });
+    markSaved();
+    btn.textContent = '✓ 已儲存';
+    setTimeout(() => { btn.textContent = '💾 儲存預約'; btn.disabled = false; }, 1500);
+  } catch (e) {
+    alert('儲存失敗,請檢查網路後再試一次。\n\n' + (e.message || ''));
+    btn.textContent = '💾 儲存預約'; btn.disabled = false;
+  }
+};
+
+window.addEventListener('beforeunload', (e) => {
+  if (S.dirty) { e.preventDefault(); e.returnValue = ''; }
+});
+
+boot().catch(e => showStatus('載入失敗:' + esc(e.message || '')));
+</script>
+</body>
+</html>
