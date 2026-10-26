@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-09-27-v37 (三條存檔路徑都保住備註+公告不再刪掉fullBackup) -->
+<!-- VERSION: 2026-10-26-v42 (自動同步前驗證該月真已公告) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -1454,6 +1454,43 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 
 <!-- Cloud Schedules Modal -->
 <!-- 🌴 預約假期 -->
+<!-- 🔄 換班申請管理 -->
+<div class="modal-backdrop" id="swap-modal">
+  <div class="modal" style="max-width: 900px; max-height: 90vh">
+    <div class="modal-header" style="background:#7c3aed">
+      <h3>🔄 換班申請</h3>
+      <button onclick="closeModal('swap-modal')" style="background:transparent;color:white;border:none;font-size:1.2rem">×</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh; overflow-y:auto">
+
+      <div style="background:#f5f3ff; border-left:4px solid #7c3aed; padding:10px 12px; border-radius:0 8px 8px 0; margin-bottom:12px; font-size:0.9rem">
+        <strong>流程</strong>:同仁提出 → 對方同意 → <strong>你核准</strong> → 按「📥 帶入班表」寫進班表 → 存檔/公告<br>
+        <strong>紙本</strong>:雙方可在申請頁列印申請單簽名,你收單備查(過渡期並行)。
+      </div>
+
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px">
+        <label style="font-weight:600">月份:</label>
+        <input type="month" id="swap-month" style="padding:6px 10px; border:1px solid var(--line); border-radius:6px" onchange="loadSwaps()">
+        <button onclick="loadSwaps()" style="padding:6px 12px">🔄 重新載入</button>
+        <button onclick="copySwapLink()" style="padding:6px 12px; background:#7c3aed; color:#fff; border:none; border-radius:6px">🔗 複製換班申請連結</button>
+      </div>
+
+      <div id="swap-summary" style="margin-bottom:12px"></div>
+      <div id="swap-list" style="font-size:0.9rem"></div>
+
+      <div style="border-top:2px solid #ddd6fe; margin-top:14px; padding-top:12px">
+        <button onclick="applySwapsToSchedule()" style="padding:9px 18px; background:#7c3aed; color:#fff; border:none; border-radius:6px; font-weight:700">📥 把已核准的換班帶入班表</button>
+        <div style="color:var(--ink-mute); font-size:0.82rem; margin-top:6px">
+          只會帶入「已核准」且還沒帶入過的申請。帶入後請確認畫面,再存檔/公告。
+        </div>
+        <div id="swap-apply-result" style="margin-top:10px"></div>
+      </div>
+
+    </div>
+    <div class="modal-footer"><button onclick="closeModal('swap-modal')">關閉</button></div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="booking-modal">
   <div class="modal" style="max-width: 900px; max-height: 90vh">
     <div class="modal-header" style="background:#0d9488">
@@ -1464,14 +1501,22 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 
       <div style="background:#f0fdfa; border-left:4px solid #0d9488; padding:10px 12px; border-radius:0 8px 8px 0; margin-bottom:12px; font-size:0.9rem">
         <strong>流程</strong>:同仁上預約頁登記 → 你按「🎲 開始抽籤」→ 抽籤結果寫入預約班表 → 公告 → 排班時按「📥 帶入預約班表」<br>
-        <strong>規則</strong>:依班表順序每 13 人一組,每組抽 1 個「一定可放」;沒抽中標記 <strong>O</strong>。
+        <strong>規則</strong>:依班表順序每 13 人一組,每組抽 1 個「一定可放」→ <strong>OFF</strong>;沒抽中 → <strong>off</strong>(底線軟假)。
       </div>
 
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px">
         <label style="font-weight:600">預約月份:</label>
-        <input type="month" id="booking-month" style="padding:6px 10px; border:1px solid var(--line); border-radius:6px" onchange="loadBookings()">
+        <input type="month" id="booking-month" style="padding:6px 10px; border:1px solid var(--line); border-radius:6px" onchange="loadBookings(); refreshBookingOpenState();">
         <button onclick="loadBookings()" style="padding:6px 12px">🔄 重新載入</button>
         <button onclick="copyBookingLink()" style="padding:6px 12px; background:#0d9488; color:#fff; border:none; border-radius:6px">🔗 複製預約頁連結</button>
+      </div>
+
+      <div id="booking-open-bar" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:#f8fafc; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:12px">
+        <div style="flex:1; min-width:220px">
+          <div style="font-weight:700">開放同仁預約</div>
+          <div id="booking-open-status" style="font-size:0.85rem; color:var(--ink-mute)">讀取中...</div>
+        </div>
+        <button id="booking-open-btn" onclick="toggleBookingOpen()" style="padding:8px 16px; border:none; border-radius:6px; font-weight:700; cursor:pointer; background:#0d9488; color:#fff">開放預約</button>
       </div>
 
       <div id="booking-summary" style="margin-bottom:12px"></div>
@@ -1482,6 +1527,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
         <div style="display:flex; gap:8px; flex-wrap:wrap">
           <button onclick="runBookingLottery()" style="padding:8px 16px; background:#0d9488; color:#fff; border:none; border-radius:6px; font-weight:700">🎲 開始抽籤</button>
           <button onclick="applyBookingToSchedule()" style="padding:8px 16px; background:#fff; border:1.5px solid #0d9488; color:#0f766e; border-radius:6px; font-weight:700">📥 帶入預約班表</button>
+          <button onclick="publishBookingResult()" id="publish-booking-btn" style="padding:8px 16px; background:#0f766e; color:#fff; border:none; border-radius:6px; font-weight:700">📢 公告預約結果</button>
         </div>
         <div style="color:var(--ink-mute); font-size:0.82rem; margin-top:6px">
           抽籤:計算誰抽中(OFF)、誰沒抽中(O),結果存雲端。<br>
@@ -1608,6 +1654,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
         <button onclick="document.getElementById('vacation-quick-import').click()" title="排班中途匯入預假摘要表(只填 OFF/off,不影響其他)" style="background: #b91c1c; color: white; border-color: #b91c1c">⬆ 匯入預假</button>
         <input type="file" id="vacation-quick-import" accept=".xlsx,.xls" style="display: none" onchange="importVacationSummary(event)">
         <button onclick="openBookingModal()" title="預約假期:看同仁預約、抽籤、帶入班表" style="background: #0d9488; color: white; border-color: #0d9488">🌴 預約假期</button>
+        <button onclick="openSwapModal()" title="換班申請:核准同仁換班、帶入班表" style="background: #7c3aed; color: white; border-color: #7c3aed">🔄 換班申請<span id="swap-pending-dot" style="display:none; background:#fff; color:#7c3aed; border-radius:10px; padding:0 6px; font-size:0.75rem; margin-left:4px; font-weight:800"></span></button>
         <button onclick="openAnalyzeModal()" style="background: #5b21b6; color: white; border-color: #5b21b6">🔍 分析偏好</button>
         <button onclick="openBatchModal()">🔁 固定班填滿</button>
         <button onclick="openClearModal()">🗑 清空班表...</button>
@@ -4620,6 +4667,7 @@ async function loadCloudScheduleDirectly(month) {
   } catch (e) { console.warn('[leader調整] 合併失敗:', e); }
 
   if (typeof renderTable === 'function') renderTable();
+  if (typeof checkPendingSwaps === 'function') checkPendingSwaps();
 
   // 載入後也算「上月末連續班別」(名字旁參考標記),不必特地切換月份
   if (typeof computePrevMonthConsecFromCloud === 'function') {
@@ -5159,6 +5207,27 @@ function isHoliday(ym, day) {
 // 不算的人:沒設能力階段、半日、實習、夜護、病假、離職前、留停、有「帶」記號
 // 「沒設能力階段」= 還沒獨立 = 新進帶人中
 // 注意:這只影響「人力統計」,不影響「他能不能上班」(他還是會上班,只是不計入達標數)
+// ★ 半日職人員判定:整月「時段班(8-12/10-14/9-17…)」要佔其上班日一半以上才算半日職。
+//   ⚠ 以前用 some():只要整月有「一天」打過時段,就判定為半日職
+//      → 偶爾上一天 9-17 的正職(例:劉逸靚 2026-11 只有 1 天 9-17)會整月不算人力,
+//        公告頁還被排到最後面。單日時段「該格不算人力」的邏輯仍保留在各處,這裡只管「整月身分」。
+function isHalfdayJobPerson(p) {
+  if (!p) return false;
+  if (p.level === '半日') return true;
+  const flags = (state.scheduleFlags && state.scheduleFlags[p.id]) || {};
+  const sched = (state.schedule && state.schedule[p.id]) || {};
+  let workDays = 0, slotDays = 0;
+  for (const d in sched) {
+    const v = String(sched[d] || '').replace(/'/g, '').split('/')[0];
+    if (!['D', 'E', 'N', 'M'].includes(v)) continue;
+    workDays++;
+    const f = flags[d];
+    if (f && f.halfdayTime) slotDays++;
+  }
+  if (!workDays) return false;
+  return slotDays >= workDays * 0.5;
+}
+
 function isCountingForCapacity(p) {
   if (!p) return false;
   // 1. 留停 / 離職前 → 不算
@@ -5176,9 +5245,7 @@ function isCountingForCapacity(p) {
   // 2. 半日 / 實習 等級 → 不算
   if (p.level === '半日' || p.level === '實習') return false;
   // 2.5 整月有打過 halfdayTime 標記(8-12 等)→ 半日職人員,不算 D/E/N 人力
-  const flags = (state.scheduleFlags && state.scheduleFlags[p.id]) || {};
-  const isHalfdayJob = Object.values(flags).some(f => f && f.halfdayTime);
-  if (isHalfdayJob) return false;
+  if (isHalfdayJobPerson(p)) return false;
   // 3. 備註含特殊狀況 → 不算
   if (p.note && /夜護|病假|離職|實習|帶/.test(p.note)) return false;
   if (p.special && /夜護|病假|實習|半日|帶/.test(p.special)) return false;
@@ -6603,6 +6670,301 @@ function csApply() {
 // 顯示表格 + 平均值,排序看誰假日休最少
 // ============================================================
 
+
+// ===== 🔄 換班申請(雙方同意 → 護理長核准 → 帶入班表)=====
+let _swapCache = { month: '', data: {} };
+
+function openSwapModal() {
+  const mi = document.getElementById('swap-month');
+  if (mi && !mi.value) mi.value = state.month || '';
+  document.getElementById('swap-modal').classList.add('active');
+  loadSwaps();
+}
+
+function copySwapLink() {
+  const m = (document.getElementById('swap-month') || {}).value || state.month;
+  const url = location.href.replace(/[^/]*$/, '') + 'swap.html?m=' + m;
+  try {
+    navigator.clipboard.writeText(url);
+    alert('✓ 換班申請頁連結已複製\n\n' + url + '\n\n貼到 LINE 群組給同仁。');
+  } catch (e) { prompt('複製這個連結給同仁:', url); }
+}
+
+async function loadSwaps() {
+  const month = (document.getElementById('swap-month') || {}).value;
+  const listEl = document.getElementById('swap-list');
+  if (!month) { if (listEl) listEl.innerHTML = '<span class="muted">請先選月份</span>'; return; }
+  if (listEl) listEl.innerHTML = '<div style="padding:10px;color:var(--ink-mute)">⏳ 載入中...</div>';
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const snap = await get(ref(_firebaseDb, `swaps/${month}`));
+    _swapCache = { month, data: (snap && snap.exists()) ? (snap.val() || {}) : {} };
+    renderSwapList();
+  } catch (e) {
+    if (listEl) listEl.innerHTML = '<div style="color:#b91c1c;padding:10px">載入失敗:' + escapeHTML(e.message || '') + '</div>';
+  }
+}
+
+const SWAP_ST = {
+  pending:  { t: '等對方同意', bg: '#fef3c7', fg: '#92400e' },
+  agreed:   { t: '⏳ 等你核准', bg: '#dbeafe', fg: '#1e40af' },
+  approved: { t: '✓ 已核准',   bg: '#dcfce7', fg: '#166534' },
+  rejected: { t: '已退回',     bg: '#fee2e2', fg: '#991b1b' },
+};
+const swapShiftDisp = (v) => (v === 'o' ? 'off' : (v || '—'));
+
+function renderSwapList() {
+  const { data } = _swapCache;
+  const sumEl = document.getElementById('swap-summary');
+  const listEl = document.getElementById('swap-list');
+  const all = Object.values(data || {}).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const cnt = { pending: 0, agreed: 0, approved: 0, rejected: 0 };
+  all.forEach(r => { if (cnt[r.status] !== undefined) cnt[r.status]++; });
+
+  if (sumEl) {
+    sumEl.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${['agreed','pending','approved','rejected'].map(k => `
+        <div style="background:${SWAP_ST[k].bg};border-radius:8px;padding:7px 14px">
+          <div style="font-size:1.25rem;font-weight:800;color:${SWAP_ST[k].fg}">${cnt[k]}</div>
+          <div style="font-size:0.76rem;color:var(--ink-mute)">${SWAP_ST[k].t}</div></div>`).join('')}
+    </div>`;
+  }
+  // 工具列小紅點:待你核准的件數
+  const dot = document.getElementById('swap-pending-dot');
+  if (dot) { dot.textContent = cnt.agreed; dot.style.display = cnt.agreed ? 'inline-block' : 'none'; }
+
+  if (!all.length) {
+    if (listEl) listEl.innerHTML = '<div style="padding:14px;color:var(--ink-mute);text-align:center">這個月還沒有換班申請。</div>';
+    return;
+  }
+
+  // 等你核准的排最前面
+  const order = { agreed: 0, pending: 1, approved: 2, rejected: 3 };
+  all.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || (b.createdAt || 0) - (a.createdAt || 0));
+
+  let html = '';
+  all.forEach(r => {
+    const st = SWAP_ST[r.status] || { t: r.status, bg: '#f3f4f6', fg: '#374151' };
+    const daysTxt = (r.days || []).map(x =>
+      `<span style="display:inline-block;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:5px;padding:1px 7px;margin:2px 3px 2px 0">
+        ${x.day}日 ${escapeHTML(r.fromName)} ${swapShiftDisp(x.fromShift)}→${swapShiftDisp(x.toShift)}、${escapeHTML(r.toName)} ${swapShiftDisp(x.toShift)}→${swapShiftDisp(x.fromShift)}</span>`).join('');
+    let acts = '';
+    if (r.status === 'agreed') {
+      acts = `<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">
+        <button onclick="approveSwap('${r.id}')" style="padding:5px 14px;background:#16a34a;color:#fff;border:none;border-radius:5px;font-weight:700">✓ 核准</button>
+        <button onclick="rejectSwapByHN('${r.id}')" style="padding:5px 14px;background:#fff;border:1.5px solid #dc2626;color:#dc2626;border-radius:5px;font-weight:700">✗ 退回</button></div>`;
+    } else if (r.status === 'approved') {
+      acts = r.applied
+        ? '<div style="margin-top:6px;font-size:0.82rem;color:#166534">✓ 已帶入班表</div>'
+        : '<div style="margin-top:6px;font-size:0.82rem;color:#b45309">尚未帶入班表 — 按下面的「📥 帶入班表」</div>';
+    }
+    const rej = r.rejectReason ? `<div style="font-size:0.84rem;color:#b91c1c">退回原因:${escapeHTML(r.rejectReason)}</div>` : '';
+    html += `<div style="border:1px solid var(--line);border-left:4px solid ${st.fg};border-radius:8px;padding:10px;margin-bottom:9px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <strong>${escapeHTML(r.fromName)} ⇄ ${escapeHTML(r.toName)}</strong>
+        <span style="font-size:0.76rem;padding:2px 10px;border-radius:20px;font-weight:700;background:${st.bg};color:${st.fg};white-space:nowrap">${st.t}</span>
+      </div>
+      <div style="margin:5px 0">${daysTxt}</div>
+      <div style="font-size:0.85rem;color:var(--ink-mute)">原因:${escapeHTML(r.reason || '—')}</div>
+      ${rej}${acts}</div>`;
+  });
+  if (listEl) listEl.innerHTML = html;
+}
+
+async function approveSwap(id) {
+  const r = (_swapCache.data || {})[id];
+  if (!r) return;
+  const txt = (r.days || []).map(x => `${x.day}日:${r.fromName} ${swapShiftDisp(x.fromShift)}→${swapShiftDisp(x.toShift)}、${r.toName} ${swapShiftDisp(x.toShift)}→${swapShiftDisp(x.fromShift)}`).join('\n');
+  if (!confirm(`核准這筆換班?\n\n${r.fromName} ⇄ ${r.toName}\n${txt}\n\n核准後,再按「📥 帶入班表」寫進班表。`)) return;
+  try {
+    await ensureFirebase();
+    const { ref, update } = window._fbHelpers;
+    const by = (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '';
+    await update(ref(_firebaseDb, `swaps/${_swapCache.month}/${id}`), { status: 'approved', approvedAt: Date.now(), approvedBy: by });
+    r.status = 'approved'; r.approvedAt = Date.now();
+    renderSwapList();
+  } catch (e) { alert('核准失敗:' + (e.message || '')); }
+}
+
+async function rejectSwapByHN(id) {
+  const r = (_swapCache.data || {})[id];
+  if (!r) return;
+  const why = prompt(`退回 ${r.fromName} ⇄ ${r.toName} 的換班,原因(雙方看得到):`, '');
+  if (why === null) return;
+  try {
+    await ensureFirebase();
+    const { ref, update } = window._fbHelpers;
+    const by = (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '';
+    await update(ref(_firebaseDb, `swaps/${_swapCache.month}/${id}`), { status: 'rejected', rejectReason: why || '(未填)', rejectedAt: Date.now(), rejectedBy: by });
+    r.status = 'rejected'; r.rejectReason = why || '(未填)';
+    renderSwapList();
+  } catch (e) { alert('退回失敗:' + (e.message || '')); }
+}
+
+// 📥 把已核准、還沒帶入的換班寫進班表
+//    ★ 不會直接改:會先模擬換完的結果、跑規則檢查,把「換完會出的問題」列給你確認,
+//      你按確定才真的留下;按取消就完全還原,班表不會動到。
+async function applySwapsToSchedule() {
+  const { month, data } = _swapCache;
+  if (!month) { alert('請先選月份並載入'); return; }
+  const todo = Object.values(data || {}).filter(r => r.status === 'approved' && !r.applied);
+  if (!todo.length) { alert('沒有「已核准但還沒帶入」的換班。'); return; }
+  if (state.month !== month) {
+    alert(`⚠ 目前畫面是「${state.month}」,但要帶入的是「${month}」的換班。\n\n請先載入 ${month} 的班表再帶入。`);
+    return;
+  }
+  const byName = {};
+  (state.staff || []).forEach(p => { if (p.name) byName[p.name] = p.id; });
+
+  // ---- 1. 先檢查:人找得到嗎、班別跟申請時一致嗎 ----
+  const preWarn = [];
+  const valid = [];
+  todo.forEach(r => {
+    const fid = byName[r.fromName], tid = byName[r.toName];
+    if (!fid || !tid) { preWarn.push(`找不到 ${!fid ? r.fromName : r.toName},這筆略過`); return; }
+    (r.days || []).forEach(x => {
+      const nowF = (state.schedule[fid] || {})[x.day] || '';
+      const nowT = (state.schedule[tid] || {})[x.day] || '';
+      if (nowF !== (x.fromShift || '') || nowT !== (x.toShift || '')) {
+        preWarn.push(`${x.day}日 ${r.fromName}/${r.toName}:現在是 ${swapShiftDisp(nowF)}/${swapShiftDisp(nowT)},申請時是 ${swapShiftDisp(x.fromShift)}/${swapShiftDisp(x.toShift)}`);
+      }
+    });
+    valid.push({ r, fid, tid });
+  });
+  if (!valid.length) { alert('這些換班都找不到對應的人,無法帶入。\n\n' + preWarn.join('\n')); return; }
+
+  // ---- 2. 模擬:備份 → 換前檢查 → 套用 → 換後檢查 ----
+  const backupSched = JSON.parse(JSON.stringify(state.schedule || {}));
+  const backupFlags = JSON.parse(JSON.stringify(state.scheduleFlags || {}));
+
+  let before = [];
+  try { before = (typeof checkViolations === 'function') ? checkViolations() : []; } catch (e) { console.warn(e); }
+  const key = (v) => `${v.level}|${v.title}|${v.detail}`;
+  const beforeSet = new Set(before.map(key));
+
+  const touched = [];      // [{day, names:[]}]
+  const deptCleared = [];  // 被清掉科別的格子
+  valid.forEach(({ r, fid, tid }) => {
+    (r.days || []).forEach(x => {
+      if (!state.schedule[fid]) state.schedule[fid] = {};
+      if (!state.schedule[tid]) state.schedule[tid] = {};
+      const a = state.schedule[fid][x.day] || '';
+      const b = state.schedule[tid][x.day] || '';
+      state.schedule[fid][x.day] = b;
+      state.schedule[tid][x.day] = a;
+      touched.push({ day: x.day, names: [r.fromName, r.toName] });
+      // 人換了,原本排好的科別不再適用 → 清掉,讓你重排
+      [[fid, r.fromName], [tid, r.toName]].forEach(([pid, nm]) => {
+        const f = (state.scheduleFlags || {})[pid];
+        if (f && f[x.day] && f[x.day].dept) {
+          deptCleared.push(`${x.day}日 ${nm}(原 ${f[x.day].dept})`);
+          delete f[x.day].dept;
+          if (f[x.day].dept2) delete f[x.day].dept2;
+        }
+      });
+    });
+  });
+
+  let after = [];
+  try { after = (typeof checkViolations === 'function') ? checkViolations() : []; } catch (e) { console.warn(e); }
+  const newIssues = after.filter(v => !beforeSet.has(key(v)));
+  const errs = newIssues.filter(v => v.level === 'err');
+  const warns = newIssues.filter(v => v.level !== 'err');
+
+  // ---- 3. 把結果列給你看,你決定 ----
+  let msg = `📥 準備帶入 ${valid.length} 筆換班到「${month}」\n\n`;
+  valid.forEach(({ r }) => {
+    msg += `• ${r.fromName} ⇄ ${r.toName}:` + (r.days || []).map(x => `${x.day}日`).join('、') + '\n';
+  });
+
+  if (preWarn.length) {
+    msg += `\n⚠ 班表可能已被改過:\n` + preWarn.slice(0, 5).map(p => '  - ' + p).join('\n');
+    if (preWarn.length > 5) msg += `\n  ...另有 ${preWarn.length - 5} 項`;
+    msg += '\n';
+  }
+
+  if (errs.length || warns.length) {
+    msg += `\n🛑 換完會出現這些新問題:\n`;
+    if (errs.length) {
+      msg += `\n【不符規定 ${errs.length} 項】\n` + errs.slice(0, 8).map(v => `  ✗ ${v.title}${v.detail ? ' — ' + v.detail : ''}`).join('\n');
+      if (errs.length > 8) msg += `\n  ...另有 ${errs.length - 8} 項`;
+      msg += '\n';
+    }
+    if (warns.length) {
+      msg += `\n【提醒 ${warns.length} 項】\n` + warns.slice(0, 6).map(v => `  ⚠ ${v.title}${v.detail ? ' — ' + v.detail : ''}`).join('\n');
+      if (warns.length > 6) msg += `\n  ...另有 ${warns.length - 6} 項`;
+      msg += '\n';
+    }
+  } else {
+    msg += `\n✅ 檢查過了,換完不會產生新的人力/科別/連上天數問題。\n`;
+  }
+
+  if (deptCleared.length) {
+    msg += `\n📍 這些格子的科別已清掉,帶入後要重排:\n` + deptCleared.slice(0, 8).map(x => '  - ' + x).join('\n');
+    if (deptCleared.length > 8) msg += `\n  ...另有 ${deptCleared.length - 8} 格`;
+    msg += '\n';
+  }
+
+  msg += `\n────────────\n按「確定」= 帶入(班表會改,之後還能按復原)\n按「取消」= 完全不動,班表維持原狀`;
+
+  if (!confirm(msg)) {
+    // 取消 → 完全還原
+    state.schedule = backupSched;
+    state.scheduleFlags = backupFlags;
+    if (typeof renderTable === 'function') renderTable();
+    const el0 = document.getElementById('swap-apply-result');
+    if (el0) el0.innerHTML = '<div style="background:#f3f4f6;border-radius:8px;padding:9px;font-size:0.88rem">已取消,班表沒有變動。</div>';
+    return;
+  }
+
+  // ---- 4. 確定帶入:補一個 snapshot 讓你還能復原 ----
+  //      (先還原再 snapshot,這樣「復原」回到的是換班前的狀態)
+  const applied = JSON.parse(JSON.stringify(state.schedule));
+  const appliedFlags = JSON.parse(JSON.stringify(state.scheduleFlags || {}));
+  state.schedule = backupSched;
+  state.scheduleFlags = backupFlags;
+  if (typeof snapshotState === 'function') snapshotState('帶入換班申請');
+  state.schedule = applied;
+  state.scheduleFlags = appliedFlags;
+  if (typeof renderTable === 'function') renderTable();
+
+  // 標記已帶入
+  const appliedIds = valid.map(v => v.r.id);
+  try {
+    await ensureFirebase();
+    const { ref, update } = window._fbHelpers;
+    for (const id of appliedIds) {
+      await update(ref(_firebaseDb, `swaps/${month}/${id}`), { applied: true, appliedAt: Date.now() });
+      if (_swapCache.data[id]) _swapCache.data[id].applied = true;
+    }
+  } catch (e) { console.warn('標記已帶入失敗:', e); }
+  renderSwapList();
+
+  const el = document.getElementById('swap-apply-result');
+  if (el) {
+    el.innerHTML = `<div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:10px">
+      ✅ 已帶入 ${appliedIds.length} 筆換班${deptCleared.length ? `,${deptCleared.length} 格科別已清掉待重排` : ''}
+      ${errs.length ? `<br><span style="color:#b91c1c">注意:有 ${errs.length} 項不符規定,記得處理</span>` : ''}
+      <br><span style="font-size:0.85rem;color:var(--ink-mute)">請確認畫面,對了再「手動儲存」或「公告」。不滿意可按「↶ 復原」。</span></div>`;
+  }
+  alert(`📥 已帶入 ${appliedIds.length} 筆換班\n\n${deptCleared.length ? `有 ${deptCleared.length} 格科別被清掉,記得重排。\n\n` : ''}請確認畫面,對了再存檔/公告。`);
+}
+
+// 開啟系統時順手查有沒有待核准的換班(顯示小紅點)
+async function checkPendingSwaps() {
+  try {
+    if (!state.month) return;
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const snap = await get(ref(_firebaseDb, `swaps/${state.month}`));
+    if (!snap || !snap.exists()) return;
+    const n = Object.values(snap.val() || {}).filter(r => r && r.status === 'agreed').length;
+    const dot = document.getElementById('swap-pending-dot');
+    if (dot) { dot.textContent = n; dot.style.display = n ? 'inline-block' : 'none'; }
+  } catch (e) { /* 靜默 */ }
+}
+
 // ===== 🌴 預約假期(抽籤 + 帶入班表)=====
 const BOOKING_GROUP_SIZE = 13;   // 每 13 人一組,每組抽 1 個
 let _bookingCache = { month: '', data: {}, lottery: null };
@@ -6616,6 +6978,74 @@ function openBookingModal() {
   }
   document.getElementById('booking-modal').classList.add('active');
   loadBookings();
+  refreshBookingOpenState();
+}
+
+
+// 🌴 開放/關閉同仁預約
+// 只用一個位置 bookings/_openMonth 記「現在開放哪個月」:
+//   有值 → 公告頁顯示預約入口、預約頁可填;沒值 → 都關閉。
+const BOOKING_OPEN_PATH = 'bookings/_openMonth';
+const BOOKING_OPEN_DAYS = 5;   // 開放預約後幾天自動鎖定(同仁不能再改)
+
+async function refreshBookingOpenState() {
+  const statusEl = document.getElementById('booking-open-status');
+  const btn = document.getElementById('booking-open-btn');
+  const month = (document.getElementById('booking-month') || {}).value || '';
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const snap = await get(ref(_firebaseDb, BOOKING_OPEN_PATH));
+    const openMonth = (snap && snap.exists()) ? String(snap.val() || '') : '';
+    const isThisMonthOpen = openMonth && openMonth === month;
+    if (statusEl) {
+      if (!openMonth) {
+        statusEl.innerHTML = '<span style="color:var(--ink-mute)">目前未開放。開放後,公告頁會出現「預約假期」按鈕給同仁。</span>';
+      } else if (isThisMonthOpen) {
+        statusEl.innerHTML = `<span style="color:#0f766e;font-weight:700">✓ ${escapeHTML(openMonth)} 開放中</span> — 公告頁已顯示預約入口`;
+      } else {
+        statusEl.innerHTML = `<span style="color:#b45309">目前開放的是 ${escapeHTML(openMonth)}(不是你選的 ${escapeHTML(month)})</span>`;
+      }
+    }
+    if (btn) {
+      if (isThisMonthOpen) { btn.textContent = '關閉預約'; btn.style.background = '#dc2626'; }
+      else { btn.textContent = '開放預約'; btn.style.background = '#0d9488'; }
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '讀取失敗:' + (e.message || '');
+  }
+}
+
+async function toggleBookingOpen() {
+  const month = (document.getElementById('booking-month') || {}).value;
+  if (!month) { alert('請先選擇預約月份'); return; }
+  const btn = document.getElementById('booking-open-btn');
+  const closing = btn && btn.textContent.indexOf('關閉') >= 0;
+  const msg = closing
+    ? `確定關閉預約?\n\n關閉後公告頁不再顯示預約按鈕,同仁也不能再修改。\n(已經填的預約資料都會保留)`
+    : `確定開放「${month}」的預約?\n\n開放後公告頁會出現「🌴 預約${month.slice(5)}月假期」按鈕,同仁點進去就能預約。`;
+  if (!confirm(msg)) return;
+  try {
+    await ensureFirebase();
+    const { ref, set, remove } = window._fbHelpers;
+    if (closing) {
+      if (remove) await remove(ref(_firebaseDb, BOOKING_OPEN_PATH));
+      else await set(ref(_firebaseDb, BOOKING_OPEN_PATH), '');
+    } else {
+      await set(ref(_firebaseDb, BOOKING_OPEN_PATH), month);
+      // ★ 同時記錄開放時間與截止(開放起算 5 天),預約頁會自動鎖定
+      const openedAt = Date.now();
+      const deadline = openedAt + BOOKING_OPEN_DAYS * 24 * 60 * 60 * 1000;
+      await set(ref(_firebaseDb, `bookings/${month}_meta`), {
+        openedAt, deadline, openDays: BOOKING_OPEN_DAYS,
+        openedBy: (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '',
+      });
+    }
+    await refreshBookingOpenState();
+    alert(closing ? '✓ 已關閉預約' : `✓ 已開放 ${month} 預約\n\n同仁現在可以從公告頁進去預約了。`);
+  } catch (e) {
+    alert('設定失敗:' + (e.message || ''));
+  }
 }
 
 function copyBookingLink() {
@@ -6648,6 +7078,7 @@ async function loadBookings() {
       if (ls && ls.exists()) _bookingCache.lottery = ls.val();
     } catch (e) {}
     renderBookingList();
+    refreshBookingPublishBtn();
   } catch (e) {
     if (listEl) listEl.innerHTML = '<div style="color:#b91c1c;padding:10px">載入失敗:' + escapeHTML(e.message || '') + '</div>';
   }
@@ -6712,6 +7143,43 @@ function renderBookingList() {
   if (listEl) listEl.innerHTML = html;
 }
 
+// 📢 公告預約結果:同仁的公告頁會出現「🌴 預約」分頁
+async function publishBookingResult() {
+  const { month, lottery } = _bookingCache;
+  if (!month) { alert('請先選月份並載入'); return; }
+  if (!lottery) { alert('還沒抽籤。請先按「🎲 開始抽籤」。'); return; }
+  try {
+    await ensureFirebase();
+    const { ref, get, set } = window._fbHelpers;
+    const cur = await get(ref(_firebaseDb, `bookings/${month}_published`));
+    const already = cur.exists() && cur.val();
+    if (already) {
+      if (!confirm(`${month} 的預約結果目前是「已公告」。\n\n要改成「不公告」(同仁看不到)嗎?`)) return;
+      await set(ref(_firebaseDb, `bookings/${month}_published`), false);
+      alert('已取消公告,同仁的公告頁不會再顯示預約結果。');
+    } else {
+      if (!confirm(`確定公告 ${month} 的預約結果?\n\n同仁在公告頁會看到「🌴 預約」分頁,\n可以查誰抽中(OFF)、誰沒抽中(off)。`)) return;
+      await set(ref(_firebaseDb, `bookings/${month}_published`), true);
+      alert('✅ 已公告\n\n同仁打開公告頁就看得到預約結果了。');
+    }
+    refreshBookingPublishBtn();
+  } catch (e) { alert('操作失敗:' + (e.message || '')); }
+}
+
+async function refreshBookingPublishBtn() {
+  const btn = document.getElementById('publish-booking-btn');
+  if (!btn) return;
+  const month = (document.getElementById('booking-month') || {}).value;
+  if (!month) return;
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const s = await get(ref(_firebaseDb, `bookings/${month}_published`));
+    if (s.exists() && s.val()) { btn.textContent = '📢 已公告(點此取消)'; btn.style.background = '#64748b'; }
+    else { btn.textContent = '📢 公告預約結果'; btn.style.background = '#0f766e'; }
+  } catch (e) {}
+}
+
 // 🎲 抽籤:依班表順序每 13 人一組,每組抽 1 個
 async function runBookingLottery() {
   const { month, data } = _bookingCache;
@@ -6723,8 +7191,11 @@ async function runBookingLottery() {
   if (state.month !== month) {
     if (!confirm(`⚠ 目前畫面是「${state.month}」,但你要抽「${month}」的籤。\n\n分組會用目前畫面的人員順序。確定繼續嗎?`)) return;
   }
-  const order = (state.staff || []).map(p => p.name).filter(n => n);
-  if (!order.length) { alert('目前畫面沒有人員資料,請先載入班表。'); return; }
+  // ★ 只把「算為人力」的人納入分組(新進未認證/實習/半日/外派 等不算)
+  const order = (state.staff || [])
+    .filter(p => p && p.name && (typeof isCountingForCapacity !== 'function' || isCountingForCapacity(p)))
+    .map(p => p.name);
+  if (!order.length) { alert('目前畫面沒有「算為人力」的人員,請先載入班表並確認能力設定。'); return; }
 
   if (!confirm(`確定開始抽籤?\n\n月份:${month}\n預約人數:${people.length} 人\n分組:每 ${BOOKING_GROUP_SIZE} 人一組,每組抽 1 個名額\n\n抽完會覆蓋先前的抽籤結果。`)) return;
 
@@ -6802,11 +7273,11 @@ function applyBookingToSchedule() {
     }
   };
   if (typeof snapshotState === 'function') snapshotState('帶入預約班表');
-  apply(lottery.picked || {}, 'OFF');
-  apply(lottery.missed || {}, 'O');
+  apply(lottery.picked || {}, 'OFF');   // 抽中 → OFF(硬假,不被覆蓋)
+  apply(lottery.missed || {}, 'off');   // 沒抽到 → off(底線軟假,衝突時可調)
 
   if (typeof renderTable === 'function') renderTable();
-  let msg = `📥 已帶入預約結果\n\n抽中排 OFF:${offN} 格\n未中標記 O:${oN} 格`;
+  let msg = `📥 已帶入預約結果\n\n抽中排 OFF(硬假):${offN} 格\n未中標記 O:${oN} 格`;
   if (miss.length) msg += `\n\n⚠ 找不到的人(名字可能不同):${miss.join('、')}`;
   msg += '\n\n請確認畫面,對了再存檔。';
   alert(msg);
@@ -16286,10 +16757,7 @@ function buildPublishViewPayload() {
   // 1. HN 永遠在最上面(level === 'HN')
   // 2. 半日職墊底(整月有打過 halfdayTime 標記)
   // 3. 其他人嚴格保持 state.staff 原本順序(你手動編的順序)
-  const isHalfdayJob = (p) => {
-    const flags = (state.scheduleFlags && state.scheduleFlags[p.id]) || {};
-    return Object.values(flags).some(f => f && f.halfdayTime);
-  };
+  const isHalfdayJob = (p) => isHalfdayJobPerson(p);
   // 取得「原 state.staff 順序」的索引值
   const origOrderMap = new Map((state.staff || []).map((sp, i) => [sp.id, i]));
   const origStaffMap = new Map((state.staff || []).map(sp => [sp.id, sp]));
@@ -16575,6 +17043,20 @@ function triggerAutoSync() {
       await ensureFirebase();
       const { ref, update, get, set } = window._fbHelpers;
       const monthKey = state.month.replace(/[.#$\[\]/]/g, '_');
+
+      // ★ 保險:只有「這個月在雲端真的是已公告狀態」才允許自動同步。
+      //   就算別的系統或舊資料把月份寫進了啟用清單,這裡也會擋下來。
+      if (get) {
+        try {
+          const ms = await get(ref(_firebaseDb, `schedules/${monthKey}/meta`));
+          const st = ms && ms.exists() ? (ms.val() || {}).status : '';
+          if (st !== 'published') {
+            console.warn('[自動同步] 已跳過:' + state.month + ' 在雲端不是已公告狀態(status=' + (st || '無') + '),不推送。');
+            _autoSyncState.enabledMonths.delete(state.month);
+            return;
+          }
+        } catch (e) { /* 查不到就不擋,走原本流程 */ }
+      }
 
       // ★ 防護:自動同步前先比對雲端,若「畫面明顯比雲端不完整」就跳過,
       //   避免載入到空/不完整的畫面後,自動同步把雲端完整資料洗掉。

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- AIDE-VERSION: 2026-07-27-v7 (月狀態列也隔離AIDE) -->
+<!-- AIDE-VERSION: 2026-10-26-v9 (自動同步鍵名與護理師分開,不再互相洗掉備註) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診技助事員排班工具 | ED Aide Scheduling</title>
@@ -4166,6 +4166,49 @@ async function loadSchedulesList(forceRefresh) {
 async function loadScheduleFromCloud(month) {
   const token = getAuthToken();
   if (!token) return null;
+
+  // ★ 優先讀 Firebase 的公告資料(公告是寫到 aide-schedules/{月},這裡以前卻只讀 Google Sheet,
+  //   造成「載入到舊資料 → 修正 → 公告 → 把雲端最新的請假洗掉」。)
+  //   ⚠ 公告格式的科別/請假標記存在 data.flags,不是 scheduleFlags,要正確對應回來。
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const monthKey = month.replace(/[.#$\[\]/]/g, '_');
+    const snap = await get(ref(_firebaseDb, `aide-schedules/${monthKey}/data`));
+    if (snap && snap.exists()) {
+      const d = snap.val() || {};
+      if (d.staff && d.staff.length) {
+        // schedule 可能是陣列(index=日)→ 轉成 {日: 班別}
+        const schedule = {};
+        const rawSched = d.schedule || {};
+        for (const pid in rawSched) {
+          const days = rawSched[pid];
+          if (Array.isArray(days)) {
+            const o = {};
+            days.forEach((v, i) => { if (v) o[i] = v; });
+            schedule[pid] = o;
+          } else schedule[pid] = days;
+        }
+        console.log('[雲端載入] 用 Firebase 公告資料還原(', (d.staff || []).length, '人),標記取自 data.flags');
+        return {
+          month: month,
+          staff: d.staff,
+          schedule: schedule,
+          scheduleFlags: d.flags || d.scheduleFlags || {},   // ★ 關鍵:請假/科別在 flags
+          notes: d.personNotes || d.notes || {},
+          dateNotes: d.dateNotes || {},
+          fixed: d.fixed || {},
+          holidays: d.holidays || [],
+          rules: d.rules || (state.rules || {}),
+          _fromFirebase: true,
+        };
+      }
+    }
+  } catch (fbErr) {
+    console.warn('[雲端載入] Firebase 讀取失敗,改試 Google Sheet:', fbErr);
+  }
+
+  // 降級:Google Sheet(舊資料相容)
   try {
     const result = await apiCall('loadSchedule', { token, month });
     if (result.ok && result.data) {
@@ -15516,7 +15559,18 @@ async function doPublishView() {
     const publishedAt = Date.now();
     const publishedBy = (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '';
 
-    await set(ref(_firebaseDb, `aide-schedules/${monthKey}`), {
+    // ★ 公告前先把雲端既有的 leader 調整/請假/備註合併回來,避免被畫面洗掉
+    try {
+      const { get } = window._fbHelpers;
+      if (get) {
+        const cs = await get(ref(_firebaseDb, `aide-schedules/${monthKey}/data`));
+        if (cs && cs.exists()) mergeCloudIntoAidePayload(viewData, cs.val() || {});
+      }
+    } catch (e) { console.warn('[公告] 合併失敗:', e); }
+
+    // ★ 用 update 不用 set:set 會把整個月份節點蓋掉(其他子節點一起刪)
+    const { update: _upd } = window._fbHelpers;
+    await _upd(ref(_firebaseDb, `aide-schedules/${monthKey}`), {
       data: viewData,
       meta: {
         status: 'published',
@@ -15560,6 +15614,65 @@ async function doUnpublishView() {
 }
 
 // 組裝給 view 端的精簡 payload
+
+// ★ 把雲端既有的「leader 現場調整」與「備註」合併進要公告的 payload
+//   為什麼需要:公告/自動同步都是用目前畫面整份覆蓋雲端 data,
+//   一旦畫面沒載到(別台電腦改的、leader 劃的假),存下去就被洗掉。
+//   規則:畫面有的優先,畫面沒有的才沿用雲端。
+function mergeCloudIntoAidePayload(viewData, cloud) {
+  if (!viewData || !cloud) return;
+  try {
+    const cloudStaff = cloud.staff || [];
+    const cloudIdToName = {};
+    cloudStaff.forEach(p => { if (p && p.id) cloudIdToName[p.id] = p.name; });
+    const nameToViewPid = {};
+    (viewData.staff || []).forEach(p => { if (p && p.name) nameToViewPid[p.name] = p.id; });
+
+    // 1) leader 現場標記(劃假/臨時調整/換班/工時)— 這些只存在雲端,畫面通常沒有
+    const cloudFlags = cloud.flags || {};
+    if (!viewData.flags) viewData.flags = {};
+    const KEEP = ['leaveMarked', 'leaveReason', 'tempAdjust', 'adjustLog', 'shiftChanged', 'origShift', 'hoursNote', 'shiftReview'];
+    for (const pid in cloudFlags) {
+      const nm = cloudIdToName[pid];
+      const vpid = nm ? nameToViewPid[nm] : pid;
+      if (!vpid) continue;
+      const days = cloudFlags[pid] || {};
+      for (const day in days) {
+        const cf = days[day];
+        if (!cf || typeof cf !== 'object') continue;
+        const hasAny = KEEP.some(k => cf[k] !== undefined && cf[k] !== null && cf[k] !== '');
+        if (!hasAny) continue;
+        if (!viewData.flags[vpid]) viewData.flags[vpid] = {};
+        if (!viewData.flags[vpid][day]) viewData.flags[vpid][day] = {};
+        const tgt = viewData.flags[vpid][day];
+        KEEP.forEach(k => { if (tgt[k] === undefined && cf[k] !== undefined) tgt[k] = cf[k]; });
+      }
+    }
+
+    // 2) 逐日個人備註:這個人畫面上完全沒有才整批補回(仍可正常刪除)
+    const cloudPN = cloud.personNotes || {};
+    if (!viewData.personNotes) viewData.personNotes = {};
+    for (const pid in cloudPN) {
+      const nm = cloudIdToName[pid];
+      const vpid = nm ? nameToViewPid[nm] : pid;
+      if (!vpid) continue;
+      const mine = viewData.personNotes[vpid];
+      if (mine && Object.keys(mine).some(k => mine[k])) continue;
+      const copy = {};
+      for (const day in (cloudPN[pid] || {})) { if (cloudPN[pid][day]) copy[day] = cloudPN[pid][day]; }
+      if (Object.keys(copy).length) viewData.personNotes[vpid] = copy;
+    }
+
+    // 3) 當日備註
+    const cloudDN = cloud.dateNotes || {};
+    if (!viewData.dateNotes) viewData.dateNotes = {};
+    const myDN = viewData.dateNotes;
+    if (!Object.keys(myDN).some(k => myDN[k])) {
+      for (const day in cloudDN) { if (cloudDN[day]) viewData.dateNotes[day] = cloudDN[day]; }
+    }
+  } catch (e) { console.warn('[公告] 合併雲端資料失敗:', e); }
+}
+
 function buildPublishViewPayload() {
   const days = (typeof getDaysInMonth === 'function') ? getDaysInMonth(state.month) : 31;
   // 計算當月國定假日(對齊 state.rules.holidays 而非舊的 state.holidays)
@@ -15661,18 +15774,22 @@ const _autoSyncState = {
 
 function enableAutoSyncForMonth(month) {
   _autoSyncState.enabledMonths.add(month);
-  try { localStorage.setItem('autoSyncMonths', JSON.stringify([..._autoSyncState.enabledMonths])); } catch (e) {}
+  try { localStorage.setItem('aideAutoSyncMonths', JSON.stringify([..._autoSyncState.enabledMonths])); } catch (e) {}
 }
 
 function disableAutoSyncForMonth(month) {
   _autoSyncState.enabledMonths.delete(month);
-  try { localStorage.setItem('autoSyncMonths', JSON.stringify([..._autoSyncState.enabledMonths])); } catch (e) {}
+  try { localStorage.setItem('aideAutoSyncMonths', JSON.stringify([..._autoSyncState.enabledMonths])); } catch (e) {}
 }
 
 // 重啟時還原已啟用的月份
+// ★ 鍵名一定要跟護理師系統分開('autoSyncMonths' → 'aideAutoSyncMonths')。
+//   兩套系統在同一個網域,localStorage 是共用的:以前共用這個鍵,
+//   技助公告某月 → 護理師系統下次開啟就誤認該月自動同步已開 →
+//   護理師班表任何重繪都把畫面推上雲端,備註/臨時調班註記就被洗掉。
 (function restoreAutoSyncMonths() {
   try {
-    const saved = JSON.parse(localStorage.getItem('autoSyncMonths') || '[]');
+    const saved = JSON.parse(localStorage.getItem('aideAutoSyncMonths') || '[]');
     saved.forEach(m => _autoSyncState.enabledMonths.add(m));
   } catch (e) {}
 })();
@@ -15687,7 +15804,45 @@ function triggerAutoSync() {
       await ensureFirebase();
       const { ref, update } = window._fbHelpers;
       const monthKey = state.month.replace(/[.#$\[\]/]/g, '_');
+      // ★ 保險:只有「這個月在雲端真的是已公告狀態」才允許自動同步。
+      //   就算別的系統或舊資料把月份寫進了啟用清單,這裡也會擋下來。
+      if (get) {
+        try {
+          const ms = await get(ref(_firebaseDb, `aide-schedules/${monthKey}/meta`));
+          const st = ms && ms.exists() ? (ms.val() || {}).status : '';
+          if (st !== 'published') {
+            console.warn('[自動同步] 已跳過:' + state.month + ' 在雲端不是已公告狀態(status=' + (st || '無') + '),不推送。');
+            _autoSyncState.enabledMonths.delete(state.month);
+            return;
+          }
+        } catch (e) { /* 查不到就不擋,走原本流程 */ }
+      }
+
       const viewData = buildPublishViewPayload();
+
+      // ★ 守門:畫面還沒載完就別推(人數為 0 或遠少於雲端 → 代表載入失敗,
+      //   硬推上去會把雲端整份洗掉)
+      if (!viewData.staff || viewData.staff.length === 0) {
+        console.warn('[自動同步] 畫面無人員,放棄推送(避免洗掉雲端)');
+        return;
+      }
+      try {
+        const { get } = window._fbHelpers;
+        if (get) {
+          const cs = await get(ref(_firebaseDb, `aide-schedules/${monthKey}/data`));
+          if (cs && cs.exists()) {
+            const cloud = cs.val() || {};
+            const cn = (cloud.staff || []).length;
+            if (cn > 0 && viewData.staff.length < cn * 0.6) {
+              console.warn(`[自動同步] 畫面只有 ${viewData.staff.length} 人、雲端有 ${cn} 人,放棄推送`);
+              return;
+            }
+            // ★ 把雲端既有的 leader 調整/請假/備註合併回來
+            mergeCloudIntoAidePayload(viewData, cloud);
+          }
+        }
+      } catch (e) { console.warn('[自動同步] 合併失敗:', e); }
+
       // 只更新 data 不動 meta(避免覆蓋 publishedAt/publishedBy)
       await update(ref(_firebaseDb, `aide-schedules/${monthKey}`), {
         data: viewData,

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- BOOKING-VERSION: 2026-07-29-v1 (預約假期頁,同仁用) -->
+<!-- BOOKING-VERSION: 2026-09-29-v2 (開放後5天自動截止鎖定) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>急診預約假期</title>
@@ -149,6 +149,7 @@
         </div>
       </div>
       <div class="picked-list" id="picked-list"></div>
+      <div id="deadline-box"></div>
     </div>
 
     <div class="card">
@@ -202,6 +203,7 @@ const MAX_HOLIDAY = 1;  // 假日最多幾天
 const LS_KEY = 'booking.myPersonId.v1';
 
 const S = {
+  deadline: 0, locked: false,
   month: '',
   days: 0,
   staff: [],           // [{id,name,level}]
@@ -238,6 +240,25 @@ async function boot() {
   S.days = daysInMonth(S.month);
   $('hd-sub').textContent = S.month.replace('-', ' 年 ') + ' 月';
 
+  // 0. 先看護理長有沒有開放這個月的預約
+  try {
+    const os = await get(ref(db, 'bookings/_openMonth'));
+    const openMonth = (os && os.exists()) ? String(os.val() || '') : '';
+    if (!openMonth) {
+      showStatus('<div style="font-size:2rem">🔒</div><div style="margin-top:8px;font-weight:700">目前未開放預約</div><div style="margin-top:4px">護理長開放後,公告頁會出現預約按鈕,再進來登記即可。</div>');
+      return;
+    }
+    if (openMonth !== S.month) {
+      // 網址帶的月份跟開放的不同 → 自動導到正確的月份
+      S.month = openMonth;
+      S.days = daysInMonth(S.month);
+      $('hd-sub').textContent = S.month.replace('-', ' 年 ') + ' 月';
+    }
+  } catch (e) {
+    showStatus('無法確認預約是否開放,請稍後再試。');
+    return;
+  }
+
   // 1. 人員名單:從該月或近月班表拿
   let staff = null;
   const tryMonths = [S.month];
@@ -266,6 +287,16 @@ async function boot() {
     return;
   }
   S.staff = staff;
+
+  // 1.5 讀截止時間(護理長開放後 5 天自動鎖定)
+  try {
+    const ms = await get(ref(db, `bookings/${S.month}_meta`));
+    if (ms.exists()) {
+      const meta = ms.val() || {};
+      S.deadline = meta.deadline || 0;
+      if (S.deadline && Date.now() > S.deadline) S.locked = true;
+    }
+  } catch (e) { /* 讀不到就不鎖 */ }
 
   // 2. 監聽預約資料(即時看到別人預約)
   onValue(ref(db, `bookings/${S.month}`), (snap) => {
@@ -317,7 +348,7 @@ function enterAs(p) {
   $('bottom').classList.remove('hide');
   $('my-name').textContent = p.name;
   $('my-month').textContent = S.month.replace('-', ' 年 ') + ' 月預約';
-  renderCal(); renderQuota(); markSaved();
+  renderCal(); renderQuota(); markSaved(); renderDeadline();
 }
 
 // ---------- 渲染 ----------
@@ -369,6 +400,7 @@ function renderQuota() {
 }
 
 window.toggleDay = function (d) {
+  if (S.locked) { alert('預約已經截止,不能再修改了。\n\n如果真的需要調整,請直接找護理長。'); return; }
   const i = S.myPicks.indexOf(d);
   if (i >= 0) {
     S.myPicks.splice(i, 1);
@@ -383,6 +415,30 @@ window.toggleDay = function (d) {
   renderCal(); renderQuota(); markUnsaved();
 };
 
+function renderDeadline() {
+  const box = document.getElementById('deadline-box');
+  if (!box) return;
+  if (!S.deadline) { box.innerHTML = ''; return; }
+  const left = S.deadline - Date.now();
+  const dl = new Date(S.deadline);
+  const dlTxt = `${dl.getMonth() + 1}/${dl.getDate()} ${String(dl.getHours()).padStart(2, '0')}:${String(dl.getMinutes()).padStart(2, '0')}`;
+  if (left <= 0) {
+    S.locked = true;
+    box.innerHTML = `<div style="background:var(--err-soft);border-left:4px solid var(--err);border-radius:0 8px 8px 0;padding:10px 12px;margin-top:10px">
+      <strong style="color:#991b1b">🔒 預約已截止</strong>(${dlTxt})<br>
+      <span style="font-size:0.85rem">現在不能再修改。抽籤結果出來後會公告。</span></div>`;
+    const btn = document.getElementById('save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '🔒 已截止'; }
+  } else {
+    const hrs = Math.floor(left / 3600000);
+    const txt = hrs >= 24 ? `還有 ${Math.floor(hrs / 24)} 天 ${hrs % 24} 小時` : `剩不到 ${hrs + 1} 小時`;
+    const urgent = hrs < 24;
+    box.innerHTML = `<div style="background:${urgent ? 'var(--err-soft)' : 'var(--warn-soft)'};border-left:4px solid ${urgent ? 'var(--err)' : 'var(--warn)'};border-radius:0 8px 8px 0;padding:9px 12px;margin-top:10px;font-size:0.9rem">
+      <strong>⏰ 截止時間:${dlTxt}</strong>(${txt})<br>
+      <span style="font-size:0.84rem">截止後就不能再改了,請記得按「💾 儲存預約」。</span></div>`;
+  }
+}
+
 function markUnsaved() {
   $('save-info').innerHTML = '<span style="color:var(--warn);font-weight:700">● 尚未儲存</span>';
   $('save-btn').disabled = false;
@@ -394,6 +450,7 @@ function markSaved() {
 
 window.saveBooking = async function () {
   if (!S.myId) return;
+  if (S.locked) { alert('預約已經截止,無法儲存。'); return; }
   const btn = $('save-btn');
   btn.disabled = true; btn.textContent = '⏳ 儲存中...';
   try {

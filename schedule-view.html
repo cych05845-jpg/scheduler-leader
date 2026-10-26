@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- VIEW-VERSION: 2026-07-19-v4 (工讀不算人力) -->
+<!-- VIEW-VERSION: 2026-10-26-v9 (半日職判定改比例:公告頁順序與排班區一致) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
@@ -640,6 +640,18 @@ body { padding-bottom: env(safe-area-inset-bottom); font-size: 1rem; line-height
   display: none;  /* 改用 date-note-top */
 }
 
+
+/* 個人月曆:逐日個人備註(紫)+ 當日備註(黃) */
+.cal-cell-pnote {
+  font-size: 0.58rem; line-height: 1.1; margin-top: 1px;
+  background: #ede9fe; color: #6d28d9; border-radius: 2px;
+  padding: 0 2px; word-break: break-all;
+}
+.cal-cell-dnote {
+  font-size: 0.58rem; line-height: 1.1; margin-top: 1px;
+  background: #fef3c7; color: #92400e; border-radius: 2px;
+  padding: 0 2px; word-break: break-all;
+}
 /* 日期備註 — 個人月曆 */
 .cal-cell.has-date-note {
   box-shadow: inset 0 4px 0 0 #d97706;
@@ -1190,11 +1202,26 @@ body[data-schedule-type="aide"] .month-table td.col-name {
   <div style="text-align: center; margin-top: 4px; font-size: 0.78rem; color: #6b7280;">↑ 點按鈕切換班表類型</div>
 </div>
 
+<!-- === 🌴 預約假期入口(護理長開放時才顯示)=== -->
+<div id="booking-entry" style="display:none; margin:10px 0">
+  <a id="booking-entry-link" href="#" style="display:flex; align-items:center; gap:10px; text-decoration:none;
+     background:linear-gradient(135deg,#0d9488 0%,#0f766e 100%); color:#fff; padding:12px 14px; border-radius:10px;
+     box-shadow:0 2px 8px rgba(13,148,136,0.25)">
+    <span style="font-size:1.5rem">🌴</span>
+    <span style="flex:1">
+      <span id="booking-entry-title" style="display:block; font-weight:700; font-size:1rem">預約假期</span>
+      <span id="booking-entry-sub" style="display:block; font-size:0.8rem; opacity:0.9">開放中,點我登記想休的日子</span>
+    </span>
+    <span style="font-size:1.2rem">›</span>
+  </a>
+</div>
+
 <!-- === Tabs === -->
 <div class="tabs" id="tabs" style="display: none">
   <button class="active" data-tab="today" onclick="switchTab('today')">📅 今天</button>
   <button data-tab="person" onclick="switchTab('person')">👤 個人</button>
   <button data-tab="month" onclick="switchTab('month')">📆 月曆</button>
+  <button data-tab="booking" id="tab-booking-btn" style="display:none" onclick="switchTab('booking')">🌴 預約</button>
 </div>
 
 <!-- === 公告說明區(顯示 leader 設定的本月公告)=== -->
@@ -1243,6 +1270,14 @@ body[data-schedule-type="aide"] .month-table td.col-name {
 </div>
 
 <!-- === Panel: 月曆 === -->
+<div class="panel" id="panel-booking">
+  <div id="booking-result-head" style="background:linear-gradient(135deg,#0d9488 0%,#0f766e 100%); color:#fff; padding:12px 14px; border-radius:10px; margin-bottom:12px">
+    <div style="font-weight:700; font-size:1.02rem" id="br-title">預約結果</div>
+    <div style="font-size:0.82rem; opacity:0.9" id="br-sub">抽中的排 OFF,沒抽中的是 off(底線),仍會盡量安排</div>
+  </div>
+  <div id="booking-result-body"></div>
+</div>
+
 <div class="panel" id="panel-month">
   <div style="margin-bottom: 0.6rem; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap">
     <div style="font-size: 0.85rem; color: #6b7280; flex: 1; min-width: 200px">
@@ -1285,6 +1320,96 @@ let _fbDb = null;
 let _fbHelpers = null;
 let _currentListener = null;  // 用於斷開舊監聽
 
+
+// 🌴 預約結果:護理長公告抽籤結果後,分頁才出現
+async function loadBookingResult() {
+  try {
+    const btn = document.getElementById('tab-booking-btn');
+    const body = document.getElementById('booking-result-body');
+    if (!btn || !body || !state.month) return;
+
+    const pubSnap = await get(ref(_fbDb, `bookings/${state.month}_published`));
+    if (!pubSnap.exists() || !pubSnap.val()) { btn.style.display = 'none'; return; }
+
+    const rSnap = await get(ref(_fbDb, `bookings/${state.month}_result`));
+    if (!rSnap.exists()) { btn.style.display = 'none'; return; }
+    const res = rSnap.val() || {};
+
+    const mm = state.month.slice(5).replace(/^0/, '');
+    const t = document.getElementById('br-title');
+    if (t) t.textContent = `${mm} 月預約結果`;
+
+    const picked = res.picked || {};
+    const missed = res.missed || {};
+    const daysAll = new Set([...Object.keys(picked), ...Object.keys(missed)].map(Number));
+    if (!daysAll.size) {
+      body.innerHTML = '<div style="padding:16px;text-align:center;color:#6b7280">這個月沒有人預約。</div>';
+      btn.style.display = 'inline-block';
+      return;
+    }
+    const sorted = [...daysAll].sort((a, b) => a - b);
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.9rem">';
+    html += '<tr style="background:#f1f5f9"><th style="padding:6px 8px;text-align:left;width:56px">日期</th><th style="padding:6px 8px;text-align:left">抽中(OFF)</th><th style="padding:6px 8px;text-align:left">未抽中(off)</th></tr>';
+    sorted.forEach(d => {
+      const win = (picked[d] || []).map(n => `<span style="display:inline-block;background:#dcfce7;color:#166534;border-radius:4px;padding:1px 7px;margin:2px 3px 2px 0;font-weight:600">${esc(n)}</span>`).join('');
+      const lose = (missed[d] || []).map(n => `<span style="display:inline-block;background:#f3f4f6;color:#6b7280;border-radius:4px;padding:1px 7px;margin:2px 3px 2px 0;text-decoration:underline">${esc(n)}</span>`).join('');
+      const dow = new Date(+state.month.split('-')[0], +state.month.split('-')[1] - 1, d).getDay();
+      const isHol = dow === 0;
+      html += `<tr style="border-bottom:1px solid #eef2f7">
+        <td style="padding:6px 8px;font-weight:700;${isHol ? 'color:#dc2626' : ''}">${d}日${isHol ? '(日)' : ''}</td>
+        <td style="padding:6px 8px">${win || '<span style="color:#cbd5e1">—</span>'}</td>
+        <td style="padding:6px 8px">${lose || '<span style="color:#cbd5e1">—</span>'}</td></tr>`;
+    });
+    html += '</table>';
+    const when = res.at ? new Date(res.at).toLocaleString('zh-TW', { hour12: false }) : '';
+    html += `<div style="margin-top:10px;font-size:0.8rem;color:#6b7280">
+      抽籤方式:算為人力者每 ${res.groupSize || 13} 人一組,每組每天抽 1 位確定放假。${when ? '<br>抽籤時間:' + when : ''}</div>`;
+    body.innerHTML = html;
+    btn.style.display = 'inline-block';
+  } catch (e) { console.warn('[預約結果] 載入失敗:', e); }
+}
+
+// 🔄 換班入口:班表已公告就顯示,連結帶目前看的月份
+function showSwapEntry() {
+  try {
+    const box = document.getElementById('swap-entry');
+    const a = document.getElementById('swap-entry-link');
+    const t = document.getElementById('swap-entry-title');
+    if (!box || !a) return;
+    // ★ 必須「已公告」才顯示換班入口(沒公告的班表不開放換班)
+    if (!state.month || !state.staff || !state.staff.length || !state.publishedAt) {
+      box.style.display = 'none'; return;
+    }
+    const mm = state.month.slice(5).replace(/^0/, '') + ' 月';
+    if (t) t.textContent = mm + '換班申請';
+    a.href = 'swap.html?m=' + encodeURIComponent(state.month);
+    box.style.display = 'block';
+  } catch (e) { console.warn('[換班入口] 失敗:', e); }
+}
+
+// 🌴 檢查護理長有沒有開放預約(只讀一個位置 bookings/_openMonth)
+async function checkBookingOpen() {
+  try {
+    await initFirebase();
+    const { ref, get } = _fbHelpers;
+    const snap = await get(ref(_fbDb, 'bookings/_openMonth'));
+    const openMonth = (snap && snap.exists()) ? String(snap.val() || '') : '';
+    const box = document.getElementById('booking-entry');
+    if (!box) return;
+    if (!openMonth || !/^\d{4}-\d{2}$/.test(openMonth)) { box.style.display = 'none'; return; }
+    const mm = parseInt(openMonth.slice(5), 10);
+    const t = document.getElementById('booking-entry-title');
+    const s = document.getElementById('booking-entry-sub');
+    const a = document.getElementById('booking-entry-link');
+    if (t) t.textContent = `預約 ${mm} 月假期`;
+    if (s) s.textContent = '開放中,點我登記想休的日子';
+    if (a) a.href = 'booking.html?m=' + encodeURIComponent(openMonth);
+    box.style.display = 'block';
+  } catch (e) {
+    console.warn('[預約入口] 檢查失敗:', e);
+  }
+}
+
 async function initFirebase() {
   if (_fbDb) return _fbDb;
   const appMod = await import('https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js');
@@ -1322,6 +1447,9 @@ function enterScheduleApp() {
   document.getElementById('month-nav').style.display = 'block';
   document.body.setAttribute('data-schedule-type', 'nurse');  // 預設護理師
   loadData();
+  showSwapEntry();
+  loadBookingResult();  // 🌴 預約結果分頁(公告後才出現)
+  checkBookingOpen();   // 🌴 護理長開放預約時,顯示預約入口
 }
 
 // === 切換班表類型(護理師 / 助理員) ===
@@ -1465,9 +1593,21 @@ async function loadData(forceMonth) {
 
         // === 排序保險:HN 最上 → D/E/N → 半日墊底 ===
         // 即使 index.html 端忘了排,這裡也能保證順序對
+        // ★ 半日職判定:時段班要佔上班日一半以上。以前用 some():整月有一天打過
+        //   時段(含 9-17)就被判半日職 → 排到最後面,跟排班區順序不一致。
         const isHalftime = (p) => {
+          if (p.level === '半日') return true;
           const f = state.flags[p.id] || {};
-          return Object.values(f).some(x => x && x.halfdayTime);
+          const s = state.schedule[p.id] || {};
+          let workDays = 0, slotDays = 0;
+          for (const d in s) {
+            const v = String(s[d] || '').replace(/'/g, '').split('/')[0];
+            if (!['D', 'E', 'N', 'M'].includes(v)) continue;
+            workDays++;
+            if (f[d] && f[d].halfdayTime) slotDays++;
+          }
+          if (!workDays) return false;
+          return slotDays >= workDays * 0.5;
         };
         const getGroup = (p) => {
           if (p.level === 'HN' || (p.name && /護理長/.test(p.name))) return 0;
@@ -1706,14 +1846,14 @@ function openPersonDetail(pid) {
   `;
 
   // 月曆網格(本月)
-  renderPersonCalendar('pd-calendar', 'pd-dow-head', state.month, state.days, sched, pFlags, state.holidays);
+  renderPersonCalendar('pd-calendar', 'pd-dow-head', state.month, state.days, sched, pFlags, state.holidays, p.id);
 
   // 嘗試載入「下個月」該人的班,做跨月接續顯示
   loadPersonNextMonth(p);
 }
 
 // 共用:畫一個月的個人月曆到指定容器
-function renderPersonCalendar(calId, dowId, month, days, sched, pFlags, holidays) {
+function renderPersonCalendar(calId, dowId, month, days, sched, pFlags, holidays, pid) {
   const ym = month.split('-');
   const year = parseInt(ym[0]);
   const monthIdx = parseInt(ym[1]) - 1;
@@ -1749,7 +1889,14 @@ function renderPersonCalendar(calId, dowId, month, days, sched, pFlags, holidays
       ? `<div class="cal-cell-swap" title="原 ${esc(flag.origShift||'—')} 班">調班</div>` : '';
     if (flag.shiftChanged === true) cls += ' cell-swapped';
     if (flag.leaveMarked === true) cls += ' cell-on-leave';
-    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}${swapSmall}${leaveSmall}${hoursSmall}</div>`;
+    // 逐日個人備註(針對這個人這一天)+ 當日備註(這天所有人適用)
+    const myDayNote = (pid && state.personNotes && state.personNotes[pid] && state.personNotes[pid][d]) || '';
+    const dayNote = (state.dateNotes && state.dateNotes[d]) || '';
+    const personNoteSmall = myDayNote
+      ? `<div class="cal-cell-pnote">📝${esc(myDayNote)}</div>` : '';
+    const dateNoteSmall = dayNote
+      ? `<div class="cal-cell-dnote">📌${esc(dayNote)}</div>` : '';
+    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}${swapSmall}${leaveSmall}${hoursSmall}${personNoteSmall}${dateNoteSmall}</div>`;
   }
   document.getElementById(calId).innerHTML = html;
 }
