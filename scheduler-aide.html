@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- AIDE-VERSION: 2026-10-26-v9 (自動同步鍵名與護理師分開,不再互相洗掉備註) -->
+<!-- AIDE-VERSION: 2026-11-02-v10 (載入比時間取新+存檔即更新公告+舊畫面不得覆蓋新雲端) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診技助事員排班工具 | ED Aide Scheduling</title>
@@ -4100,11 +4100,80 @@ async function saveMonthlyStatus() {
 let _scheduleListCache = null;
 let _scheduleListCacheTime = 0;
 
-async function saveScheduleToCloud(month, silent) {
+// ============================================================
+// 雲端版本基準(防「舊畫面覆蓋新雲端」)— 與護理師系統同一套邏輯
+// 技助的班表會寫到兩個地方:Firebase aide-schedules/{月}/data(公告+自動同步)
+// 和 Google Sheet(存檔)。兩邊各自更新就會分岔成兩個版本,
+// 在不同電腦載入拿到不同的那一份,一存檔就把對方的修改蓋掉。
+// ============================================================
+const _cloudBase = {};
+function setCloudBase(month, ms) {
+  if (!month) return;
+  _cloudBase[month] = Number(ms) || 0;
+  try { localStorage.setItem('aideCloudBaseAt.' + month, String(_cloudBase[month])); } catch (e) {}
+}
+function getCloudBase(month) {
+  if (!month) return 0;
+  if (_cloudBase[month] !== undefined) return _cloudBase[month];
+  try { return Number(localStorage.getItem('aideCloudBaseAt.' + month) || 0) || 0; } catch (e) { return 0; }
+}
+const _toMs = (t) => (typeof t === 'number' ? t : (Date.parse(t || '') || 0));
+// 讀 Firebase 目前公告資料的寫入時間
+async function getCloudDataAt(month) {
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const mk = month.replace(/[.#$\[\]/]/g, '_');
+    const s = await get(ref(_firebaseDb, `aide-schedules/${mk}/meta`));
+    if (!s || !s.exists()) return 0;
+    const m = s.val() || {};
+    return _toMs(m.lastSyncedAt) || _toMs(m.publishedAt) || 0;
+  } catch (e) { return 0; }
+}
+// 畫面資料過期的醒目提示
+function showStaleWarning(cloudAt, baseAt) {
+  let el = document.getElementById('stale-warning');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'stale-warning';
+    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#b91c1c;'
+      + 'color:#fff;padding:12px 16px;font-size:14px;line-height:1.6;text-align:center;'
+      + 'box-shadow:0 2px 12px rgba(0,0,0,.35)';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '⚠ <strong>這個畫面的班表已經過期,你現在的修改沒有存上雲端。</strong><br>'
+    + '雲端在 ' + new Date(cloudAt).toLocaleString() + ' 被更新過'
+    + (baseAt ? '(你畫面的版本是 ' + new Date(baseAt).toLocaleString() + ')' : '(你畫面的版本不明)')
+    + ' — 可能是你在別台電腦改過。<br>'
+    + '請重新載入本月班表,再做修改。'
+    + ' <button onclick="document.getElementById(\'stale-warning\').remove()" '
+    + 'style="margin-left:8px;padding:4px 10px;border:0;border-radius:6px;cursor:pointer">知道了</button>';
+}
+
+async function saveScheduleToCloud(month, silent, opts) {
+  // opts.mirrorToPublished:已公告的月份,存檔要不要同時更新公告資料(預設要)
+  const mirror = !opts || opts.mirrorToPublished !== false;
   const token = getAuthToken();
   if (!token) {
     if (!silent) alert('未登入');
     return false;
+  }
+
+  // ★ 版本基準檢查:雲端比我畫面新 → 先問清楚
+  if (!silent) {
+    try {
+      const cloudAt = await getCloudDataAt(month);
+      const baseAt = getCloudBase(month);
+      if (cloudAt && cloudAt > baseAt + 1000) {
+        const msg = '🛑 停一下!雲端的「' + month + '」在 ' + new Date(cloudAt).toLocaleString()
+          + ' 被更新過,\n但你畫面上這份是 '
+          + (baseAt ? new Date(baseAt).toLocaleString() + ' 的版本' : '版本不明(可能是這台電腦上次留下的舊資料)')
+          + '。\n\n常見原因:你在別台電腦改過班,這台還是舊的。\n\n'
+          + '👉 建議:先「取消」→ 重新載入本月班表 → 再存檔。\n\n'
+          + '仍要用你目前畫面這份覆蓋雲端嗎?(別台電腦改的會不見)';
+        if (!confirm(msg)) return false;
+      }
+    } catch (e) { /* 查不到不擋 */ }
   }
 
   // 整理要存的資料(主檔 + 班表 + 規則 + 假日 + 固定 + 備註)
@@ -4130,8 +4199,41 @@ async function saveScheduleToCloud(month, silent) {
     const result = await apiCall('saveSchedule', { token, month, data: dataStr });
     if (result.ok) {
       _scheduleListCache = null;  // invalidate
+
+      // ★★ 已公告的月份 → 存檔同時更新公告資料,同仁手機馬上看到。
+      //   這樣「存檔」和「公告」寫的是同一份內容,不會再分岔成兩個版本。
+      let mirrored = false;
+      if (mirror && state.month === month) {
+        try {
+          await ensureFirebase();
+          const { ref, get, set, update } = window._fbHelpers;
+          const mk = month.replace(/[.#$\[\]/]/g, '_');
+          const ms = await get(ref(_firebaseDb, `aide-schedules/${mk}/meta`));
+          const isPublished = ms && ms.exists() && (ms.val() || {}).status === 'published';
+          if (isPublished) {
+            const viewData = buildPublishViewPayload();
+            try {
+              const cs = await get(ref(_firebaseDb, `aide-schedules/${mk}/data`));
+              if (cs && cs.exists()) mergeCloudIntoAidePayload(viewData, cs.val() || {});
+            } catch (e) { console.warn('[存檔] 合併雲端資料失敗:', e); }
+            const syncAt = Date.now();
+            await set(ref(_firebaseDb, `aide-schedules/${mk}/data`), viewData);
+            await update(ref(_firebaseDb, `aide-schedules/${mk}/meta`), { lastSyncedAt: syncAt });
+            setCloudBase(month, syncAt);
+            const sw = document.getElementById('stale-warning'); if (sw) sw.remove();
+            mirrored = true;
+            console.log('[存檔] 本月已公告 → 公告資料同步更新', new Date(syncAt).toLocaleString());
+          }
+        } catch (mErr) {
+          console.warn('[存檔] 同步更新公告資料失敗(Sheet 已存好):', mErr);
+        }
+      }
+
       if (!silent) {
-        alert(`✅ 班表已儲存到雲端\n月份: ${month}\n大小: ${(result.size / 1024).toFixed(1)} KB`);
+        alert(`✅ 班表已儲存到雲端\n月份: ${month}\n大小: ${(result.size / 1024).toFixed(1)} KB`
+          + (mirrored
+              ? '\n\n📲 本月已公告 → 同仁手機上的班表也同步更新了,不用再按「公告」。'
+              : ''));
       }
       return true;
     } else {
@@ -4167,61 +4269,110 @@ async function loadScheduleFromCloud(month) {
   const token = getAuthToken();
   if (!token) return null;
 
-  // ★ 優先讀 Firebase 的公告資料(公告是寫到 aide-schedules/{月},這裡以前卻只讀 Google Sheet,
-  //   造成「載入到舊資料 → 修正 → 公告 → 把雲端最新的請假洗掉」。)
-  //   ⚠ 公告格式的科別/請假標記存在 data.flags,不是 scheduleFlags,要正確對應回來。
+  // ★★ 關鍵修正:班表存在兩個地方,必須比時間取新的。
+  //   Firebase aide-schedules/{月}/data → 按「公告」和之後每次自動同步會寫
+  //   Google Sheet                      → 按「存檔」才會寫
+  //   以前無條件優先讀 Firebase → 若上次是用「存檔」改的(只寫 Sheet),
+  //   這次載入就拿到舊的 Firebase 資料,一存檔/公告就把修改蓋回舊的。
+  let fbRaw = null, fbAt = 0;      // Firebase 公告資料
+  let shData = null, shAt = 0;     // Google Sheet 存檔
+
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
     const monthKey = month.replace(/[.#$\[\]/]/g, '_');
-    const snap = await get(ref(_firebaseDb, `aide-schedules/${monthKey}/data`));
-    if (snap && snap.exists()) {
-      const d = snap.val() || {};
-      if (d.staff && d.staff.length) {
-        // schedule 可能是陣列(index=日)→ 轉成 {日: 班別}
-        const schedule = {};
-        const rawSched = d.schedule || {};
-        for (const pid in rawSched) {
-          const days = rawSched[pid];
-          if (Array.isArray(days)) {
-            const o = {};
-            days.forEach((v, i) => { if (v) o[i] = v; });
-            schedule[pid] = o;
-          } else schedule[pid] = days;
-        }
-        console.log('[雲端載入] 用 Firebase 公告資料還原(', (d.staff || []).length, '人),標記取自 data.flags');
-        return {
-          month: month,
-          staff: d.staff,
-          schedule: schedule,
-          scheduleFlags: d.flags || d.scheduleFlags || {},   // ★ 關鍵:請假/科別在 flags
-          notes: d.personNotes || d.notes || {},
-          dateNotes: d.dateNotes || {},
-          fixed: d.fixed || {},
-          holidays: d.holidays || [],
-          rules: d.rules || (state.rules || {}),
-          _fromFirebase: true,
-        };
-      }
+    const [sData, sMeta] = await Promise.all([
+      get(ref(_firebaseDb, `aide-schedules/${monthKey}/data`)),
+      get(ref(_firebaseDb, `aide-schedules/${monthKey}/meta`)),
+    ]);
+    if (sData && sData.exists()) {
+      const d = sData.val() || {};
+      if (d.staff && d.staff.length) fbRaw = d;
+    }
+    if (sMeta && sMeta.exists()) {
+      const m = sMeta.val() || {};
+      fbAt = _toMs(m.lastSyncedAt) || _toMs(m.publishedAt);
     }
   } catch (fbErr) {
-    console.warn('[雲端載入] Firebase 讀取失敗,改試 Google Sheet:', fbErr);
+    console.warn('[雲端載入] Firebase 讀取失敗:', fbErr);
   }
 
-  // 降級:Google Sheet(舊資料相容)
   try {
     const result = await apiCall('loadSchedule', { token, month });
     if (result.ok && result.data) {
       try {
-        return JSON.parse(result.data);
-      } catch (e) {
-        alert('班表資料損壞,無法解析');
-        return null;
-      }
+        const parsed = JSON.parse(result.data);
+        if (parsed && parsed.staff) { shData = parsed; shAt = _toMs(parsed.savedAt); }
+      } catch (e) { console.warn('[雲端載入] Sheet 資料無法解析'); }
     }
   } catch (e) {
-    console.warn('loadScheduleFromCloud:', e);
+    console.warn('[雲端載入] Google Sheet 讀取失敗:', e);
   }
+
+  if (fbRaw || shData) {
+    console.log('[雲端載入] Firebase公告=' + (fbAt ? new Date(fbAt).toLocaleString() : '無')
+      + ' / Sheet存檔=' + (shAt ? new Date(shAt).toLocaleString() : '無')
+      + ' → 採用' + ((fbRaw && (!shData || fbAt > shAt)) ? 'Firebase(較新)' : 'Sheet存檔'));
+  }
+  setCloudBase(month, Math.max(fbAt, shAt));
+
+  // Sheet 比較新(或根本沒有 Firebase 資料)→ 用 Sheet,它已經是完整格式
+  if (shData && (!fbRaw || shAt >= fbAt)) return shData;
+
+  if (fbRaw) {
+    const d = fbRaw;
+    // schedule 可能是陣列(index=日)→ 轉成 {日: 班別}
+    const schedule = {};
+    const rawSched = d.schedule || {};
+    for (const pid in rawSched) {
+      const days = rawSched[pid];
+      if (Array.isArray(days)) {
+        const o = {};
+        days.forEach((v, i) => { if (v) o[i] = v; });
+        schedule[pid] = o;
+      } else schedule[pid] = days;
+    }
+    // ★ 日期備註:公告格式是 {日: 文字},state.dateNotes 是 {月: {日: 文字}} → 要包回月份
+    const dateNotes = {};
+    if (d.dateNotes && Object.keys(d.dateNotes).length) dateNotes[month] = d.dateNotes;
+
+    let staff = d.staff || [];
+    // ★ 公告格式的 staff 欄位較精簡 → 用 Sheet 存檔的人員(按姓名對應)補回缺的欄位
+    if (shData && Array.isArray(shData.staff) && shData.staff.length) {
+      const byName = {};
+      shData.staff.forEach(op => { if (op && op.name) byName[op.name] = op; });
+      const KEEP = ['level', 'status', 'statusDate', 'dispatch', 'note', 'special',
+                    'fixedShift', 'preferredShift', 'canSwapTo', 'hireDate', 'peakStage', 'capabilities'];
+      let filled = 0;
+      staff = staff.map(pp => {
+        const op = pp && pp.name ? byName[pp.name] : null;
+        if (!op) return pp;
+        const m = Object.assign({}, pp);
+        KEEP.forEach(k => {
+          const cur = m[k];
+          const empty = cur === undefined || cur === null || cur === ''
+            || (Array.isArray(cur) && cur.length === 0);
+          if (empty && op[k] !== undefined && op[k] !== null && op[k] !== '') { m[k] = op[k]; filled++; }
+        });
+        return m;
+      });
+      if (filled) console.log('[雲端載入] 已從 Sheet 存檔補回', filled, '個人員欄位');
+    }
+
+    return {
+      month: month,
+      staff: staff,
+      schedule: schedule,
+      scheduleFlags: d.flags || d.scheduleFlags || {},   // ★ 請假/科別在 flags
+      notes: d.personNotes || d.notes || {},
+      dateNotes: dateNotes,
+      fixed: d.fixed || (shData && shData.fixed) || {},
+      holidays: d.holidays || (shData && shData.holidays) || [],
+      rules: d.rules || (shData && shData.rules) || (state.rules || {}),
+      _fromFirebase: true,
+    };
+  }
+
   return null;
 }
 
@@ -15542,6 +15693,21 @@ function copyPublishLink() {
 
 // 公告 = 寫入 Firebase + 設 status: 'published'
 async function doPublishView() {
+  // ★ 公告前檢查版本基準:雲端比我新 → 明確告知,讓她選擇
+  try {
+    const cloudAt = await getCloudDataAt(state.month);
+    const baseAt = getCloudBase(state.month);
+    if (cloudAt && cloudAt > baseAt + 1000) {
+      const msg = '🛑 停一下!雲端的「' + state.month + '」在 ' + new Date(cloudAt).toLocaleString()
+        + ' 被更新過,\n但你畫面上這份是 '
+        + (baseAt ? new Date(baseAt).toLocaleString() + ' 的版本' : '版本不明(可能是這台電腦上次留下的舊資料)')
+        + '。\n\n常見原因:你在別台電腦改過班,這台還是舊的。\n\n'
+        + '👉 建議:先「取消」→ 重新載入本月班表 → 再公告。\n\n'
+        + '仍要用你目前畫面這份覆蓋雲端嗎?(別台電腦改的會不見)';
+      if (!confirm(msg)) return;
+    }
+  } catch (e) { /* 查不到不擋 */ }
+
   if (!confirm(`確定公告 ${state.month} 班表?\n\n同仁打開連結會「即時」看到當前班表內容。\n之後任何修改(包含科別)會自動同步,不用再按公告。`)) return;
 
   try {
@@ -15579,6 +15745,15 @@ async function doPublishView() {
         version: 1,
       }
     });
+
+    // ★ 我剛寫入 → 基準更新成這次的時間
+    setCloudBase(state.month, publishedAt);
+    const sw = document.getElementById('stale-warning'); if (sw) sw.remove();
+
+    // ★ 同步把 Google Sheet 存檔也更新(否則 Sheet 會停在舊版本,
+    //   下次載入雖然會比時間選到較新的,但少了一層保險)
+    try { await saveScheduleToCloud(state.month, true /* silent */, { mirrorToPublished: false }); }
+    catch (e) { console.warn('[公告] 同步更新 Sheet 存檔失敗(不影響公告):', e); }
 
     btn.disabled = false;
     btn.textContent = origText;
@@ -15636,6 +15811,17 @@ function mergeCloudIntoAidePayload(viewData, cloud) {
       const nm = cloudIdToName[pid];
       const vpid = nm ? nameToViewPid[nm] : pid;
       if (!vpid) continue;
+      // ★ 改成「這個人畫面上完全沒有任何這類標記」才整批補回。
+      //   以前是逐欄位補(畫面該欄位沒值就補雲端的)→ 你刪掉某天的請假,
+      //   公告時又被雲端補回來,等於刪不掉。
+      const mineDays = viewData.flags[vpid] || {};
+      const iHaveAny = Object.keys(mineDays).some(dd => {
+        const mf = mineDays[dd];
+        return mf && typeof mf === 'object'
+          && KEEP.some(k => mf[k] !== undefined && mf[k] !== null && mf[k] !== '');
+      });
+      if (iHaveAny) continue;
+
       const days = cloudFlags[pid] || {};
       for (const day in days) {
         const cf = days[day];
@@ -15818,6 +16004,20 @@ function triggerAutoSync() {
         } catch (e) { /* 查不到就不擋,走原本流程 */ }
       }
 
+      // ★★ 防護(最重要):畫面的版本基準若落後雲端,一律不自動推送。
+      //   自動的寫入永遠不該覆蓋比自己新的資料。
+      try {
+        const cloudAt = await getCloudDataAt(state.month);
+        const baseAt = getCloudBase(state.month);
+        if (cloudAt && cloudAt > baseAt + 1000) {
+          console.warn('[自動同步] 已擋下:雲端在 ' + new Date(cloudAt).toLocaleString()
+            + ' 被更新過,但這個畫面的基準是 ' + (baseAt ? new Date(baseAt).toLocaleString() : '未知')
+            + '。請先重新載入本月,再修改。');
+          showStaleWarning(cloudAt, baseAt);
+          return;
+        }
+      } catch (e) { /* 查不到就不擋 */ }
+
       const viewData = buildPublishViewPayload();
 
       // ★ 守門:畫面還沒載完就別推(人數為 0 或遠少於雲端 → 代表載入失敗,
@@ -15844,13 +16044,16 @@ function triggerAutoSync() {
       } catch (e) { console.warn('[自動同步] 合併失敗:', e); }
 
       // 只更新 data 不動 meta(避免覆蓋 publishedAt/publishedBy)
+      const syncAt = Date.now();
       await update(ref(_firebaseDb, `aide-schedules/${monthKey}`), {
         data: viewData,
       });
       // 同時更新 meta.lastSyncedAt
       await update(ref(_firebaseDb, `aide-schedules/${monthKey}/meta`), {
-        lastSyncedAt: Date.now(),
+        lastSyncedAt: syncAt,
       });
+      // ★ 我剛寫入 → 基準跟著前進,否則下一次自動同步會誤判自己過期
+      setCloudBase(state.month, syncAt);
       showAutoSyncToast();
     } catch (e) {
       console.warn('[firebase] 自動同步失敗', e);
