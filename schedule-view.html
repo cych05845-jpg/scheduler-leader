@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- VIEW-VERSION: 2026-10-26-v9 (半日職判定改比例:公告頁順序與排班區一致) -->
+<!-- VIEW-VERSION: 2026-10-26-v10 (半日職判定改比例+技助公告不重排人員) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
@@ -1592,6 +1592,11 @@ async function loadData(forceMonth) {
         state.publishedBy = meta.publishedBy || '';
 
         // === 排序保險:HN 最上 → D/E/N → 半日墊底 ===
+        // ★ 只對護理師班表生效。技助班表是按職類(技→助含工讀→事)+ 護理長手動編的
+        //   順序排的,公告端再排一次會跟排班區不一致,所以整段跳過。
+        if (state.scheduleType === 'aide') {
+          console.log('[公告 schedule-view] 技助班表:沿用公告的人員順序,不重排');
+        } else {
         // 即使 index.html 端忘了排,這裡也能保證順序對
         // ★ 半日職判定:時段班要佔上班日一半以上。以前用 some():整月有一天打過
         //   時段(含 9-17)就被判半日職 → 排到最後面,跟排班區順序不一致。
@@ -1622,6 +1627,7 @@ async function loadData(forceMonth) {
         });
         console.log('[公告 schedule-view 排序] HN 位置:', state.staff.findIndex(p => p.level === 'HN' || (p.name && /護理長/.test(p.name))) + 1);
         console.log('[公告 schedule-view 排序] 前 3 位:', state.staff.slice(0, 3).map(p => `${p.name}(${p.level})`));
+        }
 
         hideStatus();
         const syncTag = meta.lastSyncedAt && meta.lastSyncedAt !== meta.publishedAt

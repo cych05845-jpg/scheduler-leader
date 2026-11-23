@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- AIDE-VERSION: 2026-11-02-v10 (載入比時間取新+存檔即更新公告+舊畫面不得覆蓋新雲端) -->
+<!-- AIDE-VERSION: 2026-11-23-v11 (科別選項可自訂,預設改為分區1-4;舊月份內/外不受影響) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診技助事員排班工具 | ED Aide Scheduling</title>
@@ -4937,7 +4937,38 @@ const NOTE_PRESETS = ['ACLS', '中油', '友善', '標準', 'LM', 'ER M', '教�
 
 // 助理員科別預設 — 助理員只分「內科」「外科」兩個區域
 // 也可在右鍵選單自由輸入新科別,不限於這 2 個
-const DEPT_PRESETS = ['內', '外'];
+// 科別選項。預設 1-4(急診分區);護理長/副護理長可在右鍵選單按「⚙ 編輯」自己改,
+// 改動存進 state.rules.deptPresets → 會跟班表一起存雲端,換台電腦也一樣。
+// ⚠ 科別本身是純文字,舊月份存的「內/外」不會受影響,照樣顯示 — 不要回頭改歷史。
+const DEPT_PRESETS_DEFAULT = ['1', '2', '3', '4'];
+const DEPT_PRESETS = DEPT_PRESETS_DEFAULT;          // 舊程式還在引用,保留
+
+function getDeptPresets() {
+  const r = (state.rules && state.rules.deptPresets);
+  if (Array.isArray(r) && r.length) return r;
+  return DEPT_PRESETS_DEFAULT;
+}
+
+function editDeptPresets(pid, day) {
+  const cur = getDeptPresets().join('、');
+  const ans = prompt(
+    '科別選項(用、或逗號分隔,最多 8 個)\n\n'
+    + '例:1、2、3、4\n'
+    + '例:1區、2區、3區、4區\n'
+    + '例:內、外\n\n'
+    + '※ 改這裡只換「按鈕清單」。已經排好的科別不會變,舊月份的內/外照樣顯示。',
+    cur);
+  if (ans === null) return;
+  const list = ans.split(/[、,,\s]+/).map(s => s.trim()).filter(Boolean).slice(0, 8);
+  if (!list.length) { alert('至少要留一個科別。'); return; }
+  if (!state.rules) state.rules = {};
+  state.rules.deptPresets = list;
+  autoSaveScheduleLocal();
+  alert('✅ 科別選項已改成:' + list.join('、')
+    + '\n\n記得按「存檔」才會同步到雲端和其他電腦。');
+  const menu = document.getElementById('dept-context-menu');
+  if (menu) menu.style.display = 'none';
+}
 
 // 半日時段預設 — 半日職同仁依課表安排的時段
 // 標記後該格自動不算 D/E/N 人力(畫筆顯示時段文字蓋掉原班別)
@@ -6228,9 +6259,13 @@ function onCellRightClick(e) {
 
   // === 科別區塊(只對工作班顯示) ===
   if (['D','E','N','M'].includes(currentShift)) {
-    html += '<div style="font-size:0.78rem; color:#047857; padding:4px 6px; font-weight:600">🏥 科別(內/外)</div>';
-    html += '<div style="display:grid; grid-template-columns:repeat(2,1fr); gap:4px; margin-bottom:6px">';
-    DEPT_PRESETS.forEach(dept => {
+    const _dp = getDeptPresets();
+    html += '<div style="font-size:0.78rem; color:#047857; padding:4px 6px; font-weight:600; display:flex; justify-content:space-between; align-items:center">'
+      + '<span>🏥 科別(' + _dp.join('/') + ')</span>'
+      + `<button onclick="editDeptPresets('${pid}', ${day})" title="改這裡的科別選項" style="font-size:0.7rem; padding:1px 6px; border:1px solid #bbf7d0; background:#f0fdf4; color:#047857; border-radius:3px; cursor:pointer; font-weight:600">⚙ 編輯</button>`
+      + '</div>';
+    html += `<div style="display:grid; grid-template-columns:repeat(${Math.min(4, Math.max(2, _dp.length))},1fr); gap:4px; margin-bottom:6px">`;
+    _dp.forEach(dept => {
       const active = dept === currentDept ? ' style="background:#047857;color:white;border-color:#047857;padding:8px;font-size:1rem;border-radius:4px;font-weight:700"' : ' style="padding:8px;font-size:1rem;background:#f0fdf4;border:1px solid #bbf7d0;color:#047857;border-radius:4px;font-weight:700"';
       html += `<button${active} onclick="setDeptForCell('${pid}', ${day}, '${dept}')">${dept}</button>`;
     });
@@ -16315,7 +16350,7 @@ function toggleSidePanelCollapse() {
     if (deptToggle && deptDropdown) {
       // 把預設科別填入下拉 grid
       const grid = $('fb-dept-grid');
-      const presets = (typeof DEPT_PRESETS !== 'undefined') ? DEPT_PRESETS : ['T','PT','CPR','O+ST','P','R1','R2','R3','L+OB','8-5\'','P+OB','R'];
+      const presets = (typeof getDeptPresets === 'function') ? getDeptPresets() : ['T','PT','CPR','O+ST','P','R1','R2','R3','L+OB','8-5\'','P+OB','R'];
       grid.innerHTML = presets.map(d =>
         `<button onclick="useDeptBrush('${d.replace(/'/g, "\\'")}')" style="padding:6px 4px; background:#f0fdf4; border:1px solid #bbf7d0; color:#047857; border-radius:3px; cursor:pointer; font-size:0.82rem; font-weight:600">${d}</button>`
       ).join('');

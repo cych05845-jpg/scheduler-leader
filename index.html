@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-11-02-v44 (已公告月份:存檔即更新公告,兩個節點不再分岔) -->
+<!-- VERSION: 2026-11-04-v45 (轉錄清單 + Excel式鍵盤模式) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -660,6 +660,19 @@ td.cell-with-dept.cell-with-note {
 td.cell-with-dept.cell-with-note .note-bar {
   top: 12px;  /* 在科別 label 下方 */
   border-top: 1px solid #5b21b6;
+}
+/* ⌨ 鍵盤模式的游標格 */
+td.kbd-cursor {
+  outline: 3px solid #047857 !important;
+  outline-offset: -3px;
+  box-shadow: inset 0 0 0 1px #fff;
+  position: relative;
+  z-index: 5;
+}
+#kbd-help-bar kbd {
+  background: #fff; border: 1px solid #94a3b8; border-bottom-width: 2px;
+  border-radius: 4px; padding: 0 5px; font-size: 0.78rem; font-family: inherit;
+  color: #0f172a; margin: 0 1px;
 }
 td[data-pid] {
   position: relative;
@@ -1655,6 +1668,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
         <input type="file" id="vacation-quick-import" accept=".xlsx,.xls" style="display: none" onchange="importVacationSummary(event)">
         <button onclick="openBookingModal()" title="預約假期:看同仁預約、抽籤、帶入班表" style="background: #0d9488; color: white; border-color: #0d9488">🌴 預約假期</button>
         <button onclick="openSwapModal()" title="換班申請:核准同仁換班、帶入班表" style="background: #7c3aed; color: white; border-color: #7c3aed">🔄 換班申請<span id="swap-pending-dot" style="display:none; background:#fff; color:#7c3aed; border-radius:10px; padding:0 6px; font-size:0.75rem; margin-left:4px; font-weight:800"></span></button>
+        <button id="kbd-mode-btn" onclick="toggleKeyboardMode()" title="Excel 式操作:方向鍵移動、直接打字填班、Enter 往下跳">⌨ 鍵盤模式</button>
         <button onclick="openAnalyzeModal()" style="background: #5b21b6; color: white; border-color: #5b21b6">🔍 分析偏好</button>
         <button onclick="openBatchModal()">🔁 固定班填滿</button>
         <button onclick="openClearModal()">🗑 清空班表...</button>
@@ -1681,6 +1695,23 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 
       <!-- Schedule table -->
       <div class="schedule-wrap" id="schedule-wrap">
+        <!-- ⌨ 鍵盤模式說明列(開啟時才顯示) -->
+        <div id="kbd-help-bar" style="display:none; background:#ecfdf5; border:1px solid #6ee7b7; border-radius:6px; padding:8px 10px; margin-bottom:6px; font-size:0.82rem; line-height:1.9; color:#065f46">
+          <strong>⌨ 鍵盤模式</strong> — 現在點格子只會移動游標,打字才填班。
+          目前位置:<strong id="kbd-pos" style="color:#047857"></strong>
+          <span style="float:right">
+            填完往
+            <button id="kbd-adv-down" onclick="setKbdAdvance('down')" style="padding:1px 8px; font-size:.78rem; border:1px solid #047857; border-radius:4px; cursor:pointer; background:#047857; color:#fff">↓ 下一人</button>
+            <button id="kbd-adv-right" onclick="setKbdAdvance('right')" style="padding:1px 8px; font-size:.78rem; border:1px solid #047857; border-radius:4px; cursor:pointer; background:transparent">→ 下一天</button>
+          </span>
+          <br>
+          <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 移動 ·
+          <kbd>Enter</kbd> 往下 ·<kbd>Tab</kbd> 往右 ·
+          <kbd>Home</kbd>/<kbd>End</kbd> 跳月初/月底 ·
+          <kbd>D</kbd><kbd>E</kbd><kbd>N</kbd><kbd>M</kbd><kbd>V</kbd> 填班 ·
+          <kbd>O</kbd> 一般休假 o ·<kbd>Shift</kbd>+<kbd>O</kbd> 預假 OFF ·<kbd>F</kbd> 底線 off ·
+          <kbd>0</kbd>/<kbd>Del</kbd> 清空 ·<kbd>Esc</kbd> 離開
+        </div>
         <div class="schedule-top" id="schedule-top">
           <table class="sched-table" id="sched-table"></table>
         </div>
@@ -1793,6 +1824,29 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
       </div>
     </div>
 
+
+    <!-- 🔁 換班/調班轉錄清單(給事務員逐筆勾掉,避免漏登夜班費) -->
+    <div class="section side-collapsible" id="sec-transfer" data-default="closed">
+      <h3 style="cursor: pointer; user-select: none" onclick="toggleSidePanelSection('sec-transfer')">
+        <span class="side-arrow">▶</span> 🔁 換班/調班轉錄清單
+      </h3>
+      <div class="side-collapsible-body" style="display: none">
+        <div style="font-size: 0.85rem; color: var(--ink-mute); margin-bottom: 0.4rem">
+          本月所有換班與調班,逐筆騰到另一系統後按「已計入」。<strong style="color:#b45309">🌙 夜班</strong>的會標出來。
+          <button onclick="loadTransferList()" style="float:right; padding:2px 8px; font-size:0.8rem; background:#dbeafe; color:#1e40af; border:1px solid #93c5fd; border-radius:3px; cursor:pointer">🔄 載入</button>
+        </div>
+        <div id="transfer-filters" style="display:none; gap:4px; margin-bottom:6px; flex-wrap:wrap">
+          <button onclick="setTransferFilter('todo')" id="tf-todo" style="padding:3px 9px; font-size:0.78rem; border-radius:4px; cursor:pointer; border:1px solid #fca5a5; background:#fee2e2; color:#991b1b">未計入</button>
+          <button onclick="setTransferFilter('done')" id="tf-done" style="padding:3px 9px; font-size:0.78rem; border-radius:4px; cursor:pointer; border:1px solid var(--line-soft); background:var(--bg-soft)">已計入</button>
+          <button onclick="setTransferFilter('all')" id="tf-all" style="padding:3px 9px; font-size:0.78rem; border-radius:4px; cursor:pointer; border:1px solid var(--line-soft); background:var(--bg-soft)">全部</button>
+          <button onclick="exportTransferCSV()" style="padding:3px 9px; font-size:0.78rem; border-radius:4px; cursor:pointer; border:1px solid #86efac; background:#dcfce7; color:#166534">📥 CSV</button>
+          <button onclick="exportTransferJSON()" style="padding:3px 9px; font-size:0.78rem; border-radius:4px; cursor:pointer; border:1px solid #d8b4fe; background:#f3e8ff; color:#6b21a8" title="將來另一系統有 API 時,同一份資料可直接送過去">📤 JSON</button>
+        </div>
+        <div id="transfer-table" style="max-height: 500px; overflow-y: auto; font-size:0.85rem">
+          <div style="color:var(--ink-mute); padding:0.5rem">點「🔄 載入」整理本月的換班/調班。</div>
+        </div>
+      </div>
+    </div>
     <!-- 📋 複製班(帶新進)-->
     <!-- 📢 公告說明(每月可更新,顯示在公告網頁頂部給同仁看)-->
     <div class="section side-collapsible" id="sec-announce" data-default="closed">
@@ -6117,6 +6171,9 @@ function renderTable() {
   }
 
   renderSidePanel();
+
+  // ⌨ 鍵盤模式:renderTable 重建了整個表格,游標要重新畫上去
+  if (typeof _kbd !== 'undefined' && _kbd.on) kbdPaintCursor(false);
 }
 
 // ============================================================
@@ -7415,6 +7472,260 @@ function applyBookingToSchedule() {
   closeModal('booking-modal');
 }
 
+// ============================================================
+// 🔁 換班/調班轉錄清單
+// 為什麼要這個:換班一律先在這個系統換,之後要為了「算夜班費」騰到另一個系統。
+// 另一系統目前沒有 API(廠商正在重置),所以先用這份清單讓事務員逐筆勾掉,避免漏登。
+// 每一筆都是結構化記錄(日期/員編/姓名/原班/新班/是否夜班),將來那邊有 API 時,
+// 同一份資料可以直接送過去 — 匯出 JSON 就是給對接用的。
+// 勾選狀態存在 schedules/{月}/payrollTransfer,跟班表 data 分開,公告不會洗掉。
+// ============================================================
+const _transferCache = { month: '', rows: [], marks: {}, filter: 'todo' };
+
+const TF_NIGHT = ['N'];                       // 影響夜班費的班別
+const _tfKey = (s) => String(s).replace(/[.#$\[\]/\s]/g, '_');
+
+function _tfDisp(v) { return (v === '' || v === undefined || v === null) ? '—' : String(v); }
+
+// 整理本月所有「班別被改過」的筆數
+function buildTransferRows() {
+  const rows = [];
+  const seen = new Set();
+  const nameOf = {}, empOf = {};
+  (state.staff || []).forEach(p => {
+    if (!p || !p.name) return;
+    if (p.id) nameOf[p.id] = p.name;
+    empOf[p.name] = p.employeeId || '';
+  });
+
+  const push = (type, name, day, from, to, note, src) => {
+    if (!name || !day) return;
+    if (String(from) === String(to)) return;              // 沒變就不用轉錄
+    const key = _tfKey(`${type}|${name}|${day}|${from}>${to}`);
+    if (seen.has(key)) return;
+    seen.add(key);
+    const night = TF_NIGHT.includes(String(from)) || TF_NIGHT.includes(String(to));
+    rows.push({
+      key, type, name, employeeId: empOf[name] || '',
+      month: state.month, day: Number(day),
+      fromShift: String(from || ''), toShift: String(to || ''),
+      affectsNightPay: night, note: note || '', source: src || '',
+    });
+  };
+
+  // 來源 1:換班申請單(護理長已核准的)
+  (_transferCache.swaps || []).forEach(r => {
+    if (!r || r.status !== 'approved') return;
+    (r.days || []).forEach(d => {
+      if (!d) return;
+      push('換班', r.fromName, d.day, d.fromShift, d.toShift, `與 ${r.toName || '?'} 互換`, 'swap:' + (r.id || ''));
+      push('換班', r.toName, d.day, d.toShift, d.fromShift, `與 ${r.fromName || '?'} 互換`, 'swap:' + (r.id || ''));
+    });
+  });
+
+  // 來源 2:leader 現場調班(班表旗標 origShift / shiftChanged / tempAdjust)
+  const flags = state.scheduleFlags || {};
+  for (const pid in flags) {
+    const nm = nameOf[pid];
+    if (!nm) continue;
+    const days = flags[pid] || {};
+    for (const day in days) {
+      const f = days[day] || {};
+      if (!f.shiftChanged && !f.tempAdjust && !f.origShift) continue;
+      const orig = f.origShift || '';
+      const now = ((state.schedule || {})[pid] || {})[day] || '';
+      if (!orig) continue;                                 // 不知道原班就無法轉錄,略過
+      push('調班', nm, day, orig, now, f.adjustLog || f.tempAdjust || 'leader 現場調整', 'adjust');
+    }
+  }
+
+  rows.sort((a, b) => (a.day - b.day) || a.name.localeCompare(b.name, 'zh-Hant'));
+  return rows;
+}
+
+async function loadTransferList() {
+  const el = document.getElementById('transfer-table');
+  if (!state.month) { el.innerHTML = '<div style="color:#b91c1c; padding:0.5rem">請先選月份。</div>'; return; }
+  el.innerHTML = '<div style="color:var(--ink-mute); padding:0.5rem">⏳ 讀取中...</div>';
+  _transferCache.month = state.month;
+  _transferCache.swaps = [];
+  _transferCache.marks = {};
+
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const mk = state.month.replace(/[.#$\[\]/]/g, '_');
+    const [sSwap, sMark] = await Promise.all([
+      get(ref(_firebaseDb, `swaps/${state.month}`)),
+      get(ref(_firebaseDb, `schedules/${mk}/payrollTransfer`)),
+    ]);
+    if (sSwap && sSwap.exists()) _transferCache.swaps = Object.values(sSwap.val() || {});
+    if (sMark && sMark.exists()) _transferCache.marks = sMark.val() || {};
+  } catch (e) {
+    console.warn('[轉錄清單] 雲端讀取失敗,只用畫面上的調班旗標:', e);
+  }
+
+  _transferCache.rows = buildTransferRows();
+  document.getElementById('transfer-filters').style.display = 'flex';
+  renderTransferList();
+}
+
+function setTransferFilter(f) {
+  _transferCache.filter = f;
+  ['todo', 'done', 'all'].forEach(k => {
+    const b = document.getElementById('tf-' + k);
+    if (!b) return;
+    const on = (k === f);
+    b.style.background = on ? (k === 'todo' ? '#fee2e2' : k === 'done' ? '#dcfce7' : '#e0e7ff') : 'var(--bg-soft)';
+    b.style.color = on ? (k === 'todo' ? '#991b1b' : k === 'done' ? '#166534' : '#3730a3') : '';
+    b.style.borderColor = on ? (k === 'todo' ? '#fca5a5' : k === 'done' ? '#86efac' : '#a5b4fc') : 'var(--line-soft)';
+  });
+  renderTransferList();
+}
+
+function renderTransferList() {
+  const el = document.getElementById('transfer-table');
+  const all = _transferCache.rows || [];
+  const marks = _transferCache.marks || {};
+  const isDone = (r) => !!(marks[r.key] && marks[r.key].done);
+
+  const doneN = all.filter(isDone).length;
+  const todoN = all.length - doneN;
+  const nightTodo = all.filter(r => !isDone(r) && r.affectsNightPay).length;
+
+  const f = _transferCache.filter;
+  const list = all.filter(r => f === 'all' ? true : (f === 'done' ? isDone(r) : !isDone(r)));
+
+  let html = `<div style="padding:4px 2px 8px; font-size:0.82rem; line-height:1.7">
+    本月共 <strong>${all.length}</strong> 筆 ·
+    <span style="color:#991b1b">未計入 <strong>${todoN}</strong></span> ·
+    <span style="color:#166534">已計入 ${doneN}</span>
+    ${nightTodo ? `<br><span style="color:#b45309">🌙 其中 ${nightTodo} 筆是夜班,會影響夜班費</span>` : ''}
+  </div>`;
+
+  if (!all.length) {
+    el.innerHTML = html + '<div style="color:var(--ink-mute); padding:0.5rem">本月沒有換班或調班記錄。</div>';
+    return;
+  }
+  if (!list.length) {
+    el.innerHTML = html + `<div style="color:#166534; padding:0.5rem">✅ ${f === 'todo' ? '沒有未計入的了,本月都騰完了。' : '這個篩選沒有資料。'}</div>`;
+    return;
+  }
+
+  html += `<table style="width:100%; border-collapse:collapse; font-size:0.8rem">
+    <tr style="background:var(--bg-soft)">
+      <th style="padding:4px; text-align:left">日</th>
+      <th style="padding:4px; text-align:left">人員</th>
+      <th style="padding:4px; text-align:left">班別</th>
+      <th style="padding:4px; text-align:left">類型</th>
+      <th style="padding:4px; text-align:center">計入</th>
+    </tr>`;
+
+  list.forEach(r => {
+    const done = isDone(r);
+    const m = marks[r.key] || {};
+    const when = m.at ? new Date(m.at).toLocaleDateString() : '';
+    html += `<tr style="border-bottom:1px solid var(--line-soft); ${done ? 'opacity:.55' : ''}">
+      <td style="padding:4px; white-space:nowrap">${r.day}</td>
+      <td style="padding:4px; white-space:nowrap">${r.name}${r.employeeId ? `<br><span style="font-size:.72rem; color:var(--ink-mute)">${r.employeeId}</span>` : ''}</td>
+      <td style="padding:4px; white-space:nowrap">${_tfDisp(r.fromShift)} → <strong>${_tfDisp(r.toShift)}</strong>${r.affectsNightPay ? ' <span title="影響夜班費">🌙</span>' : ''}</td>
+      <td style="padding:4px; font-size:.75rem; color:var(--ink-mute)">${r.type}<br>${r.note || ''}</td>
+      <td style="padding:4px; text-align:center; white-space:nowrap">
+        <button onclick="toggleTransferDone('${r.key}')" style="padding:3px 8px; font-size:.75rem; border-radius:4px; cursor:pointer; border:1px solid ${done ? '#86efac' : '#fca5a5'}; background:${done ? '#dcfce7' : '#fee2e2'}; color:${done ? '#166534' : '#991b1b'}">${done ? '✓ 已計入' : '未計入'}</button>
+        ${done && m.by ? `<br><span style="font-size:.68rem; color:var(--ink-mute)">${m.by} ${when}</span>` : ''}
+      </td>
+    </tr>`;
+  });
+  html += '</table>';
+  el.innerHTML = html;
+}
+
+async function toggleTransferDone(key) {
+  const row = (_transferCache.rows || []).find(r => r.key === key);
+  if (!row) return;
+  const marks = _transferCache.marks || {};
+  const nowDone = !!(marks[key] && marks[key].done);
+  const by = (typeof getCurrentUserName === 'function' && getCurrentUserName()) || '';
+  const rec = nowDone ? null : { done: true, by, at: Date.now() };
+
+  // 先更新畫面(反應快),再寫雲端
+  if (rec) marks[key] = rec; else delete marks[key];
+  _transferCache.marks = marks;
+  renderTransferList();
+
+  try {
+    await ensureFirebase();
+    const { ref, set, update } = window._fbHelpers;
+    const mk = (_transferCache.month || state.month).replace(/[.#$\[\]/]/g, '_');
+    if (rec) {
+      // 連記錄內容一起存,將來要送 API 不用再重算
+      await set(ref(_firebaseDb, `schedules/${mk}/payrollTransfer/${key}`), Object.assign({}, rec, { item: row }));
+    } else {
+      await update(ref(_firebaseDb, `schedules/${mk}/payrollTransfer`), { [key]: null });
+    }
+  } catch (e) {
+    alert('⚠ 勾選沒存上雲端,換台電腦看不到。請確認網路後再按一次。\n\n' + (e.message || e));
+    console.warn('[轉錄清單] 寫入失敗:', e);
+  }
+}
+
+function _tfPayload() {
+  const marks = _transferCache.marks || {};
+  return (_transferCache.rows || []).map(r => Object.assign({}, r, {
+    transferred: !!(marks[r.key] && marks[r.key].done),
+    transferredBy: (marks[r.key] || {}).by || '',
+    transferredAt: (marks[r.key] || {}).at || null,
+  }));
+}
+
+function _tfDownload(name, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function exportTransferCSV() {
+  const rows = _tfPayload();
+  if (!rows.length) { alert('沒有資料可匯出。'); return; }
+  const head = ['月份', '日', '員編', '姓名', '原班', '新班', '影響夜班費', '類型', '說明', '已計入', '計入者', '計入時間'];
+  const esc = (v) => '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"';
+  const lines = [head.map(esc).join(',')];
+  rows.forEach(r => lines.push([
+    r.month, r.day, r.employeeId, r.name, r.fromShift, r.toShift,
+    r.affectsNightPay ? 'Y' : '', r.type, r.note,
+    r.transferred ? 'Y' : '', r.transferredBy,
+    r.transferredAt ? new Date(r.transferredAt).toLocaleString() : '',
+  ].map(esc).join(',')));
+  // ﻿ = BOM,Excel 開啟才不會變亂碼
+  _tfDownload(`換班調班轉錄_${_transferCache.month}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+}
+
+function exportTransferJSON() {
+  const rows = _tfPayload();
+  if (!rows.length) { alert('沒有資料可匯出。'); return; }
+  const out = {
+    schemaVersion: 1,
+    unit: '急診',
+    month: _transferCache.month,
+    exportedAt: new Date().toISOString(),
+    exportedBy: (typeof getCurrentUserName === 'function' && getCurrentUserName()) || '',
+    fieldNotes: {
+      day: '當月日期(1-31)',
+      employeeId: '員工編號(系統主檔有填才會有)',
+      fromShift: '原班別',
+      toShift: '換/調之後的班別',
+      affectsNightPay: '任一側為 N(夜班)→ true,夜班費會變動',
+      type: '換班(兩人互換) 或 調班(leader 現場調整)',
+      transferred: '是否已轉錄到薪資系統',
+    },
+    items: rows,
+  };
+  _tfDownload(`換班調班轉錄_${_transferCache.month}.json`, JSON.stringify(out, null, 2), 'application/json');
+}
+
 // 🏖 連休統計:每人連休 ≥4 天的次數,跨月接續合併,從 6 月起算
 async function renderLongRestStats() {
   const container = document.getElementById('long-rest-table');
@@ -7818,10 +8129,165 @@ function preserveOffFlag(pid, day, oldShift, newShift) {
   // 其他情況:flag 維持不動(若原本有底線就保留 = 被動上班記憶)
 }
 
+// ============================================================
+// ⌨ 鍵盤模式(Excel 式操作)
+// 為什麼:同仁習慣 Excel — 方向鍵移動、直接打字填班、Enter 往下跳。
+// 開啟後:點格子只「移動游標」不畫,打字才填班(所以不會誤觸)。關掉就回到原本的畫筆模式。
+// ============================================================
+const _kbd = { on: false, pid: null, day: null, advance: 'down' };
+
+// 鍵 → 班別。大小寫分開:o=一般休假、O=OFF(硬假)、f=off(底線軟假)
+const KBD_MAP = {
+  'd': 'D', 'e': 'E', 'n': 'N', 'm': 'M', 'v': 'V',
+  'o': 'o', 'O': 'OFF', 'f': 'off',
+};
+
+function kbdVisibleRows() {
+  // 以畫面上實際的列順序為準(排序/隱藏都算進去),游標才不會跳到看不見的人
+  return Array.from(document.querySelectorAll('#schedule-top tbody tr[data-pid]'))
+    .map(tr => tr.dataset.pid)
+    .filter(Boolean);
+}
+
+function toggleKeyboardMode(force) {
+  _kbd.on = (force === undefined) ? !_kbd.on : !!force;
+  const btn = document.getElementById('kbd-mode-btn');
+  const bar = document.getElementById('kbd-help-bar');
+  if (btn) {
+    btn.style.background = _kbd.on ? '#047857' : '';
+    btn.style.color = _kbd.on ? '#fff' : '';
+    btn.style.borderColor = _kbd.on ? '#047857' : '';
+    btn.textContent = _kbd.on ? '⌨ 鍵盤模式:開' : '⌨ 鍵盤模式';
+  }
+  if (bar) bar.style.display = _kbd.on ? 'block' : 'none';
+
+  if (_kbd.on) {
+    if (!_kbd.pid) {
+      const rows = kbdVisibleRows();
+      _kbd.pid = rows[0] || null;
+      _kbd.day = 1;
+    }
+    kbdPaintCursor();
+  } else {
+    kbdClearCursor();
+  }
+}
+
+function kbdClearCursor() {
+  document.querySelectorAll('td.kbd-cursor').forEach(td => td.classList.remove('kbd-cursor'));
+}
+
+function kbdPaintCursor(scroll) {
+  kbdClearCursor();
+  if (!_kbd.on || !_kbd.pid || !_kbd.day) return;
+  const td = document.querySelector(`#schedule-top td[data-pid="${_kbd.pid}"][data-day="${_kbd.day}"]`);
+  if (!td) return;
+  td.classList.add('kbd-cursor');
+  if (scroll !== false) td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  // 狀態列顯示現在在誰的哪一天
+  const info = document.getElementById('kbd-pos');
+  if (info) {
+    const p = (state.staff || []).find(x => x && x.id === _kbd.pid);
+    info.textContent = p ? `${p.name} · ${_kbd.day} 日` : '';
+  }
+}
+
+function kbdMove(dr, dc) {
+  const rows = kbdVisibleRows();
+  if (!rows.length) return;
+  let ri = rows.indexOf(_kbd.pid);
+  if (ri < 0) ri = 0;
+  const days = (typeof getDaysInMonth === 'function') ? getDaysInMonth(state.month) : 31;
+
+  if (dr) {
+    ri = Math.min(rows.length - 1, Math.max(0, ri + dr));
+    _kbd.pid = rows[ri];
+  }
+  if (dc) {
+    let d = (_kbd.day || 1) + dc;
+    // 走到月底/月初就換人(跟 Excel 一樣連續)
+    if (d > days) { d = 1; if (ri < rows.length - 1) _kbd.pid = rows[ri + 1]; }
+    if (d < 1) { d = days; if (ri > 0) _kbd.pid = rows[ri - 1]; }
+    _kbd.day = d;
+  }
+  kbdPaintCursor();
+}
+
+// 填班(跟點格子走同一套:快照、底線旗標、重繪、自動存)
+function kbdSetShift(val) {
+  const pid = _kbd.pid, day = _kbd.day;
+  if (!pid || !day) return;
+  if (!state.schedule[pid]) state.schedule[pid] = {};
+
+  const now = Date.now();
+  if (now - lastEditTimestamp > 2000) snapshotState('鍵盤填入');
+  lastEditTimestamp = now;
+
+  const oldShift = state.schedule[pid][day];
+  if (val === '') {
+    delete state.schedule[pid][day];
+    if (state.scheduleFlags && state.scheduleFlags[pid]) delete state.scheduleFlags[pid][day];
+  } else {
+    state.schedule[pid][day] = val;
+    if (typeof preserveOffFlag === 'function') preserveOffFlag(pid, day, oldShift, val);
+  }
+
+  renderTable();
+  autoSaveScheduleLocal();
+  // renderTable 會重建整個表格 → 游標要重新畫上去
+  kbdMove(_kbd.advance === 'right' ? 0 : 1, _kbd.advance === 'right' ? 1 : 0);
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!_kbd.on) return;
+  const ae = document.activeElement;
+  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+  if (document.querySelector('.modal-backdrop.active')) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;   // 讓 Ctrl+Z 等原有快捷鍵照常運作
+
+  const k = e.key;
+
+  if (k === 'Escape') { toggleKeyboardMode(false); e.preventDefault(); return; }
+  if (k === 'ArrowUp')    { kbdMove(-1, 0); e.preventDefault(); return; }
+  if (k === 'ArrowDown')  { kbdMove(1, 0);  e.preventDefault(); return; }
+  if (k === 'ArrowLeft')  { kbdMove(0, -1); e.preventDefault(); return; }
+  if (k === 'ArrowRight') { kbdMove(0, 1);  e.preventDefault(); return; }
+  if (k === 'Enter') { kbdMove(e.shiftKey ? -1 : 1, 0); e.preventDefault(); return; }
+  if (k === 'Tab')   { kbdMove(0, e.shiftKey ? -1 : 1); e.preventDefault(); return; }
+  if (k === 'Home')  { _kbd.day = 1; kbdPaintCursor(); e.preventDefault(); return; }
+  if (k === 'End')   { _kbd.day = (typeof getDaysInMonth === 'function') ? getDaysInMonth(state.month) : 31; kbdPaintCursor(); e.preventDefault(); return; }
+
+  // 清空
+  if (k === 'Backspace' || k === 'Delete' || k === '0') { kbdSetShift(''); e.preventDefault(); return; }
+
+  // 填班
+  if (KBD_MAP[k] !== undefined) { kbdSetShift(KBD_MAP[k]); e.preventDefault(); return; }
+  const lower = k.length === 1 ? k.toLowerCase() : '';
+  if (lower && KBD_MAP[lower] !== undefined && !e.shiftKey) { kbdSetShift(KBD_MAP[lower]); e.preventDefault(); return; }
+});
+
+function setKbdAdvance(dir) {
+  _kbd.advance = dir;
+  ['down', 'right'].forEach(d => {
+    const b = document.getElementById('kbd-adv-' + d);
+    if (!b) return;
+    const on = (d === dir);
+    b.style.background = on ? '#047857' : 'transparent';
+    b.style.color = on ? '#fff' : '';
+  });
+}
+
 function onCellClick(e) {
   const td = e.target;
   const pid = td.dataset.pid;
   const day = parseInt(td.dataset.day);
+
+  // ⌨ 鍵盤模式:點格子只是「把游標移過去」,不畫班別(避免誤觸),打字才填
+  if (_kbd.on) {
+    _kbd.pid = pid; _kbd.day = day;
+    kbdPaintCursor(false);
+    return;
+  }
 
   if (!state.schedule[pid]) state.schedule[pid] = {};
 
