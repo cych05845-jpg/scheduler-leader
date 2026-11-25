@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-11-25-v46 (公告說明改存雲端不再消失;拖拉不再把班表捲到頂/頁面位移) -->
+<!-- VERSION: 2026-11-25-v47 (班表捲到頂不再把整個頁面帶著跑) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -112,6 +112,7 @@ body {
   background: var(--paper);
   border-left: 1px solid var(--line);
   overflow-y: auto;
+  overscroll-behavior: contain;   /* 捲到底不要把頁面帶著跑 */
   padding: 1rem;
 }
 
@@ -255,6 +256,10 @@ body {
   flex: 1 1 auto;
   overflow: auto;
   min-height: 100px;
+  /* ★ 關掉「捲動外溢」:班表內部捲到最頂/最底後再滑,
+     瀏覽器預設會把捲動傳給外層頁面,整個版面往上跑、工具列冒出來把班表擠下去。
+     contain = 內層到底就停住,不要牽動頁面。 */
+  overscroll-behavior: contain;
 }
 .schedule-divider {
   flex: 0 0 6px;
@@ -281,6 +286,7 @@ body {
   overflow-x: auto;
   overflow-y: hidden;
   background: var(--paper);
+  overscroll-behavior: contain;   /* 同上:左右捲到底不要牽動頁面 */
   /* 預設高度由 JS 設定(讀 localStorage 或 fallback) */
 }
 /* 下半 table 的色彩(沿用原本 tfoot 風格,但下半用的是 tbody) */
@@ -842,6 +848,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 .viol-list {
   max-height: 300px;
   overflow-y: auto;
+  overscroll-behavior: contain;   /* 捲到底不要把頁面帶著跑 */
 }
 
 .viol-item {
@@ -934,6 +941,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 .modal-body {
   padding: 1.2rem;
   overflow-y: auto;
+  overscroll-behavior: contain;   /* 捲到底不要把頁面帶著跑 */
 }
 
 .modal-footer {
