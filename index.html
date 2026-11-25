@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-11-25-v47 (班表捲到頂不再把整個頁面帶著跑) -->
+<!-- VERSION: 2026-11-25-v48 (公告說明雲端備份節點:舊版分頁洗掉也能自動補回) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4444,6 +4444,7 @@ async function saveScheduleToCloud(month, silent, opts) {
             if (cs && cs.exists()) mergeCloudNotesIntoPayload(viewData, cs.val() || {});
           } catch (e) { console.warn('[存檔] 合併雲端備註失敗:', e); }
           const syncAt = Date.now();
+          await guardAnnouncement(viewData, monthKey);
           await set(ref(_firebaseDb, `schedules/${monthKey}/data`), viewData);
           await update(ref(_firebaseDb, `schedules/${monthKey}/meta`), { lastSyncedAt: syncAt });
           setCloudBase(month, syncAt);
@@ -6705,8 +6706,12 @@ function loadAnnouncement() {
       const { ref, get } = window._fbHelpers;
       const mk = m.replace(/[.#$\[\]/]/g, '_');
       const s = await get(ref(_firebaseDb, `schedules/${mk}/data/announcement`));
-      if (s && s.exists()) {
-        const txt = s.val() || '';
+      let txt = (s && s.exists()) ? (s.val() || '') : '';
+      if (!txt.trim()) {
+        const b = await get(ref(_firebaseDb, `schedules/${mk}/announcementBackup/text`));
+        txt = (b && b.exists()) ? (b.val() || '') : '';
+      }
+      {
         if (txt && state.month === m && !ta.value) {
           ta.value = txt;
           try { localStorage.setItem(`scheduleAnnouncement.${m}`, txt); } catch (e) {}
@@ -6723,6 +6728,17 @@ function saveAnnouncement() {
   const text = ta.value;
   const m = state.month;
   localStorage.setItem(`scheduleAnnouncement.${m}`, text);
+  // ★ 立刻寫雲端備份(清空 = 你明確要刪,備份一起清)
+  (async () => {
+    try {
+      await ensureFirebase();
+      const { ref, set } = window._fbHelpers;
+      const mk = m.replace(/[.#$\[\]/]/g, '_');
+      await set(ref(_firebaseDb, `schedules/${mk}/announcementBackup`),
+        text.trim() ? { text, at: Date.now(), by: (typeof getCurrentUserName === 'function' && getCurrentUserName()) || '' } : null);
+      if (!text.trim()) await set(ref(_firebaseDb, `schedules/${mk}/data/announcement`), '');
+    } catch (e) { console.warn('[公告說明] 雲端備份失敗:', e); }
+  })();
   // 若已經 publish 過,立即同步到 Firebase(不用整個重推 payload)
   if (typeof autoSyncPublishedView === 'function') autoSyncPublishedView();
   alert(`✓ 公告說明已儲存(${text.length} 字)\n\n請點主班表上方「📢 公告給同仁」推送給同仁`);
@@ -17304,6 +17320,7 @@ async function doPublishView() {
 
     // ★ 用 update 不用 set:set 會把整個月份節點覆蓋掉(連 fullBackup 一起刪),
     //   update 只改 data 和 meta,fullBackup/editing 等其他子節點保留。
+    await guardAnnouncement(viewData, monthKey);
     await update(ref(_firebaseDb, `schedules/${monthKey}`), {
       data: viewData,
       meta: {
@@ -17364,6 +17381,42 @@ async function doUnpublishView() {
 //   一旦畫面沒載到備註(別台電腦、舊版、只載部分),存下去就把雲端的備註洗掉。
 //   規則:某人的備註「畫面上完全沒有」才補回雲端(代表畫面沒載到);
 //   畫面上有任何一筆 → 以畫面為準,所以你仍然可以正常刪掉某一天的備註。
+// ============================================================
+// 📢 公告說明的雲端備份 — schedules/{月}/announcementBackup = {text, at, by}
+// 為什麼放在 data 旁邊而不是裡面:舊版排班頁(還開著沒重新整理的分頁/iPad)
+// 自動同步會整份覆寫 data,說明被洗成空白(10、11 月就是這樣沒的)。
+// 備份在 data 的「旁邊」,舊版只寫 data,碰不到它。
+// 每次寫雲端前:畫面有說明 → 更新備份;畫面沒有 → 從備份補回來。
+// ============================================================
+async function guardAnnouncement(viewData, monthKey) {
+  if (!viewData || !monthKey) return;
+  try {
+    const { ref, get, set } = window._fbHelpers;
+    const bRef = ref(_firebaseDb, `schedules/${monthKey}/announcementBackup`);
+    const txt = (viewData.announcement || '').trim();
+    if (txt) {
+      const s = await get(bRef);
+      const cur = s && s.exists() ? (s.val() || {}).text : '';
+      if (cur !== viewData.announcement) {
+        await set(bRef, {
+          text: viewData.announcement, at: Date.now(),
+          by: (typeof getCurrentUserName === 'function' && getCurrentUserName()) || '',
+        });
+      }
+    } else {
+      const s = await get(bRef);
+      const bt = s && s.exists() ? ((s.val() || {}).text || '') : '';
+      if (bt.trim()) {
+        viewData.announcement = bt;
+        try { localStorage.setItem(`scheduleAnnouncement.${viewData.month}`, bt); } catch (e) {}
+        const ta = document.getElementById('announce-text');
+        if (ta && state.month === viewData.month && !ta.value) ta.value = bt;
+        console.log('[公告說明] 畫面與雲端 data 都沒有 → 已從備份節點補回', bt.length, '字');
+      }
+    }
+  } catch (e) { console.warn('[公告說明] 備份處理失敗(不影響存檔):', e); }
+}
+
 function mergeCloudNotesIntoPayload(viewData, cloud) {
   if (!viewData || !cloud) return;
   try {
@@ -17733,6 +17786,7 @@ async function saveScheduleFirebaseOnly(month) {
 
     // 只寫 data 子路徑(跟臨時調整相同、已證實能穩定儲存的寫法)。
     // 完全不碰 meta，不碰 dept-schedules(規則沒開的死路)。
+    await guardAnnouncement(viewData, monthKey);
     await set(ref(_firebaseDb, `schedules/${monthKey}/data`), viewData);
     return { ok: true, target: 'published' };
   } catch (e) {
@@ -17891,6 +17945,7 @@ function triggerAutoSync() {
 
       // 直接寫 data 子路徑(避開父節點的 hasChildren(['meta']) 規則檢查)
       const syncAt = Date.now();
+      await guardAnnouncement(viewData, monthKey);
       await set(ref(_firebaseDb, `schedules/${monthKey}/data`), viewData);
       // 同時更新 meta.lastSyncedAt
       await update(ref(_firebaseDb, `schedules/${monthKey}/meta`), {

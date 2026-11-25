@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- VIEW-VERSION: 2026-10-26-v10 (半日職判定改比例+技助公告不重排人員) -->
+<!-- VIEW-VERSION: 2026-11-25-v11 (公告說明被洗掉時改讀備份節點) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
@@ -1587,7 +1587,9 @@ async function loadData(forceMonth) {
         state.flags = data.flags || {};
         state.dateNotes = data.dateNotes || {};
         state.personNotes = data.personNotes || {};
-        state.announcement = data.announcement || '';
+        // ★ data 裡的說明若被舊版排班頁洗成空白,改用旁邊的備份節點(舊版碰不到它)
+        state.announcement = data.announcement
+          || ((node.announcementBackup && node.announcementBackup.text) || '');
         state.publishedAt = meta.publishedAt || '';
         state.publishedBy = meta.publishedBy || '';
 
