@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-11-04-v45 (轉錄清單 + Excel式鍵盤模式) -->
+<!-- VERSION: 2026-11-25-v46 (公告說明改存雲端不再消失;拖拉不再把班表捲到頂/頁面位移) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4626,6 +4626,17 @@ async function loadScheduleFromCloud(month) {
     const dateNotes = {};
     if (d.dateNotes && Object.keys(d.dateNotes).length) dateNotes[month] = d.dateNotes;
 
+    // ★ 把雲端的公告說明帶回本機,否則這台的側欄永遠是空的,
+    //   下次從這台公告就會把說明洗掉。
+    if (d.announcement) {
+      try {
+        localStorage.setItem(`scheduleAnnouncement.${month}`, d.announcement);
+        const _ta = document.getElementById('announce-text');
+        if (_ta && state.month === month) _ta.value = d.announcement;
+        console.log('[雲端載入] 已取回公告說明', d.announcement.length, '字');
+      } catch (e) {}
+    }
+
     let staff = d.staff || [];
     // ★ 公告格式的 staff 欄位較精簡 → 用 fullBackup 的人員(按姓名對應)補回能力等欄位
     if (fbData && Array.isArray(fbData.staff) && fbData.staff.length) {
@@ -6391,7 +6402,19 @@ function initSplitDivider() {
     let newH = startH - dy;
     const wrapH = wrap.getBoundingClientRect().height;
     newH = Math.max(60, Math.min(newH, wrapH - 100));  // 上下都要留至少 60–100px
+
+    // ★ 上半變矮時,瀏覽器會把超出範圍的 scrollTop 夾回去(看起來就是「跳到頂」),
+    //   而且拖回來不會自己還原。這裡拖完再把位置補回去。
+    const _topEl = document.getElementById('schedule-top');
+    const _keepTop = _topEl ? _topEl.scrollTop : 0;
+    const _keepLeft = _topEl ? _topEl.scrollLeft : 0;
+
     bottom.style.height = newH + 'px';
+
+    if (_topEl && (_topEl.scrollTop !== _keepTop || _topEl.scrollLeft !== _keepLeft)) {
+      _topEl.scrollTop = _keepTop;
+      _topEl.scrollLeft = _keepLeft;
+    }
   });
 
   document.addEventListener('mouseup', () => {
@@ -6665,7 +6688,25 @@ function loadAnnouncement() {
   const m = state.month;
   const stored = localStorage.getItem(`scheduleAnnouncement.${m}`);
   const ta = document.getElementById('announce-text');
-  if (ta && stored) ta.value = stored;
+  if (ta && stored) { ta.value = stored; return; }
+  // ★ 這台沒有 → 去雲端撈回來(換電腦時不會是空白)
+  if (!ta || !m) return;
+  (async () => {
+    try {
+      await ensureFirebase();
+      const { ref, get } = window._fbHelpers;
+      const mk = m.replace(/[.#$\[\]/]/g, '_');
+      const s = await get(ref(_firebaseDb, `schedules/${mk}/data/announcement`));
+      if (s && s.exists()) {
+        const txt = s.val() || '';
+        if (txt && state.month === m && !ta.value) {
+          ta.value = txt;
+          try { localStorage.setItem(`scheduleAnnouncement.${m}`, txt); } catch (e) {}
+          console.log('[公告說明] 已從雲端取回', txt.length, '字');
+        }
+      }
+    } catch (e) { console.warn('[公告說明] 雲端讀取失敗:', e); }
+  })();
 }
 
 function saveAnnouncement() {
@@ -8183,12 +8224,40 @@ function kbdPaintCursor(scroll) {
   const td = document.querySelector(`#schedule-top td[data-pid="${_kbd.pid}"][data-day="${_kbd.day}"]`);
   if (!td) return;
   td.classList.add('kbd-cursor');
-  if (scroll !== false) td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  // ★ 不用 scrollIntoView:它會連祖先容器和整個頁面一起捲,
+  //   造成「班表內部跳到頂、外面版面也位移」。這裡只動 #schedule-top 自己,
+  //   而且只有游標真的跑出可見範圍才捲,捲剛好夠看到就停。
+  if (scroll !== false) kbdScrollCellIntoView(td);
   // 狀態列顯示現在在誰的哪一天
   const info = document.getElementById('kbd-pos');
   if (info) {
     const p = (state.staff || []).find(x => x && x.id === _kbd.pid);
     info.textContent = p ? `${p.name} · ${_kbd.day} 日` : '';
+  }
+}
+
+// 只捲動班表容器本身,不影響頁面(取代 scrollIntoView)
+function kbdScrollCellIntoView(td) {
+  const box = document.getElementById('schedule-top');
+  if (!box || !td) return;
+  const b = box.getBoundingClientRect();
+  const t = td.getBoundingClientRect();
+  const PAD = 4;
+  // 垂直:要扣掉釘住的表頭,否則游標會被表頭蓋住
+  const head = box.querySelector('thead');
+  const headH = head ? head.getBoundingClientRect().height : 0;
+  if (t.top < b.top + headH + PAD) {
+    box.scrollTop -= (b.top + headH + PAD - t.top);
+  } else if (t.bottom > b.bottom - PAD) {
+    box.scrollTop += (t.bottom - b.bottom + PAD);
+  }
+  // 水平:要扣掉釘住的姓名欄
+  const nameCell = td.parentElement ? td.parentElement.querySelector('th, td') : null;
+  const nameW = (nameCell && nameCell !== td) ? nameCell.getBoundingClientRect().width : 0;
+  if (t.left < b.left + nameW + PAD) {
+    box.scrollLeft -= (b.left + nameW + PAD - t.left);
+  } else if (t.right > b.right - PAD) {
+    box.scrollLeft += (t.right - b.right + PAD);
   }
 }
 
@@ -17290,6 +17359,15 @@ async function doUnpublishView() {
 function mergeCloudNotesIntoPayload(viewData, cloud) {
   if (!viewData || !cloud) return;
   try {
+    // ★ 公告說明:以前只存在「這台電腦的 localStorage」。
+    //   在 A 台打說明 → B 台打開是空的 → B 台一重繪,自動同步就把 announcement:'' 推上去,
+    //   同仁的說明就消失了。規則跟備註一致:畫面上沒有才沿用雲端(所以你仍然可以清空重打)。
+    if (!viewData.announcement && cloud.announcement) {
+      viewData.announcement = cloud.announcement;
+      try { localStorage.setItem(`scheduleAnnouncement.${viewData.month}`, cloud.announcement); } catch (e) {}
+      console.log('[公告說明] 這台沒有,沿用雲端已有的說明(', cloud.announcement.length, '字)');
+    }
+
     const cloudStaff = cloud.staff || [];
     const cloudIdToName = {};
     cloudStaff.forEach(p => { if (p && p.id) cloudIdToName[p.id] = p.name; });
