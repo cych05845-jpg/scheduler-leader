@@ -1,11 +1,19 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- VIEW-VERSION: 2026-11-25-v11 (公告說明被洗掉時改讀備份節點) -->
+<!-- VIEW-VERSION: 2026-11-26-v12 (可安裝成桌面程式:開啟即當月、自動更新、跨月自動切換) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>急診排班 · 公告</title>
+<!-- 📲 可安裝成桌面/手機程式 -->
+<link rel="manifest" href="manifest-view.webmanifest">
+<meta name="theme-color" content="#1e40af">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/view-192.png">
+<link rel="apple-touch-icon" href="icons/view-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="急診班表">
 <style>
 * { box-sizing: border-box; }
 /* 整體字體放大 — base 16px → 17px,所有 rem 跟著放大約 6% */
@@ -1168,10 +1176,17 @@ body[data-schedule-type="aide"] .month-table td.col-name {
       <div class="title">📅 班表公告</div>
       <div class="desc">查詢本月班表、個人班、今天誰上什麼班</div>
     </button>
-    <button class="app-btn disabled" onclick="alert('「換班申請」功能正在開發中,敬請期待。\\n\\n預計功能:同仁線上提出換班需求,系統媒合可換班的對象,leader 審核後自動更新班表。\\n\\n目前換班請依照原本流程處理。')">
-      <div class="title">🔄 換班申請<span class="badge">開發中</span></div>
-      <div class="desc">線上提出換班需求,系統媒合對象,leader 審核</div>
+    <button class="app-btn" onclick="(function(){var d=new Date();location.href='swap.html?m='+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')})()">
+      <div class="title">🔄 換班申請</div>
+      <div class="desc">線上提出換班,對方同意後送護理長核准</div>
     </button>
+    <button class="app-btn install-app-btn" style="display:none; background:#eff6ff; border-color:#93c5fd" onclick="installApp()">
+      <div class="title">💻 安裝成桌面程式</div>
+      <div class="desc">桌面/手機多一個「急診班表」圖示,點開就是當月班表</div>
+    </button>
+    <div class="ios-install-hint" style="display:none; font-size:0.85rem; color:#1e40af; background:#eff6ff; border:1px dashed #93c5fd; border-radius:10px; padding:10px; margin-top:8px; line-height:1.6">
+      📱 iPhone/iPad:按 Safari 下方的「分享」<b>⬆</b> →「加入主畫面」,就會有「急診班表」圖示。
+    </div>
   </div>
 </div>
 
@@ -1327,6 +1342,10 @@ async function loadBookingResult() {
     const btn = document.getElementById('tab-booking-btn');
     const body = document.getElementById('booking-result-body');
     if (!btn || !body || !state.month) return;
+
+    // ★ 以前少了這兩行 → 'get is not defined',預約結果分頁從來沒顯示過
+    await initFirebase();
+    const { ref, get } = _fbHelpers;
 
     const pubSnap = await get(ref(_fbDb, `bookings/${state.month}_published`));
     if (!pubSnap.exists() || !pubSnap.val()) { btn.style.display = 'none'; return; }
@@ -2397,6 +2416,10 @@ function printMonthAsPdf() {
 // 把 printMonthAsPdf 同時掛到 window(避免 module + Safari 不認 inline onclick 的問題)
 window.printMonthAsPdf = printMonthAsPdf;
 window.switchScheduleType = switchScheduleType;
+// 給「桌面程式」那段程式用(它在另一個 script,看不到 module 內的變數)
+window.state = state;
+window.guessCurrentMonth = guessCurrentMonth;
+window.loadData = loadData;
 
 // === 展開/收起人力統計區(技/助/事 各自) ===
 function toggleStatsGroup(groupCode) {
@@ -2448,6 +2471,111 @@ window.changeViewMonth = changeViewMonth;
 window.closePersonDetail = closePersonDetail;
 window.onPersonSearchInput = onPersonSearchInput;
 window.printMonthAsPdf = printMonthAsPdf;
+</script>
+
+<script type="module">
+// ============================================================
+// 📲 桌面程式(PWA)— 安裝、自動當月、自動更新
+// ============================================================
+(function () {
+  const isStandalone = () =>
+    window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const params = new URLSearchParams(location.search);
+  const isApp = params.get('app') === '1' || isStandalone();
+
+  // --- Service Worker:網路優先,永遠拿最新版 ---
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(e => console.warn('[PWA] SW 註冊失敗', e));
+  }
+
+  // --- 安裝按鈕 ---
+  let _deferred = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault(); _deferred = e;
+    if (!isStandalone()) document.querySelectorAll('.install-app-btn').forEach(b => b.style.display = '');
+  });
+  window.installApp = async function () {
+    if (!_deferred) {
+      alert('請用 Chrome 或 Edge 開啟,網址列右側會有「安裝」圖示(⊕ 或 🖥)。\n手機:瀏覽器選單 →「加到主畫面 / 安裝應用程式」。');
+      return;
+    }
+    _deferred.prompt();
+    const r = await _deferred.userChoice;
+    if (r && r.outcome === 'accepted') document.querySelectorAll('.install-app-btn').forEach(b => b.style.display = 'none');
+    _deferred = null;
+  };
+  window.addEventListener('appinstalled', () =>
+    document.querySelectorAll('.install-app-btn').forEach(b => b.style.display = 'none'));
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS && !isStandalone()) {
+    document.addEventListener('DOMContentLoaded', () =>
+      document.querySelectorAll('.ios-install-hint').forEach(el => el.style.display = ''));
+  }
+
+  // --- 記住上次看的是護理師還是技助,程式開啟時直接回到那邊 ---
+  const _origSwitch = window.switchScheduleType;
+  if (typeof _origSwitch === 'function') {
+    window.switchScheduleType = function (type) {
+      try { localStorage.setItem('view.lastType', type); } catch (e) {}
+      return _origSwitch.apply(this, arguments);
+    };
+  }
+
+  // --- 使用者手動切過月份,就不要自動跳回當月 ---
+  const _origChange = window.changeViewMonth;
+  if (typeof _origChange === 'function') {
+    window.changeViewMonth = function () {
+      window.state._manualMonth = true;
+      return _origChange.apply(this, arguments);
+    };
+  }
+
+  // --- 以程式開啟:跳過首頁,直接進當月班表 ---
+  if (isApp) {
+    const go = () => {
+      const ov = document.getElementById('home-overlay');
+      if (ov && !ov.classList.contains('hidden') && typeof window.enterScheduleApp === 'function') {
+        window.enterScheduleApp();
+        let last = null;
+        try { last = localStorage.getItem('view.lastType'); } catch (e) {}
+        if (last === 'aide' && typeof window.switchScheduleType === 'function') window.switchScheduleType('aide');
+      }
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+  }
+
+  // --- 自動更新 ---
+  // 1) 程式本身有新版 → 自動重新載入(公告頁只讀不寫,重載不會掉資料)
+  // 2) 程式一直開著跨了月 → 回到畫面時自動切到新的當月
+  const MY_VER = (document.documentElement.innerHTML.match(/<!-- VIEW-VERSION:[^>]*-->/) || [''])[0];
+  let _checking = false;
+  async function checkForUpdate() {
+    if (_checking) return; _checking = true;
+    try {
+      const html = await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' }).then(r => r.text());
+      const latest = (html.match(/<!-- VIEW-VERSION:[^>]*-->/) || [''])[0];
+      if (latest && MY_VER && latest !== MY_VER) {
+        console.log('[PWA] 有新版,自動更新:', latest);
+        location.reload();
+        return;
+      }
+    } catch (e) { /* 斷網就算了 */ }
+    finally { _checking = false; }
+    try {
+      const hasM = new URLSearchParams(location.search).get('m');
+      const st = window.state;
+      if (st && !hasM && !st._manualMonth && st.month && typeof window.guessCurrentMonth === 'function'
+          && st.month !== window.guessCurrentMonth() && typeof window.loadData === 'function'
+          && document.getElementById('home-overlay')?.classList.contains('hidden')) {
+        console.log('[PWA] 跨月了,自動切到', window.guessCurrentMonth());
+        window.loadData(window.guessCurrentMonth());
+      }
+    } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
+  window.addEventListener('focus', checkForUpdate);
+  setInterval(checkForUpdate, 10 * 60 * 1000);
+})();
 </script>
 </body>
 </html>

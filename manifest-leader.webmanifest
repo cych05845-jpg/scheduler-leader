@@ -1,0 +1,18 @@
+{
+  "id": "/scheduler-leader/index.html",
+  "name": "急診排班系統(排班用)",
+  "short_name": "急診排班",
+  "description": "嘉基急診排班輔助工具 — 護理長與 leader 排班用",
+  "start_url": "/scheduler-leader/index.html?app=1",
+  "scope": "/scheduler-leader/",
+  "display": "standalone",
+  "background_color": "#ecfdf5",
+  "theme_color": "#047857",
+  "lang": "zh-TW",
+  "icons": [
+    { "src": "icons/leader-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/leader-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/leader-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/leader-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
