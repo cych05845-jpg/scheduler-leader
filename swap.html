@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- SWAP-VERSION: 2026-09-27-v1 (換班申請頁:雙方同意→護理長核准) -->
+<!-- SWAP-VERSION: 2026-11-26-v2 (可選月份/護理師或技助;不算人力者可自己調換;修正無法送出) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診換班申請</title>
@@ -82,6 +82,11 @@
   .notice{background:var(--accent-soft); border-left:4px solid var(--accent); border-radius:0 8px 8px 0; padding:10px 12px; margin-top:12px; font-size:0.85rem}
   .status{text-align:center; padding:28px 12px; color:var(--ink-mute)}
   .hide{display:none !important}
+  .seg{display:flex; gap:6px; flex-wrap:wrap}
+  .seg button{flex:1; min-width:90px; padding:8px 10px; background:#fff; border:1.5px solid var(--line); font-weight:700; font-size:0.92rem; color:var(--ink)}
+  .seg button.on{background:var(--accent); border-color:var(--accent); color:#fff}
+  .seg button:disabled{opacity:.45; cursor:not-allowed}
+  .seg-label{font-size:0.8rem; color:var(--ink-mute); margin:8px 0 4px; font-weight:600}
 
   /* 列印:只印申請單 */
   @media print{
@@ -113,6 +118,16 @@
 </header>
 
 <div class="wrap">
+
+  <div class="card" id="ctx-card">
+    <div class="seg-label" style="margin-top:0">班表</div>
+    <div class="seg" id="sys-seg">
+      <button data-sys="nurse" onclick="chooseSys('nurse')">👩‍⚕️ 護理師</button>
+      <button data-sys="aide" onclick="chooseSys('aide')">🧰 技術員/助理員</button>
+    </div>
+    <div class="seg-label">月份 <span style="font-weight:400">(班表公告後才能申請)</span></div>
+    <div class="seg" id="month-seg"></div>
+  </div>
 
   <div id="status" class="status">⏳ 載入中...</div>
 
@@ -147,7 +162,7 @@
         <h2>1️⃣ 選你要換的日期 <span class="muted" style="font-weight:400">(可多選)</span></h2>
         <div class="cal-head"><div class="sun">日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div></div>
         <div class="cal" id="cal"></div>
-        <div class="muted" style="margin-top:8px; font-size:0.8rem">格子下方是你那天的班別。選好日期後,下面選要跟誰換。</div>
+        <div class="muted" style="margin-top:8px; font-size:0.8rem" id="cal-hint">格子下方是你那天的班別。選好日期後,下面選要跟誰換。</div>
       </div>
 
       <div class="card">
@@ -160,7 +175,7 @@
         <h2>3️⃣ 換班原因</h2>
         <textarea id="reason" placeholder="例:家中有事、進修、身體不適…"></textarea>
         <div style="margin-top:10px"><button class="btn" id="submit-btn" onclick="submitSwap()">送出換班申請</button></div>
-        <div class="muted" style="margin-top:6px; font-size:0.8rem">送出後對方會在「待我同意」看到,對方同意後再由護理長核准。</div>
+        <div class="muted" style="margin-top:6px; font-size:0.8rem" id="submit-hint">送出後對方會在「待我同意」看到,對方同意後再由護理長核准。</div>
       </div>
     </div>
 
@@ -201,11 +216,18 @@ const FIREBASE_CONFIG = {
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getDatabase(app);
 
-const LS_KEY = 'swap.myPersonId.v1';
 const S = {
-  month: '', days: 0, staff: [], holidays: [], sched: {},
-  myId: '', myName: '', picks: [], swaps: {}, tab: 'new',
+  sys: 'nurse', month: '', days: 0, staff: [], holidays: [], sched: {},
+  myId: '', myName: '', picks: [], swaps: {}, tab: 'new', unsub: null,
 };
+const SELF = '__self__';
+// ★ 換班申請存在班表節點底下:{班表}/{月}/swaps/{id}
+//   以前存在頂層 swaps,但 Firebase 規則沒開放 → 申請根本送不出去。
+const baseOf = () => (S.sys === 'aide' ? 'aide-schedules' : 'schedules');
+const swapsPath = () => `${baseOf()}/${S.month}/swaps`;
+const lsKey = () => `swap.myPersonId.v1.${S.sys}`;
+const ymOf = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+const monthLabel = (m) => `${Number(m.slice(5))} 月`;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -216,27 +238,58 @@ const shiftOf = (pid, d) => ((S.sched[pid] || {})[d] || '');
 const dispShift = (v) => (v === 'o' ? 'off' : (v || '—'));
 function showStatus(m) { $('status').innerHTML = m; $('status').classList.remove('hide'); }
 
-function targetMonth() {
-  const u = new URLSearchParams(location.search).get('m');
-  if (u && /^\d{4}-\d{2}$/.test(u)) return u;
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+// 可申請的月份:本月、下個月(只列出已公告的)
+let _published = {};
+async function refreshMonths() {
+  const now = new Date();
+  const cands = [ymOf(now), ymOf(new Date(now.getFullYear(), now.getMonth() + 1, 1))];
+  _published = {};
+  await Promise.all(cands.map(async m => {
+    try {
+      const s = await get(ref(db, `${baseOf()}/${m}/meta/status`));
+      _published[m] = s.exists() && s.val() === 'published';
+    } catch (e) { _published[m] = false; }
+  }));
+  $('month-seg').innerHTML = cands.map(m =>
+    `<button data-m="${m}" onclick="chooseMonth('${m}')" ${_published[m] ? '' : 'disabled'}>${monthLabel(m)}${_published[m] ? '' : '<br><span style="font-size:.7rem;font-weight:400">尚未公告</span>'}</button>`
+  ).join('');
+  return cands.filter(m => _published[m]);
 }
 
-async function boot() {
-  S.month = targetMonth();
-  S.days = daysInMonth(S.month);
-  $('hd-sub').textContent = S.month.replace('-', ' 年 ') + ' 月';
+function markSeg() {
+  document.querySelectorAll('#sys-seg button').forEach(b => b.classList.toggle('on', b.dataset.sys === S.sys));
+  document.querySelectorAll('#month-seg button').forEach(b => b.classList.toggle('on', b.dataset.m === S.month));
+  const sysTxt = S.sys === 'aide' ? '技術員/助理員' : '護理師';
+  $('hd-sub').textContent = S.month ? `${sysTxt} · ${S.month.replace('-', ' 年 ')} 月` : sysTxt;
+}
 
-  // 讀該月班表(換班一定要用「已公告的當月班表」)
+window.chooseSys = async function (sys) {
+  S.sys = sys;
+  try { localStorage.setItem('swap.lastSys', sys); } catch (e) {}
+  const ok = await refreshMonths();
+  const keep = ok.includes(S.month) ? S.month : (ok[0] || '');
+  await openMonth(keep);
+};
+window.chooseMonth = async function (m) {
+  if (!_published[m]) return;
+  await openMonth(m);
+};
+
+async function openMonth(m) {
+  if (S.unsub) { try { S.unsub(); } catch (e) {} S.unsub = null; }
+  S.month = m; S.myId = ''; S.picks = []; S.swaps = {};
+  markSeg();
+  $('main').classList.add('hide'); $('pick-person').classList.add('hide');
+  if (!m) { showStatus(`⚠ ${S.sys === 'aide' ? '技術員/助理員' : '護理師'}本月和下個月的班表都還沒公告,目前無法申請換班。`); return; }
+  showStatus('⏳ 載入中...');
+  S.days = daysInMonth(m);
   try {
-    const snap = await get(ref(db, `schedules/${S.month}/data`));
-    if (!snap.exists()) { showStatus(`⚠ ${S.month} 的班表還沒公告,目前無法申請換班。`); return; }
+    const snap = await get(ref(db, `${baseOf()}/${m}/data`));
+    if (!snap.exists()) { showStatus(`⚠ ${m} 的班表還沒公告,目前無法申請換班。`); return; }
     const d = snap.val() || {};
     const staff = (d.staff || []).filter(p => p && p.name && p.level !== '事' && p.status !== 'left');
     if (!staff.length) { showStatus('⚠ 這個月的班表沒有人員資料。'); return; }
     S.staff = staff;
-    // schedule 可能是陣列(公告格式)
     const raw = d.schedule || {};
     const sched = {};
     for (const pid in raw) {
@@ -245,18 +298,29 @@ async function boot() {
       else sched[pid] = days;
     }
     S.sched = sched;
-    if (Array.isArray(d.holidays)) S.holidays = d.holidays.filter(x => typeof x === 'number');
+    S.holidays = Array.isArray(d.holidays) ? d.holidays.filter(x => typeof x === 'number') : [];
   } catch (e) { showStatus('載入班表失敗:' + esc(e.message || '')); return; }
 
-  // 監聽換班申請
-  onValue(ref(db, `swaps/${S.month}`), (snap) => {
+  S.unsub = onValue(ref(db, swapsPath()), (snap) => {
     S.swaps = (snap.exists() ? snap.val() : {}) || {};
     if (S.myId) { renderLists(); updateBadges(); }
   });
 
-  const savedId = localStorage.getItem(LS_KEY);
+  let savedId = null;
+  try { savedId = localStorage.getItem(lsKey()) || (S.sys === 'nurse' ? localStorage.getItem('swap.myPersonId.v1') : null); } catch (e) {}
   const me = savedId && S.staff.find(p => p.id === savedId);
   if (me) enterAs(me); else showPersonPicker();
+}
+
+async function boot() {
+  const q = new URLSearchParams(location.search);
+  let sys = q.get('t') === 'aide' ? 'aide' : (q.get('t') === 'nurse' ? 'nurse' : null);
+  if (!sys) { try { sys = localStorage.getItem('swap.lastSys'); } catch (e) {} }
+  S.sys = sys === 'aide' ? 'aide' : 'nurse';
+  const ok = await refreshMonths();
+  const want = q.get('m');
+  const m = (want && ok.includes(want)) ? want : (ok[0] || '');
+  await openMonth(m);
 }
 
 function showPersonPicker() {
@@ -271,11 +335,11 @@ window.confirmPerson = function () {
   if (!id) { alert('請先選擇你的名字'); return; }
   const p = S.staff.find(x => x.id === id);
   if (!p) return;
-  try { localStorage.setItem(LS_KEY, id); } catch (e) {}
+  try { localStorage.setItem(lsKey(), id); } catch (e) {}
   enterAs(p);
 };
 window.switchPerson = function () {
-  try { localStorage.removeItem(LS_KEY); } catch (e) {}
+  try { localStorage.removeItem(lsKey()); } catch (e) {}
   S.myId = ''; S.picks = [];
   showPersonPicker();
 };
@@ -287,9 +351,12 @@ function enterAs(p) {
   $('main').classList.remove('hide');
   $('my-name').textContent = p.name;
   $('my-month').textContent = S.month.replace('-', ' 年 ') + ' 月班表';
+  S.canSelf = (p._countAsCapacity === false);   // 不算人力(沒設功能選項)→ 可以自己跟自己換
   $('target-select').innerHTML = '<option value="">— 選擇對象 —</option>' +
+    (S.canSelf ? `<option value="${SELF}">🔁 自己調換(把我自己兩天的班對調)</option>` : '') +
     S.staff.filter(x => x.id !== p.id)
       .map(x => `<option value="${esc(x.id)}">${esc(x.name)}${x.level ? ' (' + esc(x.level) + ')' : ''}</option>`).join('');
+  markSeg();
   renderCal(); renderPreview(); renderLists(); updateBadges();
 }
 
@@ -323,6 +390,7 @@ window.toggleDay = function (d) {
   const i = S.picks.indexOf(d);
   if (i >= 0) S.picks.splice(i, 1);
   else {
+    if ($('target-select').value === SELF && S.picks.length >= 2) { alert('自己調換一次選 2 天,這兩天的班會對調。'); return; }
     if (S.picks.length >= 4) { alert('一次最多換 4 天。如果要換更多,請分次申請。'); return; }
     S.picks.push(d);
   }
@@ -330,6 +398,9 @@ window.toggleDay = function (d) {
   renderCal(); renderPreview();
 };
 
+// ★ 下拉選單用 onchange="renderPreview()" 呼叫,module 內的函式要掛到 window 才叫得到
+//   (以前沒掛 → 選完對象,換班預覽不會更新)
+window.renderPreview = renderPreview;
 function renderPreview() {
   const box = $('preview-box');
   const tid = $('target-select').value;
@@ -337,6 +408,21 @@ function renderPreview() {
     box.innerHTML = '<div class="muted" style="margin-top:8px">選好日期和對象後,這裡會顯示換完的結果。</div>';
     return;
   }
+  if (tid === SELF) {
+    $('submit-hint').textContent = '自己調換不需要對方同意,送出後直接給護理長核准。';
+    if (S.picks.length !== 2) {
+      box.innerHTML = '<div class="preview">🔁 自己調換:請在上面<strong>剛好選 2 天</strong>,這兩天的班會對調。</div>';
+      return;
+    }
+    const [a, b] = S.picks, sa = shiftOf(S.myId, a), sb = shiftOf(S.myId, b);
+    box.innerHTML = `<div class="preview"><strong>換完會變成這樣(你自己兩天的班對調)</strong>
+      <table><tr><th>日期</th><th>原本</th><th>換完</th></tr>
+      <tr><td>${a}日</td><td>${esc(dispShift(sa))}</td><td><span class="arrow">→</span> ${esc(dispShift(sb))}</td></tr>
+      <tr><td>${b}日</td><td>${esc(dispShift(sb))}</td><td><span class="arrow">→</span> ${esc(dispShift(sa))}</td></tr></table>
+      ${sa === sb ? '<div style="color:var(--err);margin-top:6px">這兩天班別一樣,換了沒有變化。</div>' : ''}</div>`;
+    return;
+  }
+  $('submit-hint').textContent = '送出後對方會在「待我同意」看到,對方同意後再由護理長核准。';
   const t = S.staff.find(x => x.id === tid);
   let rows = '';
   S.picks.forEach(d => {
@@ -354,9 +440,32 @@ window.submitSwap = async function () {
   const tid = $('target-select').value;
   if (!S.picks.length) { alert('請先選要換的日期'); return; }
   if (!tid) { alert('請選擇要跟誰換'); return; }
-  const t = S.staff.find(x => x.id === tid);
   const reason = ($('reason').value || '').trim();
   if (!reason) { alert('請填寫換班原因'); return; }
+
+  if (tid === SELF) {
+    if (S.picks.length !== 2) { alert('自己調換請剛好選 2 天。'); return; }
+    const [a, b] = S.picks, sa = shiftOf(S.myId, a), sb = shiftOf(S.myId, b);
+    if (sa === sb) { alert('這兩天班別一樣,換了沒有變化。請重新選日期。'); return; }
+    if (!confirm(`確定送出自己調換?\n\n${a}日:${dispShift(sa)} → ${dispShift(sb)}\n${b}日:${dispShift(sb)} → ${dispShift(sa)}\n\n原因:${reason}\n\n送出後直接給護理長核准。`)) return;
+    const btn0 = $('submit-btn'); btn0.disabled = true; btn0.textContent = '⏳ 送出中...';
+    try {
+      const id = 'sw_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      await set(ref(db, `${swapsPath()}/${id}`), {
+        id, month: S.month, sys: S.sys, self: true,
+        fromId: S.myId, fromName: S.myName, toId: S.myId, toName: S.myName,
+        days: [{ day: a, fromShift: sa, toShift: sb }, { day: b, fromShift: sb, toShift: sa }],
+        reason, status: 'agreed', createdAt: Date.now(), agreedAt: Date.now(),
+      });
+      S.picks = []; $('reason').value = ''; $('target-select').value = '';
+      renderCal(); renderPreview();
+      alert('✅ 已送出,等護理長核准。\n可以在「我的申請」列印申請單。');
+      switchTab('mine');
+    } catch (e) { alert('送出失敗:' + (e.message || '')); }
+    btn0.disabled = false; btn0.textContent = '送出換班申請';
+    return;
+  }
+  const t = S.staff.find(x => x.id === tid);
 
   const days = S.picks.map(d => ({
     day: d,
@@ -373,8 +482,8 @@ window.submitSwap = async function () {
   btn.disabled = true; btn.textContent = '⏳ 送出中...';
   try {
     const id = 'sw_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    await set(ref(db, `swaps/${S.month}/${id}`), {
-      id, month: S.month,
+    await set(ref(db, `${swapsPath()}/${id}`), {
+      id, month: S.month, sys: S.sys,
       fromId: S.myId, fromName: S.myName,
       toId: tid, toName: t.name,
       days, reason,
@@ -401,15 +510,17 @@ function swapList(filter) {
 }
 
 function reqCard(r, forMe) {
-  const daysTxt = (r.days || []).map(x => `${x.day}日 ${dispShift(x.fromShift)}↔${dispShift(x.toShift)}`).join('、');
+  const daysTxt = r.self
+    ? (r.days || []).map(x => `${x.day}日 ${dispShift(x.fromShift)}→${dispShift(x.toShift)}`).join('、')
+    : (r.days || []).map(x => `${x.day}日 ${dispShift(x.fromShift)}↔${dispShift(x.toShift)}`).join('、');
   const other = forMe ? r.fromName : r.toName;
-  const label = forMe ? `${esc(other)} 想跟你換` : `跟 ${esc(other)} 換班`;
+  const label = r.self ? '🔁 自己調換' : (forMe ? `${esc(other)} 想跟你換` : `跟 ${esc(other)} 換班`);
   let acts = '';
   if (forMe && r.status === 'pending') {
     acts = `<div class="acts">
       <button class="btn ok small" onclick="agreeSwap('${r.id}')">✓ 同意</button>
       <button class="btn err small" onclick="rejectSwap('${r.id}')">✗ 不同意</button></div>`;
-  } else if (!forMe && r.status === 'pending') {
+  } else if (!forMe && (r.status === 'pending' || (r.self && r.status === 'agreed'))) {
     acts = `<div class="acts"><button class="btn err small" onclick="cancelSwap('${r.id}')">取消申請</button></div>`;
   }
   if (r.status === 'agreed' || r.status === 'approved') {
@@ -426,7 +537,7 @@ function reqCard(r, forMe) {
 
 function renderLists() {
   const mine = swapList(r => r.fromId === S.myId);
-  const todo = swapList(r => r.toId === S.myId);
+  const todo = swapList(r => r.toId === S.myId && !r.self);
   $('list-mine').innerHTML = mine.length ? mine.map(r => reqCard(r, false)).join('')
     : '<div class="muted" style="padding:10px;text-align:center">還沒有提出過換班申請</div>';
   $('list-todo').innerHTML = todo.length ? todo.map(r => reqCard(r, true)).join('')
@@ -435,7 +546,7 @@ function renderLists() {
 
 function updateBadges() {
   const pendMine = swapList(r => r.fromId === S.myId && r.status === 'pending').length;
-  const pendTodo = swapList(r => r.toId === S.myId && r.status === 'pending').length;
+  const pendTodo = swapList(r => r.toId === S.myId && !r.self && r.status === 'pending').length;
   const b1 = $('badge-mine'), b2 = $('badge-todo');
   b1.textContent = pendMine; b1.classList.toggle('hide', !pendMine);
   b2.textContent = pendTodo; b2.classList.toggle('hide', !pendTodo);
@@ -446,7 +557,7 @@ window.agreeSwap = async function (id) {
   const txt = (r.days || []).map(x => `${x.day}日:你的 ${dispShift(x.toShift)} → ${dispShift(x.fromShift)}`).join('\n');
   if (!confirm(`確定同意跟 ${r.fromName} 換班?\n\n${txt}\n\n同意後會送給護理長核准。`)) return;
   try {
-    await update(ref(db, `swaps/${S.month}/${id}`), { status: 'agreed', agreedAt: Date.now() });
+    await update(ref(db, `${swapsPath()}/${id}`), { status: 'agreed', agreedAt: Date.now() });
     alert('✅ 已同意\n\n接下來由護理長核准。\n可以按「🖨 列印申請單」印出來雙方簽名。');
   } catch (e) { alert('失敗:' + (e.message || '')); }
 };
@@ -456,19 +567,38 @@ window.rejectSwap = async function (id) {
   const why = prompt(`不同意跟 ${r.fromName} 換班的原因(會讓對方看到):`, '');
   if (why === null) return;
   try {
-    await update(ref(db, `swaps/${S.month}/${id}`), { status: 'rejected', rejectReason: why || '(未填)', rejectedAt: Date.now(), rejectedBy: S.myName });
+    await update(ref(db, `${swapsPath()}/${id}`), { status: 'rejected', rejectReason: why || '(未填)', rejectedAt: Date.now(), rejectedBy: S.myName });
     alert('已回覆不同意。');
   } catch (e) { alert('失敗:' + (e.message || '')); }
 };
 
 window.cancelSwap = async function (id) {
   if (!confirm('確定取消這筆換班申請?')) return;
-  try { await remove(ref(db, `swaps/${S.month}/${id}`)); } catch (e) { alert('失敗:' + (e.message || '')); }
+  try { await remove(ref(db, `${swapsPath()}/${id}`)); } catch (e) { alert('失敗:' + (e.message || '')); }
 };
 
 // ---------- 列印申請單 ----------
 window.printSheet = function (id) {
   const r = S.swaps[id]; if (!r) return;
+  const title = (r.sys === 'aide' || S.sys === 'aide') ? '技術員/助理員換班申請單' : '護理人員換班申請單';
+  const dt0 = (t) => t ? new Date(t).toLocaleString('zh-TW', { hour12: false }) : '—';
+  if (r.self) {
+    const rws = (r.days || []).map(x => `<tr><td>${x.day} 日</td><td>${esc(dispShift(x.fromShift))}</td><td>${esc(dispShift(x.toShift))}</td></tr>`).join('');
+    $('sheet').innerHTML = `
+      <h2>${title}(本人調換)</h2>
+      <div class="unit">嘉義基督教醫院　急診室</div>
+      <table>
+        <tr><th>申請人</th><td>${esc(r.fromName)}</td><th>班表月份</th><td>${esc(r.month)}</td></tr>
+        <tr><th>申請時間</th><td>${dt0(r.createdAt)}</td><th>護理長核准</th><td>${r.status === 'approved' ? dt0(r.approvedAt) : '待核准'}</td></tr>
+        <tr><th>調換原因</th><td colspan="3">${esc(r.reason || '')}</td></tr>
+      </table>
+      <table><tr><th style="width:90px">日期</th><th>原班</th><th>調換後</th></tr>${rws}</table>
+      <div class="sign"><div>申請人簽名</div><div>護理長簽名</div></div>
+      <div class="foot">說明:本人兩日班別對調,經護理長核准後生效,班表以系統公告為準。<br>
+        單號:${esc(r.id)}　列印時間:${new Date().toLocaleString('zh-TW', { hour12: false })}</div>`;
+    window.print();
+    return;
+  }
   const rows = (r.days || []).map(x => `<tr>
       <td>${x.day} 日</td>
       <td>${esc(dispShift(x.fromShift))}</td>
@@ -477,7 +607,7 @@ window.printSheet = function (id) {
     </tr>`).join('');
   const dt = (t) => t ? new Date(t).toLocaleString('zh-TW', { hour12: false }) : '—';
   $('sheet').innerHTML = `
-    <h2>護理人員換班申請單</h2>
+    <h2>${title}</h2>
     <div class="unit">嘉義基督教醫院　急診室</div>
     <table>
       <tr><th>申請人</th><td>${esc(r.fromName)}</td><th>換班對象</th><td>${esc(r.toName)}</td></tr>

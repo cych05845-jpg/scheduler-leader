@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-11-26-v49 (可安裝成桌面程式;偵測到新版即停止自動同步並提示更新) -->
+<!-- VERSION: 2026-11-26-v50 (換班申請改存班表節點底下:修正從未能送出的問題) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -6937,6 +6937,12 @@ function csApply() {
 
 
 // ===== 🔄 換班申請(雙方同意 → 護理長核准 → 帶入班表)=====
+// ★ 存放位置:{SWAP_BASE}/{月}/swaps/{id}
+//   以前放在頂層 swaps 節點,但 Firebase 安全規則沒開放那個路徑 → 同仁根本送不出申請。
+//   班表節點底下是可寫的,而且公告頁本來就讀得到,所以搬到這裡。
+const SWAP_BASE = 'schedules';
+const SWAP_SYS = '';            // 換班頁網址參數:護理師不用帶
+function swapPath(month) { return `${SWAP_BASE}/${String(month).replace(/[.#$\[\]/]/g, '_')}/swaps`; }
 let _swapCache = { month: '', data: {} };
 
 function openSwapModal() {
@@ -6948,7 +6954,7 @@ function openSwapModal() {
 
 function copySwapLink() {
   const m = (document.getElementById('swap-month') || {}).value || state.month;
-  const url = location.href.replace(/[^/]*$/, '') + 'swap.html?m=' + m;
+  const url = location.href.replace(/[?#].*$/, '').replace(/[^/]*$/, '') + 'swap.html?m=' + m + SWAP_SYS;
   try {
     navigator.clipboard.writeText(url);
     alert('✓ 換班申請頁連結已複製\n\n' + url + '\n\n貼到 LINE 群組給同仁。');
@@ -6963,7 +6969,7 @@ async function loadSwaps() {
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
-    const snap = await get(ref(_firebaseDb, `swaps/${month}`));
+    const snap = await get(ref(_firebaseDb, swapPath(month)));
     _swapCache = { month, data: (snap && snap.exists()) ? (snap.val() || {}) : {} };
     renderSwapList();
   } catch (e) {
@@ -7013,7 +7019,9 @@ function renderSwapList() {
     const st = SWAP_ST[r.status] || { t: r.status, bg: '#f3f4f6', fg: '#374151' };
     const daysTxt = (r.days || []).map(x =>
       `<span style="display:inline-block;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:5px;padding:1px 7px;margin:2px 3px 2px 0">
-        ${x.day}日 ${escapeHTML(r.fromName)} ${swapShiftDisp(x.fromShift)}→${swapShiftDisp(x.toShift)}、${escapeHTML(r.toName)} ${swapShiftDisp(x.toShift)}→${swapShiftDisp(x.fromShift)}</span>`).join('');
+        ${r.self
+          ? `${x.day}日 ${swapShiftDisp(x.fromShift)}→${swapShiftDisp(x.toShift)}`
+          : `${x.day}日 ${escapeHTML(r.fromName)} ${swapShiftDisp(x.fromShift)}→${swapShiftDisp(x.toShift)}、${escapeHTML(r.toName)} ${swapShiftDisp(x.toShift)}→${swapShiftDisp(x.fromShift)}`}</span>`).join('');
     let acts = '';
     if (r.status === 'agreed') {
       acts = `<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">
@@ -7027,7 +7035,7 @@ function renderSwapList() {
     const rej = r.rejectReason ? `<div style="font-size:0.84rem;color:#b91c1c">退回原因:${escapeHTML(r.rejectReason)}</div>` : '';
     html += `<div style="border:1px solid var(--line);border-left:4px solid ${st.fg};border-radius:8px;padding:10px;margin-bottom:9px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <strong>${escapeHTML(r.fromName)} ⇄ ${escapeHTML(r.toName)}</strong>
+        <strong>${r.self ? `🔁 ${escapeHTML(r.fromName)} 自己調換 <span style="font-weight:400;font-size:.8rem;color:var(--ink-mute)">(不算人力者)</span>` : `${escapeHTML(r.fromName)} ⇄ ${escapeHTML(r.toName)}`}</strong>
         <span style="font-size:0.76rem;padding:2px 10px;border-radius:20px;font-weight:700;background:${st.bg};color:${st.fg};white-space:nowrap">${st.t}</span>
       </div>
       <div style="margin:5px 0">${daysTxt}</div>
@@ -7040,13 +7048,15 @@ function renderSwapList() {
 async function approveSwap(id) {
   const r = (_swapCache.data || {})[id];
   if (!r) return;
-  const txt = (r.days || []).map(x => `${x.day}日:${r.fromName} ${swapShiftDisp(x.fromShift)}→${swapShiftDisp(x.toShift)}、${r.toName} ${swapShiftDisp(x.toShift)}→${swapShiftDisp(x.fromShift)}`).join('\n');
-  if (!confirm(`核准這筆換班?\n\n${r.fromName} ⇄ ${r.toName}\n${txt}\n\n核准後,再按「📥 帶入班表」寫進班表。`)) return;
+  const txt = r.self
+    ? (r.days || []).map(x => `${x.day}日:${swapShiftDisp(x.fromShift)}→${swapShiftDisp(x.toShift)}`).join('\n')
+    : (r.days || []).map(x => `${x.day}日:${r.fromName} ${swapShiftDisp(x.fromShift)}→${swapShiftDisp(x.toShift)}、${r.toName} ${swapShiftDisp(x.toShift)}→${swapShiftDisp(x.fromShift)}`).join('\n');
+  if (!confirm(`核准這筆換班?\n\n${r.self ? r.fromName + '(自己調換)' : r.fromName + ' ⇄ ' + r.toName}\n${txt}\n\n核准後,再按「📥 帶入班表」寫進班表。`)) return;
   try {
     await ensureFirebase();
     const { ref, update } = window._fbHelpers;
     const by = (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '';
-    await update(ref(_firebaseDb, `swaps/${_swapCache.month}/${id}`), { status: 'approved', approvedAt: Date.now(), approvedBy: by });
+    await update(ref(_firebaseDb, `${swapPath(_swapCache.month)}/${id}`), { status: 'approved', approvedAt: Date.now(), approvedBy: by });
     r.status = 'approved'; r.approvedAt = Date.now();
     renderSwapList();
   } catch (e) { alert('核准失敗:' + (e.message || '')); }
@@ -7061,7 +7071,7 @@ async function rejectSwapByHN(id) {
     await ensureFirebase();
     const { ref, update } = window._fbHelpers;
     const by = (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '';
-    await update(ref(_firebaseDb, `swaps/${_swapCache.month}/${id}`), { status: 'rejected', rejectReason: why || '(未填)', rejectedAt: Date.now(), rejectedBy: by });
+    await update(ref(_firebaseDb, `${swapPath(_swapCache.month)}/${id}`), { status: 'rejected', rejectReason: why || '(未填)', rejectedAt: Date.now(), rejectedBy: by });
     r.status = 'rejected'; r.rejectReason = why || '(未填)';
     renderSwapList();
   } catch (e) { alert('退回失敗:' + (e.message || '')); }
@@ -7091,7 +7101,8 @@ async function applySwapsToSchedule() {
     (r.days || []).forEach(x => {
       const nowF = (state.schedule[fid] || {})[x.day] || '';
       const nowT = (state.schedule[tid] || {})[x.day] || '';
-      if (nowF !== (x.fromShift || '') || nowT !== (x.toShift || '')) {
+      // 自己調換:只要確認自己那天還是申請時的班
+      if (r.self ? (nowF !== (x.fromShift || '')) : (nowF !== (x.fromShift || '') || nowT !== (x.toShift || ''))) {
         preWarn.push(`${x.day}日 ${r.fromName}/${r.toName}:現在是 ${swapShiftDisp(nowF)}/${swapShiftDisp(nowT)},申請時是 ${swapShiftDisp(x.fromShift)}/${swapShiftDisp(x.toShift)}`);
       }
     });
@@ -7111,6 +7122,21 @@ async function applySwapsToSchedule() {
   const touched = [];      // [{day, names:[]}]
   const deptCleared = [];  // 被清掉科別的格子
   valid.forEach(({ r, fid, tid }) => {
+    if (r.self) {
+      // 🔁 自己調換:每一天直接改成申請單上的「換完」班別(兩天對調)
+      if (!state.schedule[fid]) state.schedule[fid] = {};
+      (r.days || []).forEach(x => {
+        if (x.toShift) state.schedule[fid][x.day] = x.toShift; else delete state.schedule[fid][x.day];
+        touched.push({ day: x.day, names: [r.fromName] });
+        const f = (state.scheduleFlags || {})[fid];
+        if (f && f[x.day] && f[x.day].dept) {
+          deptCleared.push(`${x.day}日 ${r.fromName}(原 ${f[x.day].dept})`);
+          delete f[x.day].dept;
+          if (f[x.day].dept2) delete f[x.day].dept2;
+        }
+      });
+      return;
+    }
     (r.days || []).forEach(x => {
       if (!state.schedule[fid]) state.schedule[fid] = {};
       if (!state.schedule[tid]) state.schedule[tid] = {};
@@ -7140,7 +7166,7 @@ async function applySwapsToSchedule() {
   // ---- 3. 把結果列給你看,你決定 ----
   let msg = `📥 準備帶入 ${valid.length} 筆換班到「${month}」\n\n`;
   valid.forEach(({ r }) => {
-    msg += `• ${r.fromName} ⇄ ${r.toName}:` + (r.days || []).map(x => `${x.day}日`).join('、') + '\n';
+    msg += (r.self ? `• ${r.fromName} 自己調換:` : `• ${r.fromName} ⇄ ${r.toName}:`) + (r.days || []).map(x => `${x.day}日`).join('、') + '\n';
   });
 
   if (preWarn.length) {
@@ -7200,7 +7226,7 @@ async function applySwapsToSchedule() {
     await ensureFirebase();
     const { ref, update } = window._fbHelpers;
     for (const id of appliedIds) {
-      await update(ref(_firebaseDb, `swaps/${month}/${id}`), { applied: true, appliedAt: Date.now() });
+      await update(ref(_firebaseDb, `${swapPath(month)}/${id}`), { applied: true, appliedAt: Date.now() });
       if (_swapCache.data[id]) _swapCache.data[id].applied = true;
     }
   } catch (e) { console.warn('標記已帶入失敗:', e); }
@@ -7222,7 +7248,7 @@ async function checkPendingSwaps() {
     if (!state.month) return;
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
-    const snap = await get(ref(_firebaseDb, `swaps/${state.month}`));
+    const snap = await get(ref(_firebaseDb, swapPath(state.month)));
     if (!snap || !snap.exists()) return;
     const n = Object.values(snap.val() || {}).filter(r => r && r.status === 'agreed').length;
     const dot = document.getElementById('swap-pending-dot');
@@ -7595,6 +7621,10 @@ function buildTransferRows() {
     if (!r || r.status !== 'approved') return;
     (r.days || []).forEach(d => {
       if (!d) return;
+      if (r.self) {   // 自己調換:本人那天 原班 → 換完
+        push('換班', r.fromName, d.day, d.fromShift, d.toShift, '本人兩天對調', 'swap:' + (r.id || ''));
+        return;
+      }
       push('換班', r.fromName, d.day, d.fromShift, d.toShift, `與 ${r.toName || '?'} 互換`, 'swap:' + (r.id || ''));
       push('換班', r.toName, d.day, d.toShift, d.fromShift, `與 ${r.fromName || '?'} 互換`, 'swap:' + (r.id || ''));
     });
@@ -7633,7 +7663,7 @@ async function loadTransferList() {
     const { ref, get } = window._fbHelpers;
     const mk = state.month.replace(/[.#$\[\]/]/g, '_');
     const [sSwap, sMark] = await Promise.all([
-      get(ref(_firebaseDb, `swaps/${state.month}`)),
+      get(ref(_firebaseDb, swapPath(state.month))),
       get(ref(_firebaseDb, `schedules/${mk}/payrollTransfer`)),
     ]);
     if (sSwap && sSwap.exists()) _transferCache.swaps = Object.values(sSwap.val() || {});

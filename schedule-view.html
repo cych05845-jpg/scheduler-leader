@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- VIEW-VERSION: 2026-11-26-v12 (可安裝成桌面程式:開啟即當月、自動更新、跨月自動切換) -->
+<!-- VIEW-VERSION: 2026-11-26-v13 (換班入口:資料載入後才判斷、帶入月份與護理師/技助) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
@@ -1218,6 +1218,19 @@ body[data-schedule-type="aide"] .month-table td.col-name {
 </div>
 
 <!-- === 🌴 預約假期入口(護理長開放時才顯示)=== -->
+<!-- 🔄 換班申請入口(該月已公告才出現;帶入正在看的月份與護理師/技助) -->
+<div id="swap-entry" style="display:none; margin:10px 0">
+  <a id="swap-entry-link" href="swap.html" style="display:flex; align-items:center; gap:10px; text-decoration:none;
+     background:linear-gradient(135deg,#7c3aed 0%,#6d28d9 100%); color:#fff; padding:12px 14px; border-radius:10px;
+     box-shadow:0 2px 8px rgba(124,58,237,0.25)">
+    <span style="font-size:1.5rem">🔄</span>
+    <span style="flex:1">
+      <span id="swap-entry-title" style="display:block; font-weight:700; font-size:1rem">換班申請</span>
+      <span style="display:block; font-size:0.8rem; opacity:0.9">選日期、找對象,對方同意後送護理長核准</span>
+    </span>
+    <span style="font-size:1.2rem">›</span>
+  </a>
+</div>
 <div id="booking-entry" style="display:none; margin:10px 0">
   <a id="booking-entry-link" href="#" style="display:flex; align-items:center; gap:10px; text-decoration:none;
      background:linear-gradient(135deg,#0d9488 0%,#0f766e 100%); color:#fff; padding:12px 14px; border-radius:10px;
@@ -1401,7 +1414,7 @@ function showSwapEntry() {
     }
     const mm = state.month.slice(5).replace(/^0/, '') + ' 月';
     if (t) t.textContent = mm + '換班申請';
-    a.href = 'swap.html?m=' + encodeURIComponent(state.month);
+    a.href = 'swap.html?m=' + encodeURIComponent(state.month) + '&t=' + (state.scheduleType === 'aide' ? 'aide' : 'nurse');
     box.style.display = 'block';
   } catch (e) { console.warn('[換班入口] 失敗:', e); }
 }
@@ -1611,6 +1624,9 @@ async function loadData(forceMonth) {
           || ((node.announcementBackup && node.announcementBackup.text) || '');
         state.publishedAt = meta.publishedAt || '';
         state.publishedBy = meta.publishedBy || '';
+        // ★ 資料到了才知道有沒有公告 → 這時才決定換班入口要不要出現
+        //   (以前只在剛進入、資料還沒載完時檢查一次,入口永遠是隱藏的)
+        setTimeout(() => { try { showSwapEntry(); } catch (e) {} }, 0);
 
         // === 排序保險:HN 最上 → D/E/N → 半日墊底 ===
         // ★ 只對護理師班表生效。技助班表是按職類(技→助含工讀→事)+ 護理長手動編的
