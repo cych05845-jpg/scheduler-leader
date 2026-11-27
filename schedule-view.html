@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- VIEW-VERSION: 2026-11-27-v15 (換班格子直接顯示「換 原X」與對象,off 不再顯示成 o) -->
+<!-- VIEW-VERSION: 2026-11-27-v16 (換班格子改為框+角標,說明滑鼠移過去/點一下才顯示) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
@@ -817,6 +817,30 @@ body[data-schedule-type="aide"] .month-table td.col-name {
   border-radius: 3px; padding: 0 3px; margin: 1px 0; text-align: center; line-height: 1.2;
 }
 .cal-cell.cell-swapped { outline: 2px solid #dc2626; outline-offset: -2px; }
+/* 換過班的格子:右上角小三角(紫=換班申請、紅=leader 調班),不佔字 */
+.month-table td.cell-swapped, .cal-cell.cell-swapped { position: relative; }
+.month-table td.cell-swapped::before, .cal-cell.cell-swapped::before {
+  content: ''; position: absolute; top: 0; right: 0; width: 0; height: 0;
+  border-style: solid; border-width: 0 10px 10px 0;
+  border-color: transparent #dc2626 transparent transparent; pointer-events: none;
+}
+.month-table td.cell-swapped.by-swap::before, .cal-cell.cell-swapped.by-swap::before {
+  border-color: transparent #7c3aed transparent transparent;
+}
+/* 滑鼠移過去才浮出說明(電腦);手機用點的,見 showSwapTip */
+@media (hover: hover) {
+  .month-table td[data-swap]:hover::after, .cal-cell[data-swap]:hover::after {
+    content: attr(data-swap); position: absolute; left: 50%; top: calc(100% + 4px); transform: translateX(-50%);
+    background: #1f2937; color: #fff; font-size: 12px; font-weight: 600; line-height: 1.4;
+    padding: 5px 9px; border-radius: 6px; white-space: nowrap; z-index: 60; pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,.25);
+  }
+}
+#swap-tip-toast {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 9999;
+  background: #4c1d95; color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 600;
+  box-shadow: 0 6px 18px rgba(0,0,0,.3); max-width: 92vw; text-align: center; display: none;
+}
 /* 換班申請(經護理長核准)用紫色,跟 leader 現場調班的紅色區分 */
 .month-table td.cell-swapped.by-swap, .cal-cell.cell-swapped.by-swap { outline-color: #7c3aed; }
 .cal-cell-swap.by-swap, .month-cell-swap.by-swap { background: #7c3aed !important; }
@@ -1849,6 +1873,18 @@ function openPersonByName(name) {
 }
 
 // 點班別格鎖定整行高亮(再點同一行取消)— 防止橫向看錯行
+// 點換過班的格子 → 下方跳出說明(手機沒有滑鼠移過去的提示)
+function showSwapTip(el) {
+  const txt = el && el.getAttribute('data-swap');
+  if (!txt) return;
+  let t = document.getElementById('swap-tip-toast');
+  if (!t) { t = document.createElement('div'); t.id = 'swap-tip-toast'; document.body.appendChild(t); }
+  t.textContent = '🔄 ' + txt;
+  t.style.display = 'block';
+  clearTimeout(showSwapTip._h);
+  showSwapTip._h = setTimeout(() => { t.style.display = 'none'; }, 3500);
+}
+window.showSwapTip = showSwapTip;
 function toggleRowLock(pid) {
   const row = document.getElementById('row-' + pid);
   if (!row) return;
@@ -1938,8 +1974,9 @@ function renderPersonCalendar(calId, dowId, month, days, sched, pFlags, holidays
     // 換班申請核准的 → 紫色「換班」;leader 現場調班 → 紅色「調班」
     const _bySwap = !!flag.swapId;
     const _ori = flag.origShift === 'o' ? 'off' : (flag.origShift || '—');
-    const swapSmall = (flag.shiftChanged === true)
-      ? `<div class="cal-cell-swap${_bySwap ? ' by-swap' : ''}" title="${_bySwap ? '換班' : '調班'}${flag.swapWith ? '(' + esc(flag.swapWith) + ')' : ''}:原 ${esc(_ori)} → 現在 ${esc(sh === 'o' ? 'off' : (sh || 'off'))}">${_bySwap ? '換' : '調'} 原${esc(_ori)}</div>` : '';
+    const swapSmall = '';   // 不佔字,改用框 + 角標;說明放在 data-swap
+    const _calTip = (flag.shiftChanged === true)
+      ? `${d}日 ${_bySwap ? '換班' : '調班'}${flag.swapWith ? (flag.swapWith === '本人調換' ? '(本人調換)' : '(與' + flag.swapWith + ')') : ''}:原 ${_ori} → 現在 ${sh === 'o' ? 'off' : (sh || 'off')}` : '';
     if (flag.shiftChanged === true) cls += ' cell-swapped' + (_bySwap ? ' by-swap' : '');
     if (flag.leaveMarked === true) cls += ' cell-on-leave';
     // 逐日個人備註(針對這個人這一天)+ 當日備註(這天所有人適用)
@@ -1949,7 +1986,7 @@ function renderPersonCalendar(calId, dowId, month, days, sched, pFlags, holidays
       ? `<div class="cal-cell-pnote">📝${esc(myDayNote)}</div>` : '';
     const dateNoteSmall = dayNote
       ? `<div class="cal-cell-dnote">📌${esc(dayNote)}</div>` : '';
-    html += `<div class="${cls}"><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}${swapSmall}${leaveSmall}${hoursSmall}${personNoteSmall}${dateNoteSmall}</div>`;
+    html += `<div class="${cls}"${_calTip ? ` data-swap="${esc(_calTip)}" onclick="showSwapTip(this)"` : ''}><div class="day-num">${d}</div><div class="shift-mark">${esc(display)}</div>${deptSmall}${swapSmall}${leaveSmall}${hoursSmall}${personNoteSmall}${dateNoteSmall}</div>`;
   }
   document.getElementById(calId).innerHTML = html;
 }
@@ -2120,11 +2157,11 @@ function renderMonthTable() {
       const _orig = flag.origShift === 'o' ? 'off' : (flag.origShift || '—');
       const _now = sh === 'o' ? 'off' : (sh || 'off');
       const _with = (bySwap && flag.swapWith) ? `(${flag.swapWith === '本人調換' ? '本人調換' : '與' + flag.swapWith})` : '';
-      // 格子上直接寫「換 原D」,手機看得到原本是什麼班;完整說明放在 title
-      const swapTag = swapped
-        ? `<div class="month-cell-swap${bySwap ? ' by-swap' : ''}" title="${swapWord}${esc(_with)}:原 ${esc(_orig)} → 現在 ${esc(_now)}">${bySwap ? '換' : '調'} 原${esc(_orig)}</div>` : '';
+      // 格子只留「框 + 右上角小三角」不佔字;說明在滑鼠移過去時浮出,手機點一下會跳提示
+      const swapTag = '';
+      const swapTip = swapped ? `${swapWord}${_with}:原 ${_orig} → 現在 ${_now}` : '';
       const swapCls = swapped ? (' cell-swapped' + (bySwap ? ' by-swap' : '')) : '';
-      h += `<td class="${cls}${flag.leaveMarked?' cell-on-leave':''}${swapCls}" onclick="toggleRowLock('${escAttr(p.id)}')" style="cursor:pointer" title="${swapped?(swapWord+esc(_with)+':原 '+esc(_orig)+' → 現在 '+esc(_now)):(flag.leaveMarked?esc(flag.leaveReason||'請假'):(personNote ? esc(personNote) : '點一下鎖定整行,方便對齊'))}">${deptSmall}${swapTag}${leaveTag}${hoursTag}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
+      h += `<td class="${cls}${flag.leaveMarked?' cell-on-leave':''}${swapCls}" ${swapped ? `data-swap="${esc(p.name + ' ' + d + '日 ' + swapTip)}"` : ''} onclick="toggleRowLock('${escAttr(p.id)}')${swapped ? ';showSwapTip(this)' : ''}" style="cursor:pointer" title="${swapped?'':(flag.leaveMarked?esc(flag.leaveReason||'請假'):(personNote ? esc(personNote) : '點一下鎖定整行,方便對齊'))}">${deptSmall}${swapTag}${leaveTag}${hoursTag}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
     }
     const offCellTitle = vDays > 0 ? `本月公休 ${offDays} 天(另特休 V ${vDays} 天)` : `本月公休 ${offDays} 天`;
     h += `<td class="col-off" title="${offCellTitle}"><span class="off-num">${offDays}</span></td>`;
