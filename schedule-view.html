@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- VIEW-VERSION: 2026-11-26-v13 (換班入口:資料載入後才判斷、帶入月份與護理師/技助) -->
+<!-- VIEW-VERSION: 2026-11-27-v14 (換班申請核准的格子顯示紫色「換班」,與 leader 調班區分) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
@@ -817,6 +817,10 @@ body[data-schedule-type="aide"] .month-table td.col-name {
   border-radius: 3px; padding: 0 3px; margin: 1px 0; text-align: center; line-height: 1.2;
 }
 .cal-cell.cell-swapped { outline: 2px solid #dc2626; outline-offset: -2px; }
+/* 換班申請(經護理長核准)用紫色,跟 leader 現場調班的紅色區分 */
+.month-table td.cell-swapped.by-swap, .cal-cell.cell-swapped.by-swap { outline-color: #7c3aed; }
+.cal-cell-swap.by-swap, .month-cell-swap.by-swap { background: #7c3aed !important; }
+.shift-person .shift-tag.by-swap { background: #ede9fe; color: #6d28d9; }
 /* 科別標籤跟班別同色系(深一階),深色實心+白字跟淺色班別格子形成界限 */
 .month-table td.cell-D .month-cell-dept {
   color: white;
@@ -1755,7 +1759,7 @@ function renderToday() {
     const sh = (state.schedule[p.id] || {})[day];
     if (buckets[sh] !== undefined) {
       const flag = (state.flags[p.id] && state.flags[p.id][day]) || {};
-      buckets[sh].push({ p, marker: flag.marker || '', dept: flag.dept || '', dept2: flag.dept2 || '', leaveMarked: flag.leaveMarked === true, leaveReason: flag.leaveReason || '', hoursNote: flag.hoursNote || '', shiftChanged: flag.shiftChanged === true, origShift: flag.origShift || '' });
+      buckets[sh].push({ p, marker: flag.marker || '', dept: flag.dept || '', dept2: flag.dept2 || '', leaveMarked: flag.leaveMarked === true, leaveReason: flag.leaveReason || '', hoursNote: flag.hoursNote || '', shiftChanged: flag.shiftChanged === true, origShift: flag.origShift || '', bySwap: !!flag.swapId });
     }
   });
 
@@ -1784,14 +1788,14 @@ function renderToday() {
         <span class="shift-count">(${arr.length} 人)</span>
       </div>
       <div class="shift-people">`;
-    arr.forEach(({p, marker, dept, dept2, leaveMarked, leaveReason, hoursNote, shiftChanged, origShift}) => {
+    arr.forEach(({p, marker, dept, dept2, leaveMarked, leaveReason, hoursNote, shiftChanged, origShift, bySwap}) => {
       const markerTag = marker === 'preceptor' ? '<span class="marker-tag preceptor">帶</span>'
                       : marker === 'trainee' ? "<span class='marker-tag trainee'>'</span>"
                       : '';
       const deptTag = dept ? `<span class="dept-tag">${esc(dept)}${dept2?`<span style="font-size:0.72rem; opacity:0.85">+${esc(dept2)}</span>`:''}</span>` : '';
       const leaveTag = leaveMarked ? `<span class="leave-tag">${esc(leaveReason||'請假')}</span>` : '';
       const hoursTag = hoursNote ? `<span class="hours-tag">⏱${esc(hoursNote)}</span>` : '';
-      const shiftTag = shiftChanged ? `<span class="shift-tag">↔原${esc(origShift)}</span>` : '';
+      const shiftTag = shiftChanged ? `<span class="shift-tag${bySwap ? ' by-swap' : ''}">${bySwap ? '換班 ' : ''}↔原${esc(origShift === 'o' ? 'off' : origShift)}</span>` : '';
       const offDays = countOffDays(p.id);
       const offTag = `<span class="off-tag" title="本月 OFF 數">休 ${offDays}</span>`;
       const cls = leaveMarked ? 'shift-person on-leave' : 'shift-person';
@@ -1928,9 +1932,11 @@ function renderPersonCalendar(calId, dowId, month, days, sched, pFlags, holidays
     const hoursSmall = flag.hoursNote
       ? `<div class="cal-cell-hours">⏱${esc(flag.hoursNote)}</div>` : '';
     // 調班標記(leader 現場換班)— 紅標 + 紅框
+    // 換班申請核准的 → 紫色「換班」;leader 現場調班 → 紅色「調班」
+    const _bySwap = !!flag.swapId;
     const swapSmall = (flag.shiftChanged === true)
-      ? `<div class="cal-cell-swap" title="原 ${esc(flag.origShift||'—')} 班">調班</div>` : '';
-    if (flag.shiftChanged === true) cls += ' cell-swapped';
+      ? `<div class="cal-cell-swap${_bySwap ? ' by-swap' : ''}" title="原 ${esc(flag.origShift||'—')} 班">${_bySwap ? '換班' : '調班'}</div>` : '';
+    if (flag.shiftChanged === true) cls += ' cell-swapped' + (_bySwap ? ' by-swap' : '');
     if (flag.leaveMarked === true) cls += ' cell-on-leave';
     // 逐日個人備註(針對這個人這一天)+ 當日備註(這天所有人適用)
     const myDayNote = (pid && state.personNotes && state.personNotes[pid] && state.personNotes[pid][d]) || '';
@@ -2105,10 +2111,12 @@ function renderMonthTable() {
         ? `<div class="month-cell-hours" title="加減工時 ${esc(flag.hoursNote)}">⏱${esc(flag.hoursNote)}</div>` : '';
       // 調班標記(leader 現場換班)— 上排寫「調班」+ 整格紅框,下排仍是實際班別
       const swapped = flag.shiftChanged === true;
+      const bySwap = !!flag.swapId;     // 經換班申請核准對調的
+      const swapWord = bySwap ? '換班' : '調班';
       const swapTag = swapped
-        ? `<div class="month-cell-swap" title="調班(原 ${esc(flag.origShift || '—')} 班 → 現在 ${esc(sh || 'off')})">調班</div>` : '';
-      const swapCls = swapped ? ' cell-swapped' : '';
-      h += `<td class="${cls}${flag.leaveMarked?' cell-on-leave':''}${swapCls}" onclick="toggleRowLock('${escAttr(p.id)}')" style="cursor:pointer" title="${swapped?('調班:原 '+esc(flag.origShift||'—')+' 班'):(flag.leaveMarked?esc(flag.leaveReason||'請假'):(personNote ? esc(personNote) : '點一下鎖定整行,方便對齊'))}">${deptSmall}${swapTag}${leaveTag}${hoursTag}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
+        ? `<div class="month-cell-swap${bySwap ? ' by-swap' : ''}" title="${swapWord}(原 ${esc(flag.origShift || '—')} 班 → 現在 ${esc(sh || 'off')})">${swapWord}</div>` : '';
+      const swapCls = swapped ? (' cell-swapped' + (bySwap ? ' by-swap' : '')) : '';
+      h += `<td class="${cls}${flag.leaveMarked?' cell-on-leave':''}${swapCls}" onclick="toggleRowLock('${escAttr(p.id)}')" style="cursor:pointer" title="${swapped?(swapWord+':原 '+esc(flag.origShift||'—')+' 班'):(flag.leaveMarked?esc(flag.leaveReason||'請假'):(personNote ? esc(personNote) : '點一下鎖定整行,方便對齊'))}">${deptSmall}${swapTag}${leaveTag}${hoursTag}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
     }
     const offCellTitle = vDays > 0 ? `本月公休 ${offDays} 天(另特休 V ${vDays} 天)` : `本月公休 ${offDays} 天`;
     h += `<td class="col-off" title="${offCellTitle}"><span class="off-num">${offDays}</span></td>`;

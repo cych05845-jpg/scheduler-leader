@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- SWAP-VERSION: 2026-11-26-v2 (可選月份/護理師或技助;不算人力者可自己調換;修正無法送出) -->
+<!-- SWAP-VERSION: 2026-11-27-v3 (帳號中心登入驗證身分,只能以本人申請/同意;取消紙本列印) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診換班申請</title>
@@ -88,32 +88,19 @@
   .seg button:disabled{opacity:.45; cursor:not-allowed}
   .seg-label{font-size:0.8rem; color:var(--ink-mute); margin:8px 0 4px; font-weight:600}
 
-  /* 列印:只印申請單 */
-  @media print{
-    body{background:#fff; padding:0}
-    header,.tabs,.notice,.no-print,button{display:none !important}
-    .card{border:none; box-shadow:none; margin:0}
-    #print-area{display:block !important}
-    .wrap > *:not(#print-area){display:none !important}
-  }
-  #print-area{display:none}
-  .sheet{padding:10px 4px; font-size:14px; color:#000}
-  .sheet h2{text-align:center; font-size:19px; margin:0 0 4px; letter-spacing:2px}
-  .sheet .unit{text-align:center; font-size:13px; color:#444; margin-bottom:14px}
-  .sheet table{width:100%; border-collapse:collapse; margin-bottom:12px}
-  .sheet th,.sheet td{border:1px solid #333; padding:7px 9px; font-size:13.5px}
-  .sheet th{background:#f0f0f0; width:110px; text-align:left; font-weight:700}
-  .sign{display:flex; gap:12px; margin-top:22px}
-  .sign > div{flex:1; border-top:1px solid #333; padding-top:5px; text-align:center; font-size:12.5px; color:#333}
-  .sheet .foot{margin-top:16px; font-size:11.5px; color:#555; line-height:1.7}
 </style>
 </head>
 <body>
 
 <header>
-  <div class="wrap">
-    <h1>🔄 急診換班申請</h1>
-    <div class="sub" id="hd-sub">載入中...</div>
+  <div class="wrap" style="display:flex; align-items:center; gap:10px">
+    <!-- 裝成程式後沒有瀏覽器返回鍵,一定要有這顆 -->
+    <a href="schedule-view.html?app=1" onclick="if(history.length>1&&document.referrer.includes('schedule-view')){history.back();return false;}"
+       style="color:#fff; text-decoration:none; font-size:0.9rem; border:1px solid rgba(255,255,255,.45); border-radius:8px; padding:5px 10px; white-space:nowrap">← 回班表</a>
+    <div style="flex:1">
+      <h1>🔄 急診換班申請</h1>
+      <div class="sub" id="hd-sub">載入中...</div>
+    </div>
   </div>
 </header>
 
@@ -131,11 +118,18 @@
 
   <div id="status" class="status">⏳ 載入中...</div>
 
-  <!-- 選人 -->
-  <div id="pick-person" class="card hide">
-    <h2>請選擇你的名字</h2>
-    <select id="person-select"><option value="">— 選擇 —</option></select>
-    <div style="margin-top:10px"><button class="btn" onclick="confirmPerson()">確定</button></div>
+  <!-- 🔐 要換班才需要登入(看班表不用) -->
+  <div id="login-card" class="card hide">
+    <h2>🔐 換班要先登入</h2>
+    <div class="muted" style="font-size:0.9rem">用<b>帳號中心</b>的員編 + PIN 登入(跟 ED-Board 同一組)。<br>
+      登入後只能用你自己的名字申請、同意,別人無法冒名替你換班。</div>
+    <div id="login-err" class="muted" style="color:var(--err); margin-top:6px"></div>
+    <div style="margin-top:12px"><button class="btn" onclick="goLogin()">登入</button></div>
+  </div>
+  <div id="notfound-card" class="card hide">
+    <h2>找不到你的名字</h2>
+    <div class="muted" style="font-size:0.9rem" id="notfound-msg"></div>
+    <div style="margin-top:12px"><button class="btn ghost" onclick="logoutAcct()">換一個帳號登入</button></div>
   </div>
 
   <!-- 主畫面 -->
@@ -146,7 +140,7 @@
           <h2 style="margin:0" id="my-name">—</h2>
           <div class="muted" id="my-month">—</div>
         </div>
-        <button class="btn ghost small" onclick="switchPerson()">換人</button>
+        <button class="btn ghost small" onclick="logoutAcct()" title="登出帳號中心(所有急診程式都會一起登出)">登出</button>
       </div>
     </div>
 
@@ -190,16 +184,16 @@
     </div>
 
     <div class="notice">
-      <strong>流程</strong>:你提出 → 對方同意 → 護理長核准 → 班表更新<br>
-      <strong>紙本</strong>:對方同意後,申請單可以列印出來雙方簽名,交給護理長存查。
+      <strong>流程</strong>:你提出 → 對方登入同意 → 護理長/副護理長核准 → 班表直接更新<br>
+      <strong>不用紙本</strong>:每一步都有登入驗證和時間紀錄,護理長那邊有電子報表可以備查。
     </div>
   </div>
 
 </div>
 
-<!-- 列印用的申請單 -->
-<div id="print-area"><div class="sheet" id="sheet"></div></div>
 
+<!-- 帳號中心(員編+PIN,與其他急診程式共用登入) -->
+<script src="https://cych05845-jpg.github.io/ed-account/account-sdk.js"></script>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import { getDatabase, ref, get, set, update, onValue, remove } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
@@ -225,7 +219,6 @@ const SELF = '__self__';
 //   以前存在頂層 swaps,但 Firebase 規則沒開放 → 申請根本送不出去。
 const baseOf = () => (S.sys === 'aide' ? 'aide-schedules' : 'schedules');
 const swapsPath = () => `${baseOf()}/${S.month}/swaps`;
-const lsKey = () => `swap.myPersonId.v1.${S.sys}`;
 const ymOf = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
 const monthLabel = (m) => `${Number(m.slice(5))} 月`;
 
@@ -279,7 +272,7 @@ async function openMonth(m) {
   if (S.unsub) { try { S.unsub(); } catch (e) {} S.unsub = null; }
   S.month = m; S.myId = ''; S.picks = []; S.swaps = {};
   markSeg();
-  $('main').classList.add('hide'); $('pick-person').classList.add('hide');
+  ['main', 'login-card', 'notfound-card'].forEach(id => $(id).classList.add('hide'));
   if (!m) { showStatus(`⚠ ${S.sys === 'aide' ? '技術員/助理員' : '護理師'}本月和下個月的班表都還沒公告,目前無法申請換班。`); return; }
   showStatus('⏳ 載入中...');
   S.days = daysInMonth(m);
@@ -306,10 +299,57 @@ async function openMonth(m) {
     if (S.myId) { renderLists(); updateBadges(); }
   });
 
-  let savedId = null;
-  try { savedId = localStorage.getItem(lsKey()) || (S.sys === 'nurse' ? localStorage.getItem('swap.myPersonId.v1') : null); } catch (e) {}
-  const me = savedId && S.staff.find(p => p.id === savedId);
-  if (me) enterAs(me); else showPersonPicker();
+  await resolveIdentity();
+}
+
+// ---------- 🔐 身分:一律以帳號中心登入的人為準,不能自己選名字 ----------
+const normName = (s) => String(s || '').replace(/\s+/g, '');
+async function verifyAccount() {
+  if (!window.ACCOUNT) return { ok: false, error: '帳號中心載入失敗,請檢查網路後重新整理' };
+  try { return await window.ACCOUNT.verify(); } catch (e) { return { ok: false, error: e.message || '帳號中心連線失敗' }; }
+}
+async function resolveIdentity() {
+  if (!S.acct) {
+    const r = await verifyAccount();
+    if (!r.ok || !r.user) { showLogin(r.error && r.error !== '尚未登入' ? r.error : ''); return; }
+    S.acct = r.user;
+  }
+  const me = S.staff.find(p => normName(p.name) === normName(S.acct.name));
+  if (me) { enterAs(me); return; }
+  // 不在這份班表 → 第一次就自動試另一個系統(技助登入時直接切到技助)
+  if (!S._triedOther) {
+    S._triedOther = true;
+    const other = S.sys === 'aide' ? 'nurse' : 'aide';
+    await chooseSys(other);
+    return;
+  }
+  $('status').classList.add('hide');
+  $('notfound-msg').innerHTML = `你登入的帳號是「<b>${esc(S.acct.name)}</b>」(員編 ${esc(S.acct.empId || '—')}),`
+    + `但這份班表沒有這個名字。<br>如果名字有錯字或你在另一個班表,請切換上方的「班表 / 月份」,或告訴護理長。`;
+  $('notfound-card').classList.remove('hide');
+}
+function showLogin(err) {
+  $('status').classList.add('hide');
+  $('main').classList.add('hide');
+  $('login-err').textContent = err || '';
+  $('login-card').classList.remove('hide');
+}
+window.goLogin = function () {
+  if (!window.ACCOUNT) { alert('帳號中心載入失敗,請檢查網路後重新整理。'); return; }
+  window.ACCOUNT.goLogin();   // 登入後會自動回到這一頁(同一個月份、同一個班表)
+};
+window.logoutAcct = function () {
+  if (!confirm('登出帳號中心?\n\n(同一台裝置上的急診程式都會一起登出)')) return;
+  try { window.ACCOUNT && window.ACCOUNT.logout(); } catch (e) {}
+  location.reload();
+};
+// 寫入前再確認一次:登入還有效、而且就是畫面上這個人
+async function ensureMe() {
+  const r = await verifyAccount();
+  if (!r.ok || !r.user) { alert('登入已過期,請重新登入。'); window.goLogin(); return false; }
+  if (normName(r.user.name) !== normName(S.myName)) { alert('登入的帳號跟畫面上的人不同,請重新整理頁面。'); return false; }
+  S.acct = r.user;
+  return true;
 }
 
 async function boot() {
@@ -323,34 +363,12 @@ async function boot() {
   await openMonth(m);
 }
 
-function showPersonPicker() {
-  $('status').classList.add('hide');
-  $('main').classList.add('hide');
-  $('person-select').innerHTML = '<option value="">— 選擇 —</option>' +
-    S.staff.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${p.level ? ' (' + esc(p.level) + ')' : ''}</option>`).join('');
-  $('pick-person').classList.remove('hide');
-}
-window.confirmPerson = function () {
-  const id = $('person-select').value;
-  if (!id) { alert('請先選擇你的名字'); return; }
-  const p = S.staff.find(x => x.id === id);
-  if (!p) return;
-  try { localStorage.setItem(lsKey(), id); } catch (e) {}
-  enterAs(p);
-};
-window.switchPerson = function () {
-  try { localStorage.removeItem(lsKey()); } catch (e) {}
-  S.myId = ''; S.picks = [];
-  showPersonPicker();
-};
-
 function enterAs(p) {
   S.myId = p.id; S.myName = p.name; S.picks = [];
-  $('status').classList.add('hide');
-  $('pick-person').classList.add('hide');
+  ['status', 'login-card', 'notfound-card'].forEach(id => $(id).classList.add('hide'));
   $('main').classList.remove('hide');
   $('my-name').textContent = p.name;
-  $('my-month').textContent = S.month.replace('-', ' 年 ') + ' 月班表';
+  $('my-month').textContent = S.month.replace('-', ' 年 ') + ' 月班表 · 🔐 已登入 ' + (S.acct && S.acct.empId ? '員編 ' + S.acct.empId : '');
   S.canSelf = (p._countAsCapacity === false);   // 不算人力(沒設功能選項)→ 可以自己跟自己換
   $('target-select').innerHTML = '<option value="">— 選擇對象 —</option>' +
     (S.canSelf ? `<option value="${SELF}">🔁 自己調換(把我自己兩天的班對調)</option>` : '') +
@@ -447,19 +465,20 @@ window.submitSwap = async function () {
     if (S.picks.length !== 2) { alert('自己調換請剛好選 2 天。'); return; }
     const [a, b] = S.picks, sa = shiftOf(S.myId, a), sb = shiftOf(S.myId, b);
     if (sa === sb) { alert('這兩天班別一樣,換了沒有變化。請重新選日期。'); return; }
+    if (!(await ensureMe())) return;
     if (!confirm(`確定送出自己調換?\n\n${a}日:${dispShift(sa)} → ${dispShift(sb)}\n${b}日:${dispShift(sb)} → ${dispShift(sa)}\n\n原因:${reason}\n\n送出後直接給護理長核准。`)) return;
     const btn0 = $('submit-btn'); btn0.disabled = true; btn0.textContent = '⏳ 送出中...';
     try {
       const id = 'sw_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
       await set(ref(db, `${swapsPath()}/${id}`), {
         id, month: S.month, sys: S.sys, self: true,
-        fromId: S.myId, fromName: S.myName, toId: S.myId, toName: S.myName,
+        fromId: S.myId, fromName: S.myName, toId: S.myId, toName: S.myName, fromEmpId: S.acct.empId || '',
         days: [{ day: a, fromShift: sa, toShift: sb }, { day: b, fromShift: sb, toShift: sa }],
         reason, status: 'agreed', createdAt: Date.now(), agreedAt: Date.now(),
       });
       S.picks = []; $('reason').value = ''; $('target-select').value = '';
       renderCal(); renderPreview();
-      alert('✅ 已送出,等護理長核准。\n可以在「我的申請」列印申請單。');
+      alert('✅ 已送出,等護理長/副護理長核准。\n可以在「我的申請」看進度。');
       switchTab('mine');
     } catch (e) { alert('送出失敗:' + (e.message || '')); }
     btn0.disabled = false; btn0.textContent = '送出換班申請';
@@ -478,13 +497,14 @@ window.submitSwap = async function () {
   const txt = days.map(x => `${x.day}日:${dispShift(x.fromShift)} ↔ ${dispShift(x.toShift)}`).join('\n');
   if (!confirm(`確定送出換班申請?\n\n對象:${t.name}\n${txt}\n\n原因:${reason}\n\n送出後對方會收到,同意後再由護理長核准。`)) return;
 
+  if (!(await ensureMe())) return;
   const btn = $('submit-btn');
   btn.disabled = true; btn.textContent = '⏳ 送出中...';
   try {
     const id = 'sw_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     await set(ref(db, `${swapsPath()}/${id}`), {
       id, month: S.month, sys: S.sys,
-      fromId: S.myId, fromName: S.myName,
+      fromId: S.myId, fromName: S.myName, fromEmpId: S.acct.empId || '',
       toId: tid, toName: t.name,
       days, reason,
       status: 'pending',
@@ -492,7 +512,7 @@ window.submitSwap = async function () {
     });
     S.picks = []; $('reason').value = ''; $('target-select').value = '';
     renderCal(); renderPreview();
-    alert('✅ 已送出\n\n請通知對方上來按「同意」。\n對方同意後,你可以在「我的申請」列印申請單簽名。');
+    alert('✅ 已送出\n\n請通知對方登入換班頁按「同意」。\n對方同意後就會送給護理長/副護理長核准,可以在「我的申請」看進度。');
     switchTab('mine');
   } catch (e) {
     alert('送出失敗:' + (e.message || ''));
@@ -523,9 +543,7 @@ function reqCard(r, forMe) {
   } else if (!forMe && (r.status === 'pending' || (r.self && r.status === 'agreed'))) {
     acts = `<div class="acts"><button class="btn err small" onclick="cancelSwap('${r.id}')">取消申請</button></div>`;
   }
-  if (r.status === 'agreed' || r.status === 'approved') {
-    acts += `<div class="acts"><button class="btn ghost small" onclick="printSheet('${r.id}')">🖨 列印申請單</button></div>`;
-  }
+
   const extra = r.status === 'rejected' && r.rejectReason
     ? `<div class="muted" style="color:var(--err)">退回原因:${esc(r.rejectReason)}</div>` : '';
   return `<div class="req ${r.status}">
@@ -554,81 +572,34 @@ function updateBadges() {
 
 window.agreeSwap = async function (id) {
   const r = S.swaps[id]; if (!r) return;
+  if (r.toId !== S.myId || r.self) { alert('只有被邀請換班的本人可以同意。'); return; }
+  if (!(await ensureMe())) return;
   const txt = (r.days || []).map(x => `${x.day}日:你的 ${dispShift(x.toShift)} → ${dispShift(x.fromShift)}`).join('\n');
   if (!confirm(`確定同意跟 ${r.fromName} 換班?\n\n${txt}\n\n同意後會送給護理長核准。`)) return;
   try {
-    await update(ref(db, `${swapsPath()}/${id}`), { status: 'agreed', agreedAt: Date.now() });
-    alert('✅ 已同意\n\n接下來由護理長核准。\n可以按「🖨 列印申請單」印出來雙方簽名。');
+    await update(ref(db, `${swapsPath()}/${id}`), { status: 'agreed', agreedAt: Date.now(), agreedByEmpId: S.acct.empId || '' });
+    alert('✅ 已同意\n\n接下來由護理長/副護理長核准,核准後班表會直接更新。');
   } catch (e) { alert('失敗:' + (e.message || '')); }
 };
 
 window.rejectSwap = async function (id) {
   const r = S.swaps[id]; if (!r) return;
+  if (r.toId !== S.myId || r.self) { alert('只有被邀請換班的本人可以回覆。'); return; }
+  if (!(await ensureMe())) return;
   const why = prompt(`不同意跟 ${r.fromName} 換班的原因(會讓對方看到):`, '');
   if (why === null) return;
   try {
-    await update(ref(db, `${swapsPath()}/${id}`), { status: 'rejected', rejectReason: why || '(未填)', rejectedAt: Date.now(), rejectedBy: S.myName });
+    await update(ref(db, `${swapsPath()}/${id}`), { status: 'rejected', rejectReason: why || '(未填)', rejectedAt: Date.now(), rejectedBy: S.myName, rejectedByEmpId: S.acct.empId || '' });
     alert('已回覆不同意。');
   } catch (e) { alert('失敗:' + (e.message || '')); }
 };
 
 window.cancelSwap = async function (id) {
+  const r = S.swaps[id]; if (!r) return;
+  if (r.fromId !== S.myId) { alert('只有申請人本人可以取消。'); return; }
+  if (!(await ensureMe())) return;
   if (!confirm('確定取消這筆換班申請?')) return;
   try { await remove(ref(db, `${swapsPath()}/${id}`)); } catch (e) { alert('失敗:' + (e.message || '')); }
-};
-
-// ---------- 列印申請單 ----------
-window.printSheet = function (id) {
-  const r = S.swaps[id]; if (!r) return;
-  const title = (r.sys === 'aide' || S.sys === 'aide') ? '技術員/助理員換班申請單' : '護理人員換班申請單';
-  const dt0 = (t) => t ? new Date(t).toLocaleString('zh-TW', { hour12: false }) : '—';
-  if (r.self) {
-    const rws = (r.days || []).map(x => `<tr><td>${x.day} 日</td><td>${esc(dispShift(x.fromShift))}</td><td>${esc(dispShift(x.toShift))}</td></tr>`).join('');
-    $('sheet').innerHTML = `
-      <h2>${title}(本人調換)</h2>
-      <div class="unit">嘉義基督教醫院　急診室</div>
-      <table>
-        <tr><th>申請人</th><td>${esc(r.fromName)}</td><th>班表月份</th><td>${esc(r.month)}</td></tr>
-        <tr><th>申請時間</th><td>${dt0(r.createdAt)}</td><th>護理長核准</th><td>${r.status === 'approved' ? dt0(r.approvedAt) : '待核准'}</td></tr>
-        <tr><th>調換原因</th><td colspan="3">${esc(r.reason || '')}</td></tr>
-      </table>
-      <table><tr><th style="width:90px">日期</th><th>原班</th><th>調換後</th></tr>${rws}</table>
-      <div class="sign"><div>申請人簽名</div><div>護理長簽名</div></div>
-      <div class="foot">說明:本人兩日班別對調,經護理長核准後生效,班表以系統公告為準。<br>
-        單號:${esc(r.id)}　列印時間:${new Date().toLocaleString('zh-TW', { hour12: false })}</div>`;
-    window.print();
-    return;
-  }
-  const rows = (r.days || []).map(x => `<tr>
-      <td>${x.day} 日</td>
-      <td>${esc(dispShift(x.fromShift))}</td>
-      <td>${esc(dispShift(x.toShift))}</td>
-      <td>${esc(r.fromName)} 改上 ${esc(dispShift(x.toShift))}、${esc(r.toName)} 改上 ${esc(dispShift(x.fromShift))}</td>
-    </tr>`).join('');
-  const dt = (t) => t ? new Date(t).toLocaleString('zh-TW', { hour12: false }) : '—';
-  $('sheet').innerHTML = `
-    <h2>${title}</h2>
-    <div class="unit">嘉義基督教醫院　急診室</div>
-    <table>
-      <tr><th>申請人</th><td>${esc(r.fromName)}</td><th>換班對象</th><td>${esc(r.toName)}</td></tr>
-      <tr><th>班表月份</th><td>${esc(r.month)}</td><th>申請時間</th><td>${dt(r.createdAt)}</td></tr>
-      <tr><th>換班原因</th><td colspan="3">${esc(r.reason || '')}</td></tr>
-    </table>
-    <table>
-      <tr><th style="width:70px">日期</th><th style="width:90px">${esc(r.fromName)}原班</th><th style="width:90px">${esc(r.toName)}原班</th><th>換班後</th></tr>
-      ${rows}
-    </table>
-    <table>
-      <tr><th>對方同意時間</th><td>${dt(r.agreedAt)}</td><th>護理長核准</th><td>${r.status === 'approved' ? dt(r.approvedAt) : '待核准'}</td></tr>
-    </table>
-    <div class="sign">
-      <div>申請人簽名</div><div>換班對象簽名</div><div>護理長簽名</div>
-    </div>
-    <div class="foot">
-      說明:本單經雙方同意並由護理長核准後生效,班表以系統公告為準。<br>
-      單號:${esc(r.id)}　列印時間:${new Date().toLocaleString('zh-TW', { hour12: false })}
-    </div>`;
-  window.print();
 };
 
 boot().catch(e => showStatus('載入失敗:' + esc(e.message || '')));
