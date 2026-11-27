@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-11-27-v56 (預約假期改存班表節點底下:修正從未能運作;開放前檢查月份已建立) -->
+<!-- VERSION: 2026-11-27-v57 (事務員工作台 clerk.html:預約抽籤直接寫入雲端班表;護理長預約視窗顯示事務員抽籤狀態、防重抽) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -1549,6 +1549,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
 
       <div style="background:#f0fdfa; border-left:4px solid #0d9488; padding:10px 12px; border-radius:0 8px 8px 0; margin-bottom:12px; font-size:0.9rem">
         <strong>流程</strong>:同仁上預約頁登記 → 你按「🎲 開始抽籤」→ 抽籤結果寫入預約班表 → 公告 → 排班時按「📥 帶入預約班表」<br>
+        <strong>事務員</strong>:也可以由事務員在 <a href="clerk.html" target="_blank" style="color:#0f766e;font-weight:700">🗂 事務員工作台</a> 開放、抽籤,抽完直接寫進雲端班表(你按「☁ 載入雲端班表」就看得到,不用再帶入)。<br>
         <strong>規則</strong>:依班表順序每 13 人一組,每組抽 1 個「一定可放」→ <strong>OFF</strong>;沒抽中 → <strong>off</strong>(底線軟假)。
       </div>
 
@@ -7543,9 +7544,13 @@ function renderBookingList() {
         <div style="font-size:1.3rem;font-weight:800;color:#0f766e">${totalPicks}</div>
         <div style="font-size:0.78rem;color:var(--ink-mute)">總預約人次</div></div>
       ${lottery ? `<div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px 14px">
-        <div style="font-size:0.9rem;font-weight:700;color:#166534">✓ 已抽籤</div>
-        <div style="font-size:0.78rem;color:var(--ink-mute)">${new Date(lottery.at).toLocaleString('zh-TW')}</div></div>` : ''}
-    </div>`;
+        <div style="font-size:0.9rem;font-weight:700;color:#166534">✓ 已抽籤${lottery.appliedAt ? '並寫入班表' : ''}</div>
+        <div style="font-size:0.78rem;color:var(--ink-mute)">${new Date(lottery.at).toLocaleString('zh-TW')}${lottery.by ? ' · ' + escapeHTML(lottery.by) : ''}</div></div>` : ''}
+    </div>`
+    + (lottery && lottery.appliedAt ? `<div style="margin-top:8px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;font-size:0.85rem">
+        📌 事務員已把抽籤結果寫進雲端班表(${(lottery.applied || []).length} 格)。請按「☁ 載入雲端班表」載入 ${escapeHTML(month)} 查看,<b>不用再按帶入、也不要重抽</b>。
+        ${(lottery.skipped || []).length ? `<br>⚠ 有 ${(lottery.skipped || []).length} 格原本已有班別,沒有蓋掉,需要你決定:${(lottery.skipped || []).map(x => escapeHTML(x.name) + ' ' + x.day + '日(現為 ' + escapeHTML(x.cur === 'o' ? 'off' : x.cur) + ',抽籤 ' + escapeHTML(x.code) + ')').join('、')}` : ''}
+      </div>` : '');
   }
 
   if (!people.length) {
@@ -7632,6 +7637,12 @@ async function runBookingLottery() {
     .map(p => p.name);
   if (!order.length) { alert('目前畫面沒有「算為人力」的人員,請先載入班表並確認能力設定。'); return; }
 
+  const _prevLot = _bookingCache.lottery;
+  if (_prevLot && _prevLot.appliedAt) {
+    if (!confirm(`⚠ ${month} 已經由${_prevLot.by || '事務員'}在 ${new Date(_prevLot.at).toLocaleString('zh-TW')} 抽籤,並寫進雲端班表了。\n\n`
+      + `你在這裡重抽會覆蓋抽籤結果,但不會把已寫進班表的 OFF/off 還原,結果會對不上。\n`
+      + `要重抽請改到「🗂 事務員工作台」重抽(會自動還原再寫入)。\n\n仍要在這裡重抽嗎?`)) return;
+  }
   if (!confirm(`確定開始抽籤?\n\n月份:${month}\n預約人數:${people.length} 人\n分組:每 ${BOOKING_GROUP_SIZE} 人一組,每組抽 1 個名額\n\n抽完會覆蓋先前的抽籤結果。`)) return;
 
   // 名字 → 組別
@@ -7689,6 +7700,10 @@ async function runBookingLottery() {
 function applyBookingToSchedule() {
   const { month, data, lottery } = _bookingCache;
   if (!lottery) { alert('還沒抽籤。請先按「🎲 開始抽籤」。'); return; }
+  if (lottery.appliedAt) {
+    if (!confirm(`這次抽籤${lottery.by ? '(' + lottery.by + ')' : ''}已經直接寫進雲端班表了。\n\n`
+      + `建議按「取消」,改按「☁ 載入雲端班表」載入 ${month} 就能看到結果。\n\n仍要帶入目前畫面嗎?`)) return;
+  }
   if (state.month !== month) {
     if (!confirm(`⚠ 目前畫面是「${state.month}」,抽籤結果是「${month}」。\n\n確定要帶入嗎?`)) return;
   }

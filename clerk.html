@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<!-- CLERK-VERSION: 2026-11-27-v1 (事務員工作台:預約抽籤並寫入班表、換班/調班轉錄清單) -->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>急診事務員工作台</title>
+<link rel="icon" type="image/png" sizes="192x192" href="icons/view-192.png">
+<style>
+  :root{
+    --ink:#1f2937; --ink-mute:#6b7280; --line:#e5e7eb; --bg:#f7f6f3; --paper:#fff;
+    --accent:#0f766e; --accent-soft:#ccfbf1; --ok:#16a34a; --ok-soft:#dcfce7;
+    --warn:#d97706; --warn-soft:#fef3c7; --err:#dc2626; --err-soft:#fee2e2; --radius:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif; font-size:15px; line-height:1.6}
+  .wrap{max-width:900px; margin:0 auto; padding:0 12px 40px}
+  header{background:#134e4a; color:#fff; padding:12px 0; position:sticky; top:0; z-index:20}
+  header .wrap{display:flex; align-items:center; gap:10px; padding-bottom:0}
+  header h1{margin:0; font-size:1.05rem}
+  header .sub{font-size:0.8rem; opacity:.8}
+  .card{background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); padding:14px; margin-top:12px}
+  .card h2{margin:0 0 10px; font-size:1rem}
+  .muted{color:var(--ink-mute); font-size:0.86rem}
+  button{font-family:inherit; font-size:0.95rem; cursor:pointer; border-radius:8px}
+  .btn{padding:9px 16px; background:var(--accent); color:#fff; border:none; font-weight:700}
+  .btn.ghost{background:#fff; color:var(--accent); border:1.5px solid var(--accent)}
+  .btn.warn{background:#b45309} .btn.danger{background:var(--err)} .btn.gray{background:#64748b}
+  .btn:disabled{opacity:.5; cursor:not-allowed}
+  .btn.small{padding:5px 11px; font-size:0.85rem}
+  .seg{display:flex; gap:6px; flex-wrap:wrap}
+  .seg button{padding:7px 14px; background:#fff; border:1.5px solid var(--line); font-weight:700; color:var(--ink)}
+  .seg button.on{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .tabs{display:flex; gap:6px; margin-top:12px}
+  .tab{flex:1; padding:10px; text-align:center; background:#fff; border:1px solid var(--line); border-radius:8px; font-weight:700; cursor:pointer}
+  .tab.on{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .hide{display:none !important}
+  table{width:100%; border-collapse:collapse; font-size:0.88rem}
+  th,td{padding:6px 7px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top}
+  th{background:#f8fafc; font-size:0.8rem; color:var(--ink-mute)}
+  .pill{display:inline-block; padding:1px 8px; border-radius:20px; font-size:0.78rem; font-weight:700}
+  .pill.ok{background:var(--ok-soft); color:#166534} .pill.warn{background:var(--warn-soft); color:#92400e}
+  .pill.err{background:var(--err-soft); color:#991b1b} .pill.gray{background:#f1f5f9; color:#475569}
+  .status{padding:28px 12px; text-align:center; color:var(--ink-mute)}
+  .box{border-radius:8px; padding:10px 12px; margin-top:10px; font-size:0.9rem}
+  .box.ok{background:var(--ok-soft); border:1px solid #86efac}
+  .box.warn{background:var(--warn-soft); border:1px solid #fcd34d}
+  .box.err{background:var(--err-soft); border:1px solid #fca5a5}
+  .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .day{display:inline-block; background:#f0fdfa; border:1px solid #99f6e4; border-radius:5px; padding:0 6px; margin:1px 2px; font-size:0.82rem}
+  .day.hol{background:#fff1f2; border-color:#fecdd3}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div style="flex:1">
+      <h1>🗂 急診事務員工作台</h1>
+      <div class="sub" id="hd-sub">預約抽籤 · 換班轉錄</div>
+    </div>
+    <span id="who" style="font-size:0.85rem; opacity:.9"></span>
+    <button class="btn small ghost" id="logout-btn" style="background:transparent; color:#fff; border-color:rgba(255,255,255,.5)" onclick="logoutAcct()">登出</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div id="status" class="status">⏳ 確認登入中...</div>
+
+  <div id="login-card" class="card hide">
+    <h2>🔐 請先登入</h2>
+    <div class="muted">用帳號中心的員編 + PIN 登入。這一頁只開放有「事務員」權限的人使用。</div>
+    <div style="margin-top:12px"><button class="btn" onclick="goLogin()">登入</button></div>
+  </div>
+
+  <div id="noperm-card" class="card hide">
+    <h2>🚫 沒有使用權限</h2>
+    <div class="muted" id="noperm-msg"></div>
+  </div>
+
+  <div id="main" class="hide">
+    <div class="tabs">
+      <div class="tab on" id="tab-booking" onclick="switchTab('booking')">🌴 預約抽籤</div>
+      <div class="tab" id="tab-transfer" onclick="switchTab('transfer')">🔁 換班轉錄清單</div>
+    </div>
+
+    <!-- ================= 🌴 預約抽籤 ================= -->
+    <div id="panel-booking">
+      <div class="card">
+        <div class="row" style="justify-content:space-between">
+          <div class="seg" id="b-month-seg"></div>
+          <button class="btn small ghost" onclick="loadBooking()">🔄 重新載入</button>
+        </div>
+        <div id="b-status" style="margin-top:10px"></div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn" id="b-open-btn" onclick="toggleOpen()">開放預約</button>
+          <span class="muted">開放後同仁在公告頁會看到預約入口,開放起 5 天自動截止。</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>📋 預約名單 <span class="muted" id="b-count"></span></h2>
+        <div id="b-list"><div class="muted">載入中...</div></div>
+      </div>
+
+      <div class="card">
+        <h2>🎲 抽籤並寫入班表</h2>
+        <div class="muted">
+          依護理長排好的人員順序,算人力的人每 13 人一組,同一天同組超過 1 人預約就抽 1 位。<br>
+          抽中 → 班表寫 <b>OFF</b>;沒抽中 → 寫<b>底線 off</b>。格子裡已經有其他班別(例如特休 V、已排的班)不會蓋掉,會列出來給護理長處理。<br>
+          重抽會先把上一次寫進去的格子還原,再寫新的結果。
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn warn" id="b-lottery-btn" onclick="runLotteryAndApply()">🎲 抽籤並寫入班表</button>
+          <button class="btn gray" id="b-publish-btn" onclick="togglePublish()">📢 公告抽籤結果</button>
+        </div>
+        <div id="b-result"></div>
+      </div>
+    </div>
+
+    <!-- ================= 🔁 換班轉錄清單 ================= -->
+    <div id="panel-transfer" class="hide">
+      <div class="card">
+        <div class="row" style="justify-content:space-between">
+          <div class="seg" id="t-month-seg"></div>
+          <button class="btn small ghost" onclick="loadTransfer()">🔄 重新載入</button>
+        </div>
+        <div class="muted" style="margin-top:8px">本月所有換班與調班,逐筆騰到夜班費系統後按「已計入」。<b style="color:#b45309">🌙</b> = 影響夜班費。</div>
+        <div class="row" style="margin-top:10px">
+          <div class="seg" id="t-filter">
+            <button data-f="todo" class="on" onclick="setFilter('todo')">未計入</button>
+            <button data-f="done" onclick="setFilter('done')">已計入</button>
+            <button data-f="all" onclick="setFilter('all')">全部</button>
+          </div>
+          <button class="btn small ghost" onclick="exportCSV()">📥 下載 Excel(CSV)</button>
+          <button class="btn small ghost" onclick="exportJSON()" title="將來夜班費系統有 API 時,同一份資料可直接送過去">📤 JSON</button>
+        </div>
+      </div>
+      <div class="card"><div id="t-list"><div class="muted">載入中...</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 帳號中心(員編+PIN,與其他急診程式共用登入) -->
+<script src="https://cych05845-jpg.github.io/ed-account/account-sdk.js"></script>
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getDatabase, ref, get, set, update } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
+
+const app = initializeApp({
+  apiKey: "AIzaSyDiR4V_KZTBaLIuPLZOben9r4HFprGTW1k",
+  authDomain: "cych-ed-scheduling.firebaseapp.com",
+  databaseURL: "https://cych-ed-scheduling-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "cych-ed-scheduling",
+  storageBucket: "cych-ed-scheduling.firebasestorage.app",
+  messagingSenderId: "1017004700616",
+  appId: "1:1017004700616:web:3ae45a3a26957249cc46fd"
+});
+const db = getDatabase(app);
+
+// 帳號中心的權限代碼:有這個(或帳號管理者)才能用這頁
+const PERM = 'schedule.clerk';
+const GROUP_SIZE = 13;
+const OPEN_DAYS = 5;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ym = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+const addMonth = (k) => { const n = new Date(); return ym(new Date(n.getFullYear(), n.getMonth() + k, 1)); };
+const mLabel = (m) => `${Number(m.slice(5))} 月`;
+const daysIn = (m) => new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate();
+const sd = (v) => (v === 'o' ? 'off' : (v || '—'));
+const cellOf = (sched, pid, d) => { const r = (sched || {})[pid]; return Array.isArray(r) ? (r[d] || '') : ((r || {})[d] || ''); };
+const toObj = (raw) => { const o = {}; for (const pid in (raw || {})) { const v = raw[pid]; if (Array.isArray(v)) { const x = {}; v.forEach((s, i) => { if (s) x[i] = s; }); o[pid] = x; } else o[pid] = v || {}; } return o; };
+const fmt = (t) => t ? new Date(t).toLocaleString('zh-TW', { hour12: false }) : '';
+
+const ME = { user: null };
+
+// ============================================================
+// 登入與權限
+// ============================================================
+async function boot() {
+  if (!window.ACCOUNT) { $('status').textContent = '帳號中心載入失敗,請檢查網路後重新整理。'; return; }
+  let r;
+  try { r = await window.ACCOUNT.verify(PERM); } catch (e) { r = { ok: false }; }
+  if (!r || !r.ok || !r.user) { $('status').classList.add('hide'); $('login-card').classList.remove('hide'); return; }
+  let allowed = !!r.has;
+  if (!allowed) { try { const a = await window.ACCOUNT.verify('account.admin'); allowed = !!(a && a.has); } catch (e) {} }
+  ME.user = r.user;
+  $('who').textContent = `${r.user.name || ''}(${r.user.empId || ''})`;
+  if (!allowed) {
+    $('status').classList.add('hide');
+    $('noperm-msg').innerHTML = `你登入的是「<b>${esc(r.user.name)}</b>」,沒有事務員工作台的權限。<br>`
+      + `請護理長在帳號中心「權限項目」把 <code>${PERM}</code> 開給你。`;
+    $('noperm-card').classList.remove('hide');
+    return;
+  }
+  $('status').classList.add('hide');
+  $('main').classList.remove('hide');
+  initBookingMonths();
+  initTransferMonths();
+  await loadBooking();
+}
+window.goLogin = () => window.ACCOUNT && window.ACCOUNT.goLogin();
+window.logoutAcct = () => {
+  if (!confirm('登出帳號中心?(同一台裝置上的急診程式都會一起登出)')) return;
+  try { window.ACCOUNT.logout(); } catch (e) {}
+  location.reload();
+};
+// 寫入前再確認一次登入還有效
+async function stillMe() {
+  try {
+    const r = await window.ACCOUNT.verify(PERM);
+    if (r && r.ok && r.user && r.user.empId === ME.user.empId) return true;
+  } catch (e) {}
+  alert('登入已過期,請重新登入。');
+  window.goLogin();
+  return false;
+}
+const byWho = () => `${ME.user.name || ''}(${ME.user.empId || ''})`;
+
+window.switchTab = function (t) {
+  ['booking', 'transfer'].forEach(k => {
+    $('tab-' + k).classList.toggle('on', k === t);
+    $('panel-' + k).classList.toggle('hide', k !== t);
+  });
+  if (t === 'transfer' && !T.loaded) loadTransfer();
+};
+
+// ============================================================
+// 🌴 預約抽籤
+// ============================================================
+const B = { month: '', entries: {}, result: null, open: false, meta: {}, published: false, monthExists: false };
+const bp = (m) => `schedules/${m}/booking`;
+
+function initBookingMonths() {
+  const ms = [addMonth(1), addMonth(0)];
+  B.month = ms[0];
+  $('b-month-seg').innerHTML = ms.map(m => `<button data-m="${m}" onclick="pickBookingMonth('${m}')">${mLabel(m)}</button>`).join('');
+}
+window.pickBookingMonth = (m) => { B.month = m; loadBooking(); };
+
+async function loadBooking() {
+  document.querySelectorAll('#b-month-seg button').forEach(b => b.classList.toggle('on', b.dataset.m === B.month));
+  $('b-list').innerHTML = '<div class="muted">⏳ 載入中...</div>';
+  $('b-result').innerHTML = '';
+  const m = B.month;
+  try {
+    const [meta, open, bmeta, entries, result, pub] = await Promise.all([
+      get(ref(db, `schedules/${m}/meta`)), get(ref(db, `${bp(m)}/open`)), get(ref(db, `${bp(m)}/meta`)),
+      get(ref(db, `${bp(m)}/entries`)), get(ref(db, `${bp(m)}/result`)), get(ref(db, `${bp(m)}/published`)),
+    ]);
+    B.monthExists = meta.exists();
+    B.open = open.exists() && open.val() === true;
+    B.meta = bmeta.exists() ? (bmeta.val() || {}) : {};
+    B.entries = entries.exists() ? (entries.val() || {}) : {};
+    B.result = result.exists() ? result.val() : null;
+    B.published = pub.exists() && !!pub.val();
+  } catch (e) {
+    $('b-list').innerHTML = `<div class="box err">讀取失敗:${esc(e.message || '')}</div>`;
+    return;
+  }
+  renderBookingStatus(); renderBookingList(); renderResult();
+}
+window.loadBooking = loadBooking;
+
+function renderBookingStatus() {
+  const dl = B.meta.deadline || 0;
+  let html;
+  if (!B.monthExists) {
+    html = `<span class="pill gray">尚未建立</span> 護理長還沒把 ${mLabel(B.month)}班表建立並存到雲端,暫時不能開放預約。`;
+  } else if (B.open) {
+    html = `<span class="pill ok">開放中</span> ` + (dl ? (Date.now() > dl
+      ? `<span class="pill err">已截止</span> ${fmt(dl)},同仁不能再改,可以抽籤了。`
+      : `截止:<b>${fmt(dl)}</b>`) : '');
+  } else {
+    html = `<span class="pill gray">未開放</span>` + (Object.keys(B.entries).length ? ' (已關閉,預約資料保留)' : '');
+  }
+  $('b-status').innerHTML = html;
+  const btn = $('b-open-btn');
+  btn.disabled = !B.monthExists;
+  btn.textContent = B.open ? '關閉預約' : '開放預約';
+  btn.className = 'btn' + (B.open ? ' danger' : '');
+  const pb = $('b-publish-btn');
+  pb.textContent = B.published ? '📢 已公告(點此取消)' : '📢 公告抽籤結果';
+  pb.disabled = !B.result;
+}
+
+function renderBookingList() {
+  const ids = Object.keys(B.entries).filter(k => B.entries[k] && (B.entries[k].days || []).length);
+  $('b-count').textContent = ids.length ? `(${ids.length} 人)` : '';
+  if (!ids.length) { $('b-list').innerHTML = '<div class="muted">還沒有人預約。</div>'; return; }
+  const dow = (d) => new Date(+B.month.slice(0, 4), +B.month.slice(5, 7) - 1, d).getDay();
+  // 每天幾人
+  const perDay = {};
+  ids.forEach(k => (B.entries[k].days || []).forEach(d => { perDay[d] = (perDay[d] || 0) + 1; }));
+  const hot = Object.keys(perDay).filter(d => perDay[d] >= 3).sort((a, b) => perDay[b] - perDay[a]).slice(0, 8);
+  let html = hot.length ? `<div class="muted" style="margin-bottom:8px">預約較多的日子:${hot.map(d => `<span class="day">${d}日 ${perDay[d]}人</span>`).join('')}</div>` : '';
+  html += '<table><tr><th>姓名</th><th>預約日期</th><th>登記時間</th></tr>';
+  ids.sort((a, b) => (B.entries[a].name || '').localeCompare(B.entries[b].name || '', 'zh-Hant')).forEach(k => {
+    const e = B.entries[k];
+    html += `<tr><td>${esc(e.name)}${e.empId ? `<div class="muted" style="font-size:.75rem">🔐 ${esc(e.empId)}</div>` : ''}</td>
+      <td>${(e.days || []).slice().sort((a, b) => a - b).map(d => `<span class="day${dow(d) === 0 ? ' hol' : ''}">${d}</span>`).join('')}</td>
+      <td class="muted" style="font-size:.8rem">${fmt(e.savedAt)}</td></tr>`;
+  });
+  $('b-list').innerHTML = html + '</table>';
+}
+
+function renderResult() {
+  const r = B.result;
+  if (!r) { $('b-result').innerHTML = ''; return; }
+  let win = 0, lose = 0;
+  for (const d in (r.picked || {})) win += r.picked[d].length;
+  for (const d in (r.missed || {})) lose += r.missed[d].length;
+  const sk = r.skipped || [];
+  $('b-result').innerHTML = `<div class="box ok">
+    ✅ 最近一次抽籤:${fmt(r.at)} ${esc(r.by || '')}<br>
+    抽中 <b>${win}</b> 人次(OFF)、沒抽中 <b>${lose}</b> 人次(底線 off)${r.appliedAt ? `,已寫入班表 <b>${(r.applied || []).length}</b> 格` : ',<b style="color:#b45309">尚未寫入班表</b>'}
+    ${B.published ? '<br>📢 已公告,同仁在公告頁看得到結果。' : ''}
+  </div>` + (sk.length ? `<div class="box warn">⚠ 這些格子原本已有班別,<b>沒有蓋掉</b>,請護理長決定:<br>${sk.map(s => `${esc(s.name)} ${s.day}日(現在是 ${esc(sd(s.cur))},抽籤結果 ${esc(s.code)})`).join('<br>')}</div>` : '');
+}
+
+window.toggleOpen = async function () {
+  if (!(await stillMe())) return;
+  const m = B.month;
+  if (!B.monthExists) { alert(`${mLabel(m)}班表還沒在雲端建立,請護理長先建立並存檔一次。`); return; }
+  if (B.open) {
+    if (!confirm(`關閉 ${mLabel(m)}預約?\n\n公告頁的預約入口會消失,同仁不能再改。已登記的資料會保留。`)) return;
+    await set(ref(db, `${bp(m)}/open`), false);
+  } else {
+    if (!confirm(`開放 ${mLabel(m)}預約?\n\n公告頁會出現預約入口,${OPEN_DAYS} 天後自動截止。`)) return;
+    const at = Date.now();
+    await set(ref(db, `${bp(m)}/open`), true);
+    await set(ref(db, `${bp(m)}/meta`), { openedAt: at, deadline: at + OPEN_DAYS * 86400000, openDays: OPEN_DAYS, openedBy: byWho() });
+  }
+  await loadBooking();
+};
+
+// 「算人力」:跟排班頁 isCountingForCapacity 同一套規則
+function countsAsCapacity(p, month, sched, flags) {
+  if (!p) return false;
+  if (p.status === 'leave') return false;
+  if (p.status === 'resigned' && p.statusDate && new Date(p.statusDate) < new Date(month + '-01')) return false;
+  if (p.dispatch) return false;
+  if (p.level === '半日' || p.level === '實習') return false;
+  // 時段班佔上班日一半以上 → 半日職
+  const s = (sched || {})[p.id] || {}, f = (flags || {})[p.id] || {};
+  let work = 0, slot = 0;
+  for (const d in s) {
+    const v = String(s[d] || '').replace(/'/g, '').split('/')[0];
+    if (!['D', 'E', 'N', 'M'].includes(v)) continue;
+    work++; if (f[d] && f[d].halfdayTime) slot++;
+  }
+  if (work && slot >= work * 0.5) return false;
+  if (p.note && /夜護|病假|離職|實習|帶/.test(p.note)) return false;
+  if (p.special && /夜護|病假|實習|半日|帶/.test(p.special)) return false;
+  if (!p.peakStage && !(p.capabilities || []).length) return false;
+  return true;
+}
+
+window.runLotteryAndApply = async function () {
+  if (!(await stillMe())) return;
+  const m = B.month;
+  const ids = Object.keys(B.entries).filter(k => B.entries[k] && (B.entries[k].days || []).length);
+  if (!ids.length) { alert('目前沒有人預約,不用抽籤。'); return; }
+  if (B.meta.deadline && Date.now() < B.meta.deadline) {
+    if (!confirm(`預約還沒截止(${fmt(B.meta.deadline)})。\n\n現在抽籤的話,之後同仁再改的不會算進去。確定要現在抽?`)) return;
+  }
+
+  // 1. 讀護理長存在雲端的班表(完整版)
+  const [fbSnap, dataSnap] = await Promise.all([get(ref(db, `schedules/${m}/fullBackup`)), get(ref(db, `schedules/${m}/data`))]);
+  const fb = fbSnap.exists() ? fbSnap.val() : null;
+  if (!fb || !fb.data || !(fb.data.staff || []).length) {
+    alert(`${mLabel(m)}班表還沒存到雲端(或沒有人員名單),抽完也沒地方寫入。\n\n請護理長先把 ${mLabel(m)}班表按「☁ 存到雲端」。`);
+    return;
+  }
+  const fbd = fb.data;
+  const pub = dataSnap.exists() ? dataSnap.val() : null;
+  const fbPid = {}; (fbd.staff || []).forEach(p => { if (p && p.name) fbPid[p.name] = p.id; });
+  const pubPid = {}; ((pub && pub.staff) || []).forEach(p => { if (p && p.name) pubPid[p.name] = p.id; });
+  const sched = toObj(fbd.schedule), flags = fbd.scheduleFlags || {};
+
+  // 2. 分組:護理長排的人員順序,只算「算人力」的人
+  const order = (fbd.staff || []).filter(p => p && p.name && countsAsCapacity(p, m, sched, flags)).map(p => p.name);
+  if (!order.length) { alert('班表裡沒有「算人力」的人員(能力都還沒設定?),無法分組。請洽護理長。'); return; }
+  const groupOf = {}; order.forEach((nm, i) => { groupOf[nm] = Math.floor(i / GROUP_SIZE); });
+  const groupCount = Math.ceil(order.length / GROUP_SIZE);
+
+  const prev = B.result;
+  if (!confirm(`🎲 ${mLabel(m)}預約抽籤\n\n預約 ${ids.length} 人,算人力 ${order.length} 人分 ${groupCount} 組(每組 ${GROUP_SIZE} 人、每天每組 1 個名額)。\n\n抽完會直接寫進 ${mLabel(m)}班表:抽中 OFF、沒抽中底線 off。`
+    + (prev && prev.appliedAt ? `\n\n⚠ 之前已經抽過並寫入,這次會先把上次寫的 ${(prev.applied || []).length} 格還原,再寫新的結果。` : ''))) return;
+
+  // 3. 逐日抽籤(與排班頁相同)
+  const picked = {}, missed = {};
+  for (let d = 1; d <= daysIn(m); d++) {
+    const byGroup = {};
+    ids.forEach(k => {
+      const e = B.entries[k];
+      if (!(e.days || []).includes(d)) return;
+      const g = groupOf[e.name] !== undefined ? groupOf[e.name] : -1;
+      (byGroup[g] = byGroup[g] || []).push(e.name);
+    });
+    const win = [], lose = [];
+    for (const g in byGroup) {
+      const arr = byGroup[g];
+      if (arr.length <= 1) { win.push(...arr); continue; }
+      const w = arr[Math.floor(Math.random() * arr.length)];
+      win.push(w); arr.forEach(n => { if (n !== w) lose.push(n); });
+    }
+    if (win.length) picked[d] = win;
+    if (lose.length) missed[d] = lose;
+  }
+
+  // 4. 組合要寫入的格子
+  const u = {};
+  const cur = (nm, d) => {   // 以「這次要寫入後」的狀態為準
+    const k = `fullBackup/data/schedule/${fbPid[nm]}/${d}`;
+    return (k in u) ? (u[k] || '') : cellOf(fbd.schedule, fbPid[nm], d);
+  };
+  const put = (nm, d, code) => {
+    if (fbPid[nm]) u[`fullBackup/data/schedule/${fbPid[nm]}/${d}`] = code;
+    if (pub && pubPid[nm]) u[`data/schedule/${pubPid[nm]}/${d}`] = code;
+  };
+  // 4a. 先還原上一次寫入、且還沒被護理長改過的格子
+  let reverted = 0;
+  ((prev && prev.applied) || []).forEach(a => {
+    if (!fbPid[a.name]) return;
+    if (cur(a.name, a.day) === a.code) { put(a.name, a.day, a.prev || null); reverted++; }
+  });
+  // 4b. 寫新的:空格或休假類才寫;其他班別(V、已排的班…)不蓋掉
+  //     抽中 OFF(硬假)可以把 o/off 升級成 OFF;沒抽中 off(軟假)不會把原本的 OFF 降級
+  const CAN_WRITE = { OFF: ['', 'o', 'off', 'OFF'], off: ['', 'o', 'off'] };
+  const applied = [], skipped = [], missing = [];
+  const apply = (map, code) => {
+    for (const d in map) map[d].forEach(nm => {
+      if (!fbPid[nm]) { if (!missing.includes(nm)) missing.push(nm); return; }
+      const c = cur(nm, d);
+      if (!CAN_WRITE[code].includes(c)) { skipped.push({ name: nm, day: +d, cur: c, code }); return; }
+      applied.push({ name: nm, day: +d, prev: c, code });
+      put(nm, d, code);
+    });
+  };
+  apply(picked, 'OFF');
+  apply(missed, 'off');
+
+  const now = Date.now();
+  const savedType = typeof fb.savedAt;
+  u['fullBackup/savedAt'] = savedType === 'string' ? new Date(now).toISOString() : now;
+  u['fullBackup/savedByName'] = byWho() + ' 預約抽籤';
+  u['meta/lastSyncedAt'] = now;   // 讓開著舊畫面的排班頁知道雲端更新了,不會被蓋回去
+  const result = { at: now, by: byWho(), month: m, groupSize: GROUP_SIZE, groupCount, picked, missed,
+                   applied, skipped, missing, appliedAt: now, reverted };
+  u['booking/result'] = result;
+
+  const btn = $('b-lottery-btn');
+  btn.disabled = true; btn.textContent = '⏳ 寫入中...';
+  try {
+    await update(ref(db, `schedules/${m}`), u);
+  } catch (e) {
+    alert('寫入失敗:' + (e.message || '') + '\n\n班表沒有變動,可以再試一次。');
+    btn.disabled = false; btn.textContent = '🎲 抽籤並寫入班表';
+    return;
+  }
+  btn.disabled = false; btn.textContent = '🎲 抽籤並寫入班表';
+  let win = 0, lose = 0;
+  for (const d in picked) win += picked[d].length;
+  for (const d in missed) lose += missed[d].length;
+  alert(`✅ 抽籤完成,已寫入 ${mLabel(m)}班表\n\n抽中 ${win} 人次 → OFF\n沒抽中 ${lose} 人次 → 底線 off\n寫入 ${applied.length} 格`
+    + (reverted ? `(先還原上次 ${reverted} 格)` : '')
+    + (skipped.length ? `\n\n⚠ ${skipped.length} 格原本已有班別,沒有蓋掉,畫面下方有清單給護理長。` : '')
+    + (missing.length ? `\n\n⚠ 班表裡找不到:${missing.join('、')}(名字可能不同)` : '')
+    + `\n\n確認沒問題後,可以按「📢 公告抽籤結果」讓同仁看到。`);
+  await loadBooking();
+};
+
+window.togglePublish = async function () {
+  if (!(await stillMe())) return;
+  if (!B.result) { alert('還沒抽籤。'); return; }
+  const to = !B.published;
+  if (!confirm(to ? `公告 ${mLabel(B.month)}抽籤結果?\n\n同仁在公告頁會看到「🌴 預約」分頁。` : '取消公告?同仁的公告頁不再顯示抽籤結果。')) return;
+  await set(ref(db, `${bp(B.month)}/published`), to);
+  await loadBooking();
+};
+
+// ============================================================
+// 🔁 換班/調班轉錄清單(與排班頁側欄同一份資料)
+// ============================================================
+const T = { month: '', rows: [], marks: {}, filter: 'todo', loaded: false };
+const tKey = (s) => String(s).replace(/[.#$\[\]/\s]/g, '_');
+
+function initTransferMonths() {
+  const ms = [addMonth(-1), addMonth(0), addMonth(1)];
+  T.month = ms[1];
+  $('t-month-seg').innerHTML = ms.map(m => `<button data-m="${m}" onclick="pickTransferMonth('${m}')">${mLabel(m)}</button>`).join('');
+}
+window.pickTransferMonth = (m) => { T.month = m; loadTransfer(); };
+window.setFilter = (f) => {
+  T.filter = f;
+  document.querySelectorAll('#t-filter button').forEach(b => b.classList.toggle('on', b.dataset.f === f));
+  renderTransfer();
+};
+
+async function loadTransfer() {
+  T.loaded = true;
+  document.querySelectorAll('#t-month-seg button').forEach(b => b.classList.toggle('on', b.dataset.m === T.month));
+  $('t-list').innerHTML = '<div class="muted">⏳ 載入中...</div>';
+  const m = T.month;
+  let data = null, swaps = {};
+  try {
+    const [d, s, mk] = await Promise.all([get(ref(db, `schedules/${m}/data`)), get(ref(db, `schedules/${m}/swaps`)), get(ref(db, `schedules/${m}/payrollTransfer`))]);
+    data = d.exists() ? d.val() : null;
+    swaps = s.exists() ? (s.val() || {}) : {};
+    T.marks = mk.exists() ? (mk.val() || {}) : {};
+  } catch (e) { $('t-list').innerHTML = `<div class="box err">讀取失敗:${esc(e.message || '')}</div>`; return; }
+  if (!data) { T.rows = []; $('t-list').innerHTML = `<div class="muted">${mLabel(m)}班表還沒公告,沒有換班資料。</div>`; return; }
+  T.rows = buildRows(m, data, swaps);
+  renderTransfer();
+}
+window.loadTransfer = loadTransfer;
+
+function buildRows(m, data, swaps) {
+  const rows = [], seen = new Set();
+  const idName = {}, emp = {};
+  (data.staff || []).forEach(p => { if (p && p.name) { if (p.id) idName[p.id] = p.name; emp[p.name] = p.employeeId || ''; } });
+  const sched = toObj(data.schedule), flags = data.flags || {};
+  const push = (type, name, day, from, to, note) => {
+    if (!name || !day || String(from) === String(to)) return;
+    const key = tKey(`${type}|${name}|${day}|${from}>${to}`);
+    if (seen.has(key)) return; seen.add(key);
+    rows.push({ key, type, name, employeeId: emp[name] || '', month: m, day: +day,
+      fromShift: String(from || ''), toShift: String(to || ''),
+      affectsNightPay: [from, to].map(String).includes('N'), note: note || '' });
+  };
+  Object.values(swaps).forEach(r => {
+    if (!r || r.status !== 'approved') return;
+    (r.days || []).forEach(x => {
+      if (!x) return;
+      if (r.self) { push('換班', r.fromName, x.day, x.fromShift, x.toShift, '本人兩天對調'); return; }
+      push('換班', r.fromName, x.day, x.fromShift, x.toShift, `與 ${r.toName} 互換`);
+      push('換班', r.toName, x.day, x.toShift, x.fromShift, `與 ${r.fromName} 互換`);
+    });
+  });
+  for (const pid in flags) {
+    const nm = idName[pid]; if (!nm) continue;
+    for (const d in (flags[pid] || {})) {
+      const f = flags[pid][d] || {};
+      if (f.swapId || !f.origShift) continue;   // 換班申請的格子上面已算;不知道原班就無法轉錄
+      push('調班', nm, d, f.origShift, (sched[pid] || {})[d] || '', f.adjustLog || f.tempAdjust || 'leader 現場調整');
+    }
+  }
+  return rows.sort((a, b) => (a.day - b.day) || a.name.localeCompare(b.name, 'zh-Hant'));
+}
+
+function renderTransfer() {
+  const isDone = (r) => !!(T.marks[r.key] && T.marks[r.key].done);
+  const all = T.rows, done = all.filter(isDone).length;
+  const nightTodo = all.filter(r => !isDone(r) && r.affectsNightPay).length;
+  const list = all.filter(r => T.filter === 'all' ? true : (T.filter === 'done' ? isDone(r) : !isDone(r)));
+  let html = `<div style="margin-bottom:8px">${mLabel(T.month)}共 <b>${all.length}</b> 筆 · <span style="color:#991b1b">未計入 <b>${all.length - done}</b></span> · <span style="color:#166534">已計入 ${done}</span>`
+    + (nightTodo ? ` · <span style="color:#b45309">🌙 未計入的夜班 ${nightTodo} 筆</span>` : '') + '</div>';
+  if (!all.length) { $('t-list').innerHTML = html + '<div class="muted">沒有換班或調班。</div>'; return; }
+  if (!list.length) { $('t-list').innerHTML = html + `<div class="box ok">${T.filter === 'todo' ? '✅ 全部都計入了。' : '這個篩選沒有資料。'}</div>`; return; }
+  html += '<table><tr><th>日</th><th>人員</th><th>班別</th><th>類型</th><th style="text-align:center">計入</th></tr>';
+  list.forEach(r => {
+    const d = isDone(r), mk = T.marks[r.key] || {};
+    html += `<tr style="${d ? 'opacity:.55' : ''}"><td>${r.day}</td>
+      <td>${esc(r.name)}${r.employeeId ? `<div class="muted" style="font-size:.75rem">${esc(r.employeeId)}</div>` : ''}</td>
+      <td>${esc(sd(r.fromShift))} → <b>${esc(sd(r.toShift))}</b>${r.affectsNightPay ? ' 🌙' : ''}</td>
+      <td class="muted" style="font-size:.8rem">${esc(r.type)}<br>${esc(r.note)}</td>
+      <td style="text-align:center"><button class="btn small ${d ? '' : 'danger'}" onclick="toggleMark('${r.key}')">${d ? '✓ 已計入' : '未計入'}</button>
+      ${d && mk.by ? `<div class="muted" style="font-size:.7rem">${esc(mk.by)} ${new Date(mk.at).toLocaleDateString()}</div>` : ''}</td></tr>`;
+  });
+  $('t-list').innerHTML = html + '</table>';
+}
+
+window.toggleMark = async function (key) {
+  const row = T.rows.find(r => r.key === key); if (!row) return;
+  if (!(await stillMe())) return;
+  const was = !!(T.marks[key] && T.marks[key].done);
+  const rec = was ? null : { done: true, by: byWho(), at: Date.now(), item: row };
+  try {
+    await set(ref(db, `schedules/${T.month}/payrollTransfer/${key}`), rec);
+    if (rec) T.marks[key] = rec; else delete T.marks[key];
+    renderTransfer();
+  } catch (e) { alert('沒存上雲端,請檢查網路後再按一次。\n' + (e.message || '')); }
+};
+
+function payload() {
+  return T.rows.map(r => Object.assign({}, r, {
+    transferred: !!(T.marks[r.key] && T.marks[r.key].done),
+    transferredBy: (T.marks[r.key] || {}).by || '', transferredAt: (T.marks[r.key] || {}).at || null,
+  }));
+}
+function download(name, text, mime) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: mime }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+}
+window.exportCSV = function () {
+  const rows = payload(); if (!rows.length) { alert('沒有資料。'); return; }
+  const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const out = [['月份', '日', '員編', '姓名', '原班', '新班', '影響夜班費', '類型', '說明', '已計入', '計入者', '計入時間'].map(q).join(',')]
+    .concat(rows.map(r => [r.month, r.day, r.employeeId, r.name, sd(r.fromShift), sd(r.toShift), r.affectsNightPay ? 'Y' : '', r.type, r.note,
+      r.transferred ? 'Y' : '', r.transferredBy, r.transferredAt ? fmt(r.transferredAt) : ''].map(q).join(',')));
+  download(`換班調班轉錄_${T.month}.csv`, '﻿' + out.join('\r\n'), 'text/csv;charset=utf-8');
+};
+window.exportJSON = function () {
+  const rows = payload(); if (!rows.length) { alert('沒有資料。'); return; }
+  download(`換班調班轉錄_${T.month}.json`, JSON.stringify({ schemaVersion: 1, unit: '急診', month: T.month,
+    exportedAt: new Date().toISOString(), exportedBy: byWho(), items: rows }, null, 2), 'application/json');
+};
+
+boot().catch(e => { $('status').textContent = '載入失敗:' + (e.message || ''); });
+</script>
+</body>
+</html>
