@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- SWAP-VERSION: 2026-11-27-v3 (帳號中心登入驗證身分,只能以本人申請/同意;取消紙本列印) -->
+<!-- SWAP-VERSION: 2026-11-27-v4 (申請卡改成「誰:幾日 原→新」) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診換班申請</title>
@@ -530,9 +530,12 @@ function swapList(filter) {
 }
 
 function reqCard(r, forMe) {
+  // 寫清楚「誰:幾日 原 → 新」,不用 ↔(看不出方向)
+  const line = (name, pairs) => `<div><b>${esc(name)}</b>:${pairs.map(([d, a, b]) => `${d}日 ${esc(dispShift(a))} → <b>${esc(dispShift(b))}</b>`).join('、')}</div>`;
+  const days = r.days || [];
   const daysTxt = r.self
-    ? (r.days || []).map(x => `${x.day}日 ${dispShift(x.fromShift)}→${dispShift(x.toShift)}`).join('、')
-    : (r.days || []).map(x => `${x.day}日 ${dispShift(x.fromShift)}↔${dispShift(x.toShift)}`).join('、');
+    ? line(r.fromName, days.map(x => [x.day, x.fromShift, x.toShift]))
+    : line(r.fromName, days.map(x => [x.day, x.fromShift, x.toShift])) + line(r.toName, days.map(x => [x.day, x.toShift, x.fromShift]));
   const other = forMe ? r.fromName : r.toName;
   const label = r.self ? '🔁 自己調換' : (forMe ? `${esc(other)} 想跟你換` : `跟 ${esc(other)} 換班`);
   let acts = '';
@@ -548,7 +551,7 @@ function reqCard(r, forMe) {
     ? `<div class="muted" style="color:var(--err)">退回原因:${esc(r.rejectReason)}</div>` : '';
   return `<div class="req ${r.status}">
     <div class="top"><span class="who">${label}</span><span class="st ${r.status}">${ST_TEXT[r.status] || r.status}</span></div>
-    <div class="days">${esc(daysTxt)}</div>
+    <div class="days">${daysTxt}</div>
     <div class="muted">原因:${esc(r.reason || '—')}</div>
     ${extra}${acts}</div>`;
 }

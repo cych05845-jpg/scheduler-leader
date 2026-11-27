@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- AIDE-VERSION: 2026-11-27-v14 (換班審核自動切月份;換班格子不被雲端補回) -->
+<!-- AIDE-VERSION: 2026-11-27-v15 (換班格子左上角直接顯示原班) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診技助事員排班工具 | ED Aide Scheduling</title>
@@ -5938,8 +5938,10 @@ function renderTable() {
       if (_sf.shiftChanged) {
         const bySwap = !!_sf.swapId;
         cls += bySwap ? ' cell-swap-req' : ' cell-swap-leader';
-        swapBadge = `<span class="cell-swap-badge">${bySwap ? '換' : '調'}</span>`;
-        swapTitle = `\n🔄 ${bySwap ? '換班申請' : 'leader 調班'}:原 ${_sf.origShift === 'o' ? 'off' : (_sf.origShift || '—')}${_sf.swapWith ? '(' + _sf.swapWith + ')' : ''}`;
+        const _o = _sf.origShift === 'o' ? 'off' : (_sf.origShift || '—');
+        // 左上角直接寫「原D」:不用滑鼠也看得出原本是什麼班
+        swapBadge = `<span class="cell-swap-badge">${bySwap ? '原' + escapeHTML(_o) : '調'}</span>`;
+        swapTitle = `\n🔄 ${bySwap ? '換班申請' : 'leader 調班'}${_sf.swapWith ? '(' + (_sf.swapWith === '本人調換' ? '本人調換' : '與 ' + _sf.swapWith) + ')' : ''}:原 ${_o} → 現在 ${shift === 'o' ? 'off' : (shift || 'off')}`;
       }
 
       // 整月外派:格子顯示「外」,紅底白字,點擊仍會開該人視窗

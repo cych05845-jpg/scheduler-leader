@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- VIEW-VERSION: 2026-11-27-v14 (換班申請核准的格子顯示紫色「換班」,與 leader 調班區分) -->
+<!-- VIEW-VERSION: 2026-11-27-v15 (換班格子直接顯示「換 原X」與對象,off 不再顯示成 o) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
@@ -1628,6 +1628,7 @@ async function loadData(forceMonth) {
           || ((node.announcementBackup && node.announcementBackup.text) || '');
         state.publishedAt = meta.publishedAt || '';
         state.publishedBy = meta.publishedBy || '';
+        // (班別顯示:o 一律寫 off,在下面各處用)
         // ★ 資料到了才知道有沒有公告 → 這時才決定換班入口要不要出現
         //   (以前只在剛進入、資料還沒載完時檢查一次,入口永遠是隱藏的)
         setTimeout(() => { try { showSwapEntry(); } catch (e) {} }, 0);
@@ -1759,7 +1760,7 @@ function renderToday() {
     const sh = (state.schedule[p.id] || {})[day];
     if (buckets[sh] !== undefined) {
       const flag = (state.flags[p.id] && state.flags[p.id][day]) || {};
-      buckets[sh].push({ p, marker: flag.marker || '', dept: flag.dept || '', dept2: flag.dept2 || '', leaveMarked: flag.leaveMarked === true, leaveReason: flag.leaveReason || '', hoursNote: flag.hoursNote || '', shiftChanged: flag.shiftChanged === true, origShift: flag.origShift || '', bySwap: !!flag.swapId });
+      buckets[sh].push({ p, marker: flag.marker || '', dept: flag.dept || '', dept2: flag.dept2 || '', leaveMarked: flag.leaveMarked === true, leaveReason: flag.leaveReason || '', hoursNote: flag.hoursNote || '', shiftChanged: flag.shiftChanged === true, origShift: flag.origShift || '', bySwap: !!flag.swapId, swapWith: flag.swapWith || '' });
     }
   });
 
@@ -1788,14 +1789,16 @@ function renderToday() {
         <span class="shift-count">(${arr.length} 人)</span>
       </div>
       <div class="shift-people">`;
-    arr.forEach(({p, marker, dept, dept2, leaveMarked, leaveReason, hoursNote, shiftChanged, origShift, bySwap}) => {
+    arr.forEach(({p, marker, dept, dept2, leaveMarked, leaveReason, hoursNote, shiftChanged, origShift, bySwap, swapWith}) => {
       const markerTag = marker === 'preceptor' ? '<span class="marker-tag preceptor">帶</span>'
                       : marker === 'trainee' ? "<span class='marker-tag trainee'>'</span>"
                       : '';
       const deptTag = dept ? `<span class="dept-tag">${esc(dept)}${dept2?`<span style="font-size:0.72rem; opacity:0.85">+${esc(dept2)}</span>`:''}</span>` : '';
       const leaveTag = leaveMarked ? `<span class="leave-tag">${esc(leaveReason||'請假')}</span>` : '';
       const hoursTag = hoursNote ? `<span class="hours-tag">⏱${esc(hoursNote)}</span>` : '';
-      const shiftTag = shiftChanged ? `<span class="shift-tag${bySwap ? ' by-swap' : ''}">${bySwap ? '換班 ' : ''}↔原${esc(origShift === 'o' ? 'off' : origShift)}</span>` : '';
+      const _o = origShift === 'o' ? 'off' : (origShift || '—');
+      const shiftTag = shiftChanged
+        ? `<span class="shift-tag${bySwap ? ' by-swap' : ''}">${bySwap ? '換班' : '調班'} 原${esc(_o)}${bySwap && swapWith && swapWith !== '本人調換' ? '・與' + esc(swapWith) : ''}</span>` : '';
       const offDays = countOffDays(p.id);
       const offTag = `<span class="off-tag" title="本月 OFF 數">休 ${offDays}</span>`;
       const cls = leaveMarked ? 'shift-person on-leave' : 'shift-person';
@@ -1934,8 +1937,9 @@ function renderPersonCalendar(calId, dowId, month, days, sched, pFlags, holidays
     // 調班標記(leader 現場換班)— 紅標 + 紅框
     // 換班申請核准的 → 紫色「換班」;leader 現場調班 → 紅色「調班」
     const _bySwap = !!flag.swapId;
+    const _ori = flag.origShift === 'o' ? 'off' : (flag.origShift || '—');
     const swapSmall = (flag.shiftChanged === true)
-      ? `<div class="cal-cell-swap${_bySwap ? ' by-swap' : ''}" title="原 ${esc(flag.origShift||'—')} 班">${_bySwap ? '換班' : '調班'}</div>` : '';
+      ? `<div class="cal-cell-swap${_bySwap ? ' by-swap' : ''}" title="${_bySwap ? '換班' : '調班'}${flag.swapWith ? '(' + esc(flag.swapWith) + ')' : ''}:原 ${esc(_ori)} → 現在 ${esc(sh === 'o' ? 'off' : (sh || 'off'))}">${_bySwap ? '換' : '調'} 原${esc(_ori)}</div>` : '';
     if (flag.shiftChanged === true) cls += ' cell-swapped' + (_bySwap ? ' by-swap' : '');
     if (flag.leaveMarked === true) cls += ' cell-on-leave';
     // 逐日個人備註(針對這個人這一天)+ 當日備註(這天所有人適用)
@@ -2113,10 +2117,14 @@ function renderMonthTable() {
       const swapped = flag.shiftChanged === true;
       const bySwap = !!flag.swapId;     // 經換班申請核准對調的
       const swapWord = bySwap ? '換班' : '調班';
+      const _orig = flag.origShift === 'o' ? 'off' : (flag.origShift || '—');
+      const _now = sh === 'o' ? 'off' : (sh || 'off');
+      const _with = (bySwap && flag.swapWith) ? `(${flag.swapWith === '本人調換' ? '本人調換' : '與' + flag.swapWith})` : '';
+      // 格子上直接寫「換 原D」,手機看得到原本是什麼班;完整說明放在 title
       const swapTag = swapped
-        ? `<div class="month-cell-swap${bySwap ? ' by-swap' : ''}" title="${swapWord}(原 ${esc(flag.origShift || '—')} 班 → 現在 ${esc(sh || 'off')})">${swapWord}</div>` : '';
+        ? `<div class="month-cell-swap${bySwap ? ' by-swap' : ''}" title="${swapWord}${esc(_with)}:原 ${esc(_orig)} → 現在 ${esc(_now)}">${bySwap ? '換' : '調'} 原${esc(_orig)}</div>` : '';
       const swapCls = swapped ? (' cell-swapped' + (bySwap ? ' by-swap' : '')) : '';
-      h += `<td class="${cls}${flag.leaveMarked?' cell-on-leave':''}${swapCls}" onclick="toggleRowLock('${escAttr(p.id)}')" style="cursor:pointer" title="${swapped?(swapWord+':原 '+esc(flag.origShift||'—')+' 班'):(flag.leaveMarked?esc(flag.leaveReason||'請假'):(personNote ? esc(personNote) : '點一下鎖定整行,方便對齊'))}">${deptSmall}${swapTag}${leaveTag}${hoursTag}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
+      h += `<td class="${cls}${flag.leaveMarked?' cell-on-leave':''}${swapCls}" onclick="toggleRowLock('${escAttr(p.id)}')" style="cursor:pointer" title="${swapped?(swapWord+esc(_with)+':原 '+esc(_orig)+' → 現在 '+esc(_now)):(flag.leaveMarked?esc(flag.leaveReason||'請假'):(personNote ? esc(personNote) : '點一下鎖定整行,方便對齊'))}">${deptSmall}${swapTag}${leaveTag}${hoursTag}${noteDot}<div class="month-cell-shift">${display}</div></td>`;
     }
     const offCellTitle = vDays > 0 ? `本月公休 ${offDays} 天(另特休 V ${vDays} 天)` : `本月公休 ${offDays} 天`;
     h += `<td class="col-off" title="${offCellTitle}"><span class="off-num">${offDays}</span></td>`;
