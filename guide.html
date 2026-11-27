@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>急診換班與預假教學</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/view-192.png">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<style>
+/* 版面:手機優先的單欄教材。每個步驟 = 一段說明 + 一塊「畫面長這樣」的小模型;寬螢幕時兩者並排。
+   換班用紫色(和班表上換班格子的紫框同色)、預假用綠色、假日用紅色。 */
+:root{
+  --bg:#f3f4f8; --paper:#ffffff; --ink:#1b2130; --mute:#596275; --line:#dce0ea; --soft:#eceef4;
+  --swap:#6a3fc2; --swap-soft:#efe9fb; --swap-ink:#3f2283;
+  --book:#0d7a5c; --book-soft:#e2f4ee; --book-ink:#07503c;
+  --hol:#c23b2e; --hol-soft:#fdeceb;
+  --warn-soft:#fff2d2; --warn-ink:#7a4a00;
+  --shadow:0 1px 2px rgba(22,27,45,.06), 0 8px 24px rgba(22,27,45,.07);
+  --font:"Microsoft JhengHei","Noto Sans TC","PingFang TC","Heiti TC",system-ui,sans-serif;
+  --num:"Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#11141b; --paper:#1a1f2a; --ink:#e9ecf3; --mute:#a2abbd; --line:#2d3443; --soft:#232936;
+    --swap:#b79df2; --swap-soft:#2a2244; --swap-ink:#dccffb;
+    --book:#5ed0a6; --book-soft:#15332b; --book-ink:#bfeedd;
+    --hol:#f18d80; --hol-soft:#3a1f1d;
+    --warn-soft:#3a2f14; --warn-ink:#f3d58a;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#11141b; --paper:#1a1f2a; --ink:#e9ecf3; --mute:#a2abbd; --line:#2d3443; --soft:#232936;
+  --swap:#b79df2; --swap-soft:#2a2244; --swap-ink:#dccffb;
+  --book:#5ed0a6; --book-soft:#15332b; --book-ink:#bfeedd;
+  --hol:#f18d80; --hol-soft:#3a1f1d;
+  --warn-soft:#3a2f14; --warn-ink:#f3d58a;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg); color:var(--ink); font-family:var(--font); font-size:16px; line-height:1.75}
+body::before{content:""; position:fixed; inset:0 0 auto; height:env(safe-area-inset-top,0px); z-index:10; background:var(--bg)}
+.wrap{max-width:860px; margin:0 auto; padding-left:max(16px, env(safe-area-inset-left,0px)); padding-right:max(16px, env(safe-area-inset-right,0px))}
+h1,h2,h3{margin:0; line-height:1.3; text-wrap:balance}
+p{margin:0}
+a{color:inherit}
+:focus-visible{outline:3px solid var(--swap); outline-offset:2px; border-radius:6px}
+
+/* ---------- 開頭 ---------- */
+.top{padding-block:28px 8px}
+.eyebrow{font-size:.82rem; letter-spacing:.14em; color:var(--mute); font-weight:700}
+h1{font-size:clamp(1.6rem, 5.4vw, 2.3rem); font-weight:900; margin-top:6px}
+.lede{margin-top:12px; color:var(--mute); max-width:38em}
+.entry{margin-top:18px; background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:14px 16px; display:flex; flex-direction:column; gap:4px}
+.entry b{font-size:.86rem; color:var(--mute); font-weight:700}
+.entry a{font-weight:700; word-break:break-all; text-decoration-thickness:1px; text-underline-offset:3px}
+.jump{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px}
+.jump a{display:block; text-decoration:none; border-radius:14px; padding:14px 16px; min-width:0}
+.jump a strong{display:block; font-size:1.12rem; font-weight:900}
+.jump a span{display:block; font-size:.88rem; margin-top:2px}
+.jump .js{background:var(--swap-soft); color:var(--swap-ink)}
+.jump .jb{background:var(--book-soft); color:var(--book-ink)}
+@media (max-width:440px){ .jump{grid-template-columns:1fr} }
+
+/* ---------- 區塊 ---------- */
+section{padding-block:34px 6px; scroll-margin-top:12px}
+.sec-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
+.sec-head h2{font-size:1.55rem; font-weight:900}
+.sec-head p{color:var(--mute); font-size:.95rem}
+#swap .sec-head h2{color:var(--swap)}
+#booking .sec-head h2{color:var(--book)}
+
+.flow{display:flex; flex-wrap:wrap; gap:6px 4px; align-items:center; margin-top:14px; font-weight:700; font-size:.93rem}
+.flow span{background:var(--paper); border:1px solid var(--line); border-radius:999px; padding:4px 13px}
+.flow i{font-style:normal; color:var(--mute)}
+.flow .end{background:var(--swap); color:var(--paper); border-color:var(--swap)}
+#booking .flow .end{background:var(--book); border-color:var(--book)}
+
+.rules{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:16px}
+.rule{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:12px 12px 10px; min-width:0}
+.rule b{display:block; font-family:var(--num); font-size:2rem; font-weight:900; line-height:1.1; color:var(--book); font-variant-numeric:tabular-nums}
+.rule b small{font-size:.95rem; font-weight:700; margin-left:2px}
+.rule span{display:block; font-size:.86rem; color:var(--mute); margin-top:4px; line-height:1.45}
+.rule.h b{color:var(--hol)}
+
+ol.steps{list-style:none; margin:18px 0 0; padding:0; display:flex; flex-direction:column; gap:14px; counter-reset:s}
+.step{counter-increment:s; background:var(--paper); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow);
+  padding:18px; display:grid; grid-template-columns:minmax(0,1fr); gap:14px}
+.step > div{min-width:0}
+.step h3{font-size:1.14rem; font-weight:900; display:flex; gap:10px; align-items:baseline}
+.step h3::before{content:counter(s); font-family:var(--num); font-size:1.5rem; font-weight:900; font-variant-numeric:tabular-nums; color:var(--swap); min-width:1.1em}
+#booking .step h3::before{color:var(--book)}
+.step p{margin-top:8px}
+.step ul{margin:8px 0 0; padding-left:1.2em; color:var(--mute); font-size:.94rem}
+.step ul li{margin-top:3px}
+.btnname{display:inline-block; background:var(--soft); border:1px solid var(--line); border-radius:7px; padding:0 7px; font-weight:700; font-size:.93em; white-space:nowrap; line-height:1.6}
+@media (min-width:720px){
+  .step.two{grid-template-columns:minmax(0,1fr) minmax(0,300px); align-items:start; gap:22px}
+}
+
+/* ---------- 畫面模型 ---------- */
+.mock{background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:12px; font-size:.86rem; line-height:1.5}
+.mock-cap{font-size:.74rem; letter-spacing:.1em; color:var(--mute); font-weight:700; margin-bottom:8px}
+.m-btn{display:block; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:9px 12px; margin-top:6px}
+.m-btn b{display:block; font-weight:700}
+.m-btn small{color:var(--mute)}
+.m-btn.hit{border:2px solid var(--swap); background:var(--swap-soft); color:var(--swap-ink)}
+.m-btn.hit small{color:var(--swap-ink)}
+.m-btn.hitb{border:2px solid var(--book); background:var(--book-soft); color:var(--book-ink)}
+.m-btn.hitb small{color:var(--book-ink)}
+.m-field{background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:7px 10px; margin-top:6px; display:flex; justify-content:space-between; gap:8px}
+.m-field span{color:var(--mute)}
+.m-go{margin-top:8px; background:var(--swap); color:var(--paper); border-radius:9px; text-align:center; padding:8px; font-weight:700}
+.m-go.b{background:var(--book)}
+.tabs3{display:grid; grid-template-columns:repeat(3,1fr); gap:5px}
+.tabs3 span{background:var(--paper); border:1px solid var(--line); border-radius:8px; text-align:center; padding:6px 2px; font-weight:700; font-size:.8rem}
+.tabs3 .on{background:var(--swap); border-color:var(--swap); color:var(--paper)}
+.wk{display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-top:8px}
+.wk div{background:var(--paper); border:1px solid var(--line); border-radius:7px; text-align:center; padding:4px 0 3px; font-variant-numeric:tabular-nums}
+.wk div b{display:block; font-family:var(--num); font-weight:700}
+.wk div small{display:block; font-size:.74rem; color:var(--mute)}
+.wk .sel{border:2px solid var(--swap); background:var(--swap-soft)}
+.preview{margin-top:8px; background:var(--swap-soft); color:var(--swap-ink); border-radius:9px; padding:8px 10px}
+.preview b{display:block; font-size:.78rem; letter-spacing:.06em}
+.req{background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:9px 11px; margin-top:6px}
+.req .row{display:flex; justify-content:space-between; gap:8px; align-items:center; flex-wrap:wrap}
+.req .acts{display:flex; gap:6px; margin-top:7px}
+.req .acts span{border-radius:7px; padding:3px 12px; font-weight:700; font-size:.82rem}
+.yes{background:var(--book); color:var(--paper)} .no{background:var(--hol); color:var(--paper)}
+.pill{display:inline-block; border-radius:999px; padding:1px 10px; font-size:.78rem; font-weight:700; white-space:nowrap}
+.p-wait{background:var(--warn-soft); color:var(--warn-ink)}
+.p-hn{background:var(--swap-soft); color:var(--swap-ink)}
+.p-ok{background:var(--book-soft); color:var(--book-ink)}
+.p-back{background:var(--hol-soft); color:var(--hol)}
+.states{display:flex; flex-direction:column; gap:7px}
+.states div{display:flex; gap:10px; align-items:center}
+.states div span:last-child{color:var(--mute); font-size:.84rem}
+
+.grid-row{display:grid; grid-template-columns:3.6em repeat(5,1fr); gap:3px; align-items:stretch; margin-top:4px}
+.grid-row > *{background:var(--paper); border:1px solid var(--line); border-radius:5px; text-align:center; padding:6px 0; font-weight:700; font-variant-numeric:tabular-nums; position:relative; min-width:0}
+.grid-row .nm{font-weight:500; font-size:.8rem; padding-inline:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.grid-row.hd > *{background:transparent; border-color:transparent; color:var(--mute); font-size:.76rem; padding:0}
+.swapped{box-shadow:inset 0 0 0 2px var(--swap)}
+.swapped::before{content:""; position:absolute; top:0; right:0; border-top:9px solid var(--swap); border-left:9px solid transparent}
+.tip{margin-top:8px; background:var(--ink); color:var(--bg); border-radius:8px; padding:6px 10px; font-size:.82rem; display:inline-block}
+
+.note{margin-top:14px; border-radius:14px; padding:14px 16px; background:var(--swap-soft); color:var(--swap-ink)}
+.note h3{font-size:1.02rem; font-weight:900}
+.note p{margin-top:4px; font-size:.95rem}
+#booking .note{background:var(--book-soft); color:var(--book-ink)}
+
+/* ---------- 預約練習用月曆 ---------- */
+.cal-head{display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap}
+.quota{display:flex; gap:6px; flex-wrap:wrap}
+.quota span{background:var(--paper); border:1px solid var(--line); border-radius:999px; padding:1px 10px; font-size:.8rem; font-weight:700; font-variant-numeric:tabular-nums}
+.quota span.full{background:var(--book); border-color:var(--book); color:var(--paper)}
+.cal{display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; margin-top:8px}
+.cal .dow{font-size:.74rem; color:var(--mute); text-align:center; font-weight:700}
+.cal .dow.h{color:var(--hol)}
+.cal button{appearance:none; font:inherit; color:inherit; cursor:pointer; background:var(--paper); border:1px solid var(--line); border-radius:8px;
+  padding:5px 0 3px; min-height:46px; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; position:relative; min-width:0}
+.cal button b{font-family:var(--num); font-weight:700; font-variant-numeric:tabular-nums; line-height:1.3}
+.cal button small{font-size:.66rem; color:var(--mute); line-height:1.2}
+.cal button.h{background:var(--hol-soft); border-color:transparent}
+.cal button.h b{color:var(--hol)}
+.cal button.on{border:2px solid var(--book); background:var(--book-soft)}
+.cal button.on::after{content:"✓"; position:absolute; top:1px; right:4px; font-size:.7rem; font-weight:900; color:var(--book)}
+.cal .blank{visibility:hidden}
+.cal-msg{margin-top:8px; min-height:2.6em; font-size:.86rem; border-radius:8px; padding:6px 10px; background:var(--paper); border:1px dashed var(--line); color:var(--mute)}
+.cal-msg.bad{background:var(--hol-soft); color:var(--hol); border-color:transparent; font-weight:700}
+.cal-msg.good{background:var(--book-soft); color:var(--book-ink); border-color:transparent; font-weight:700}
+.cal-foot{display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap}
+.cal-foot button{appearance:none; font:inherit; font-weight:700; cursor:pointer; border:0; border-radius:9px; padding:7px 14px; background:var(--book); color:var(--paper)}
+.cal-foot button.ghost{background:transparent; color:var(--mute); border:1px solid var(--line)}
+.cal-foot span{font-size:.84rem; font-weight:700}
+.unsaved{color:var(--warn-ink)} .saved{color:var(--book)}
+
+.draw{display:flex; flex-direction:column; gap:8px}
+.draw .grp{background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:8px 10px}
+.draw .grp b{font-size:.78rem; color:var(--mute); letter-spacing:.06em}
+.chips{display:flex; gap:5px; flex-wrap:wrap; margin-top:4px}
+.chip{border-radius:6px; padding:1px 9px; font-weight:700; font-size:.84rem}
+.chip.win{background:var(--book-soft); color:var(--book-ink)}
+.chip.lose{background:var(--soft); color:var(--mute); text-decoration:underline; text-underline-offset:3px}
+.legend{margin-top:10px; display:grid; gap:8px}
+.legend div{display:grid; grid-template-columns:4.2em minmax(0,1fr); gap:10px; align-items:start}
+.legend code{font-family:var(--num); font-weight:900; font-size:1.05rem; text-align:center; border-radius:8px; padding:3px 0; background:var(--book-soft); color:var(--book-ink)}
+.legend code.u{background:var(--soft); color:var(--ink); text-decoration:underline; text-underline-offset:4px}
+.legend span{font-size:.94rem}
+
+/* ---------- 常見問題 ---------- */
+.faq{display:grid; gap:10px; margin-top:16px}
+.faq div{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:13px 16px}
+.faq dt{font-weight:900}
+.faq dd{margin:4px 0 0; color:var(--mute)}
+footer{padding-block:28px 40px; color:var(--mute); font-size:.86rem}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+
+  <header class="top">
+    <div class="eyebrow">急診護理站 · 班表公告新功能</div>
+    <h1>換班申請和預約假期,現在用手機就能完成</h1>
+    <p class="lede">兩個功能都從「班表公告」進去。看班表不用登入;要換班或預約時,才用帳號中心的員編和 PIN 登入(跟 ED-Board 同一組)。</p>
+    <div class="entry">
+      <b>班表公告網址</b>
+      <a href="https://cych05845-jpg.github.io/scheduler-leader/schedule-view.html">https://cych05845-jpg.github.io/scheduler-leader/schedule-view.html</a>
+    </div>
+    <nav class="jump" aria-label="章節">
+      <a class="js" href="#swap"><strong>換班申請</strong><span>跟同事換班,核准後班表直接更新</span></a>
+      <a class="jb" href="#booking"><strong>預約假期</strong><span>開放 5 天,登記下個月想休的日子</span></a>
+    </nav>
+  </header>
+
+  <!-- ====================== 換班 ====================== -->
+  <section id="swap">
+    <div class="sec-head">
+      <h2>換班申請</h2>
+      <p>不用再填紙本。每一步都有登入紀錄,護理長那邊有電子報表備查。</p>
+    </div>
+    <div class="flow" aria-label="換班流程">
+      <span>你提出</span><i>→</i><span>對方同意</span><i>→</i><span>護理長核准</span><i>→</i><span class="end">班表更新</span>
+    </div>
+
+    <ol class="steps">
+      <li class="step two">
+        <div>
+          <h3>打開換班申請</h3>
+          <p>在班表公告的首頁按 <span class="btnname">🔄 換班申請</span>。已經在看班表的話,班表上方也有「○ 月換班申請」可以按。</p>
+          <ul>
+            <li>班表公告之後才能申請,可以選本月或下個月。</li>
+            <li>護理師和技術員/助理員是兩張班表,進去後先選對自己的。</li>
+          </ul>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <div class="mock-cap">班表公告首頁</div>
+          <div class="m-btn"><b>📅 班表公告</b><small>查詢本月班表、個人班</small></div>
+          <div class="m-btn hit"><b>🔄 換班申請</b><small>線上提出換班,對方同意後送護理長核准</small></div>
+        </div>
+      </li>
+
+      <li class="step">
+        <div>
+          <h3>用員編和 PIN 登入</h3>
+          <p>按 <span class="btnname">登入</span>,輸入帳號中心的員編和 PIN。登入後畫面上的名字就是你本人,只能替自己申請和同意,別人沒辦法冒用你的名字換班。</p>
+        </div>
+      </li>
+
+      <li class="step two">
+        <div>
+          <h3>選日期、選對象、寫原因</h3>
+          <p>在 <span class="btnname">➕ 提出換班</span> 這一頁照順序做:</p>
+          <ul>
+            <li>點你要換掉的日期,可以一次選好幾天。格子下方是你那天的班。</li>
+            <li>選要跟誰換。</li>
+            <li>寫換班原因。</li>
+          </ul>
+          <p>下方會先列出換完之後兩個人的班,確認沒錯再按 <span class="btnname">送出換班申請</span>。</p>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <div class="mock-cap">提出換班(範例)</div>
+          <div class="tabs3"><span class="on">➕ 提出換班</span><span>📋 我的申請</span><span>✋ 待我同意</span></div>
+          <div class="wk">
+            <div><b>6</b><small>D</small></div><div><b>7</b><small>D</small></div><div class="sel"><b>8</b><small>D</small></div><div><b>9</b><small>off</small></div><div><b>10</b><small>E</small></div><div><b>11</b><small>E</small></div><div><b>12</b><small>OFF</small></div>
+          </div>
+          <div class="m-field"><span>要跟誰換</span><b>王小華</b></div>
+          <div class="preview"><b>換完會變成這樣</b>林小美:8 日 D → N<br>王小華:8 日 N → D</div>
+          <div class="m-go">送出換班申請</div>
+        </div>
+      </li>
+
+      <li class="step two">
+        <div>
+          <h3>請對方登入同意</h3>
+          <p>對方登入後,會在 <span class="btnname">✋ 待我同意</span> 看到你的申請,按「同意」或「不同意」。記得提醒對方上去按,沒有人按就會一直停在這一步。</p>
+          <ul>
+            <li>對方還沒回覆之前,你可以在「📋 我的申請」按「取消申請」。</li>
+          </ul>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <div class="mock-cap">對方看到的畫面</div>
+          <div class="req">
+            <div class="row"><b>林小美 想跟你換</b><span class="pill p-wait">等對方同意</span></div>
+            <div>林小美:8 日 D → N<br>王小華:8 日 N → D</div>
+            <div class="acts"><span class="yes">✓ 同意</span><span class="no">✗ 不同意</span></div>
+          </div>
+        </div>
+      </li>
+
+      <li class="step two">
+        <div>
+          <h3>等護理長核准</h3>
+          <p>雙方都同意後,由護理長、副護理長,或護理長指定的代理人審核。核准前系統會先檢查排班規則。不符合規則會被退回,退回原因會寫在申請上。</p>
+          <p>進度隨時可以在「📋 我的申請」看。</p>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <div class="mock-cap">申請的四種狀態</div>
+          <div class="states">
+            <div><span class="pill p-wait">等對方同意</span><span>對方還沒按</span></div>
+            <div><span class="pill p-hn">等護理長核准</span><span>雙方都同意了</span></div>
+            <div><span class="pill p-ok">✓ 已核准</span><span>班表已經換好</span></div>
+            <div><span class="pill p-back">已退回</span><span>會寫退回原因</span></div>
+          </div>
+        </div>
+      </li>
+
+      <li class="step two">
+        <div>
+          <h3>回班表確認</h3>
+          <p>核准的當下班表就更新了。換過的格子有紫色框,右上角有一個小三角。用手指點一下那一格(電腦是把滑鼠移上去),會顯示跟誰換、原本和現在的班。</p>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <div class="mock-cap">班表上的換班記號</div>
+          <div class="grid-row hd"><span></span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span></div>
+          <div class="grid-row"><span class="nm">林小美</span><span>D</span><span>D</span><span class="swapped">N</span><span>off</span><span>E</span></div>
+          <div class="grid-row"><span class="nm">王小華</span><span>N</span><span>N</span><span class="swapped">D</span><span>OFF</span><span>N</span></div>
+          <div class="tip">換班(與王小華):原 D → 現在 N</div>
+        </div>
+      </li>
+    </ol>
+
+    <div class="note">
+      <h3>自己兩天的班對調</h3>
+      <p>「要跟誰換」的選單裡如果有 <span class="btnname">🔁 自己調換</span>,代表你可以把自己兩天的班互換。剛好選 2 天,不需要對方同意,送出後直接給護理長核准。這個選項只有不算人力的同仁會看到。</p>
+    </div>
+  </section>
+
+  <!-- ====================== 預假 ====================== -->
+  <section id="booking">
+    <div class="sec-head">
+      <h2>預約假期</h2>
+      <p>登記下個月想休的日子,截止後統一抽籤。</p>
+    </div>
+    <div class="rules">
+      <div class="rule"><b>5<small>天</small></b><span>開放時間。過了自動截止,不能再改。</span></div>
+      <div class="rule"><b>3<small>天</small></b><span>每人每月最多可以預約的天數。</span></div>
+      <div class="rule h"><b>1<small>天</small></b><span>其中假日最多 1 天。週日和國定假日都算假日。</span></div>
+    </div>
+    <div class="flow" aria-label="預約流程">
+      <span>開放 5 天</span><i>→</i><span>登記並儲存</span><i>→</i><span>截止後抽籤</span><i>→</i><span class="end">公告結果</span>
+    </div>
+
+    <ol class="steps">
+      <li class="step two">
+        <div>
+          <h3>等預約開放</h3>
+          <p>開放時,班表公告上方會出現 <span class="btnname">🌴 預約 ○ 月假期</span>,點進去就是預約頁。沒開放的時候看不到這個按鈕。</p>
+          <ul>
+            <li>通常在前一個月的月初開放。</li>
+            <li>預約頁上方會顯示截止時間和剩下多久。</li>
+          </ul>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <div class="mock-cap">開放時班表公告上方</div>
+          <div class="m-btn hitb"><b>🌴 預約 1 月假期</b><small>開放中,點我登記想休的日子</small></div>
+        </div>
+      </li>
+
+      <li class="step">
+        <div>
+          <h3>用員編和 PIN 登入</h3>
+          <p>跟換班一樣,用帳號中心的員編和 PIN。登入後只能登記自己的假。</p>
+        </div>
+      </li>
+
+      <li class="step two">
+        <div>
+          <h3>點想休的日子</h3>
+          <p>直接在月曆上點日期,再點一次就取消。</p>
+          <ul>
+            <li>紅底是假日(週日、國定假日)。</li>
+            <li>日期下方的小字,是那天目前已經有幾個人預約。人多的日子比較需要抽籤。</li>
+            <li>超過 3 天、或選到第 2 個假日時,系統會擋下來。</li>
+          </ul>
+          <p>這裡的練習月曆可以直接點,規則跟正式的一樣,不會真的送出。</p>
+        </div>
+        <div class="mock">
+          <div class="cal-head">
+            <div class="mock-cap" style="margin:0">練習:2027 年 1 月</div>
+            <div class="quota"><span id="q-total">已選 0 / 3 天</span><span id="q-hol">假日 0 / 1</span></div>
+          </div>
+          <div class="cal" id="cal"></div>
+          <div class="cal-msg" id="cal-msg" role="status" aria-live="polite">點日期試試看。1/1 元旦和每個週日是假日。</div>
+          <div class="cal-foot">
+            <button type="button" id="save-btn">💾 儲存預約</button>
+            <button type="button" class="ghost" id="reset-btn">重來</button>
+            <span id="save-state" class="unsaved"></span>
+          </div>
+        </div>
+      </li>
+
+      <li class="step">
+        <div>
+          <h3>一定要按「儲存預約」</h3>
+          <p>選完要按下方的 <span class="btnname">💾 儲存預約</span>,看到「✓ 已儲存」才算完成。只點日期沒按儲存,等於沒有預約。</p>
+          <ul>
+            <li>截止前可以隨時回來改,改完要再按一次儲存。</li>
+            <li>截止後就不能改了。真的需要調整,請直接找護理長。</li>
+          </ul>
+        </div>
+      </li>
+
+      <li class="step two">
+        <div>
+          <h3>截止後抽籤</h3>
+          <p>算人力的同仁照班表上的順序,每 13 人分成一組。每一組每一天有 1 個確定放假的名額:</p>
+          <ul>
+            <li>那天同組只有你一個人預約:直接放假,不用抽。</li>
+            <li>那天同組有兩個人以上預約:抽出 1 位。</li>
+          </ul>
+          <div class="legend">
+            <div><code>OFF</code><span>抽中。這天確定放假。</span></div>
+            <div><code class="u">off</code><span>沒抽中,畫底線的 off。排班時還是會盡量安排,但不保證。</span></div>
+          </div>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <div class="mock-cap">範例:1 月 5 日的抽籤</div>
+          <div class="draw">
+            <div class="grp"><b>第 1 組 · 3 人預約,抽 1 位</b><div class="chips"><span class="chip win">林小美</span><span class="chip lose">王小華</span><span class="chip lose">陳小安</span></div></div>
+            <div class="grp"><b>第 2 組 · 只有 1 人預約,直接放假</b><div class="chips"><span class="chip win">張小雯</span></div></div>
+          </div>
+        </div>
+      </li>
+
+      <li class="step two">
+        <div>
+          <h3>看抽籤結果</h3>
+          <p>結果公告後,班表公告會多一個 <span class="btnname">🌴 ○ 月預約</span> 分頁,列出每一天抽中和沒抽中的人。下個月的班表還沒公告也看得到。</p>
+          <p>結果同時會寫進下個月的班表,護理長排班時就是以這個為準。</p>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <div class="mock-cap">1 月預約結果(範例)</div>
+          <div class="req"><div class="row"><b>5 日</b></div><div class="chips"><span class="chip win">林小美</span><span class="chip win">張小雯</span><span class="chip lose">王小華</span><span class="chip lose">陳小安</span></div></div>
+          <div class="req"><div class="row"><b style="color:var(--hol)">10 日(日)</b></div><div class="chips"><span class="chip win">李小晴</span></div></div>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ====================== 常見問題 ====================== -->
+  <section id="faq">
+    <div class="sec-head"><h2>常見問題</h2></div>
+    <dl class="faq">
+      <div><dt>忘記 PIN,或登入不了怎麼辦?</dt><dd>請找護理長重設 PIN。</dd></div>
+      <div><dt>登入後畫面說「找不到你的名字」?</dt><dd>帳號中心的姓名要和班表上的姓名完全一樣才對得上。請告訴護理長,修正後就能用。</dd></div>
+      <div><dt>可以幫同事送換班,或幫同事按同意嗎?</dt><dd>不行。申請和同意都要本人用自己的帳號登入操作。</dd></div>
+      <div><dt>換班送出後才發現選錯日期?</dt><dd>對方還沒按同意之前,到「📋 我的申請」按「取消申請」,再重新送一次。對方已經同意的話,請聯絡護理長退回。</dd></div>
+      <div><dt>預約截止了,還能改嗎?</dt><dd>不能在系統上改了。真的需要調整請直接找護理長。</dd></div>
+      <div><dt>手機、電腦都可以用嗎?</dt><dd>都可以,用瀏覽器打開班表公告網址就行,不用另外安裝。</dd></div>
+    </dl>
+  </section>
+
+  <footer>操作上有問題請找護理長或副護理長。教材內容以 2026 年 11 月的系統畫面為準。</footer>
+</div>
+
+<script>
+(function () {
+  // 預約練習月曆:2027 年 1 月。規則與正式預約頁相同(最多 3 天、假日最多 1 天)。
+  var DAYS = 31, FIRST_DOW = 5;                 // 2027/1/1 是星期五
+  var NATIONAL = [1];                           // 元旦
+  var COUNT = {1: 9, 2: 6, 3: 4, 5: 3, 9: 5, 10: 4, 16: 6, 17: 3, 22: 2, 23: 5, 24: 4, 30: 7, 31: 5};   // 範例:那天已有幾人預約
+  var MAX = 3, MAX_HOL = 1;
+  var picks = [], saved = false;
+  var cal = document.getElementById('cal'), msg = document.getElementById('cal-msg');
+  var isHol = function (d) { return ((FIRST_DOW + d - 1) % 7) === 0 || NATIONAL.indexOf(d) >= 0; };
+
+  function say(text, kind) { msg.textContent = text; msg.className = 'cal-msg' + (kind ? ' ' + kind : ''); }
+
+  function render() {
+    var html = ['日', '一', '二', '三', '四', '五', '六'].map(function (w, i) { return '<div class="dow' + (i === 0 ? ' h' : '') + '">' + w + '</div>'; }).join('');
+    for (var i = 0; i < FIRST_DOW; i++) html += '<div class="blank"></div>';
+    for (var d = 1; d <= DAYS; d++) {
+      var on = picks.indexOf(d) >= 0, n = (COUNT[d] || 0) + (on ? 1 : 0);
+      html += '<button type="button" data-d="' + d + '" class="' + (isHol(d) ? 'h ' : '') + (on ? 'on' : '') + '" aria-pressed="' + on + '" aria-label="1 月 ' + d + ' 日' + (isHol(d) ? ' 假日' : '') + '">'
+        + '<b>' + d + '</b><small>' + (n ? n + '人' : '&nbsp;') + '</small></button>';
+    }
+    cal.innerHTML = html;
+    var hol = picks.filter(isHol).length;
+    var qt = document.getElementById('q-total'), qh = document.getElementById('q-hol');
+    qt.textContent = '已選 ' + picks.length + ' / ' + MAX + ' 天'; qt.className = picks.length >= MAX ? 'full' : '';
+    qh.textContent = '假日 ' + hol + ' / ' + MAX_HOL; qh.className = hol >= MAX_HOL ? 'full' : '';
+    var st = document.getElementById('save-state');
+    if (!picks.length && !saved) { st.textContent = ''; }
+    else if (saved) { st.textContent = '✓ 已儲存'; st.className = 'saved'; }
+    else { st.textContent = '● 尚未儲存'; st.className = 'unsaved'; }
+  }
+
+  cal.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-d]'); if (!b) return;
+    var d = +b.dataset.d, i = picks.indexOf(d);
+    if (i >= 0) { picks.splice(i, 1); saved = false; say('已取消 ' + d + ' 日。'); }
+    else if (picks.length >= MAX) { say('每月最多只能預約 3 天。要換日子,請先取消其他日期。', 'bad'); }
+    else if (isHol(d) && picks.filter(isHol).length >= MAX_HOL) { say('假日(週日、國定假日)最多只能預約 1 天。請先取消原本的假日。', 'bad'); }
+    else { picks.push(d); saved = false; say('選了 ' + d + ' 日' + (isHol(d) ? '(假日)' : '') + '。記得按「儲存預約」。'); }
+    render();
+  });
+  document.getElementById('save-btn').addEventListener('click', function () {
+    if (!picks.length) { say('還沒選日期。先在月曆上點想休的日子。', 'bad'); return; }
+    saved = true;
+    say('已儲存:' + picks.slice().sort(function (a, b) { return a - b; }).join('、') + ' 日。正式預約時看到「✓ 已儲存」就完成了。', 'good');
+    render();
+  });
+  document.getElementById('reset-btn').addEventListener('click', function () {
+    picks = []; saved = false; say('點日期試試看。1/1 元旦和每個週日是假日。'); render();
+  });
+  render();
+})();
+</script>
+
+</body>
+</html>
