@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- AIDE-VERSION: 2026-11-27-v13 (換班:護理長審核即對調、只限HN/AHN、格子紫框標記、換班報表取代紙本) -->
+<!-- AIDE-VERSION: 2026-11-27-v14 (換班審核自動切月份;換班格子不被雲端補回) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診技助事員排班工具 | ED Aide Scheduling</title>
@@ -15944,8 +15944,11 @@ async function applySwapsToSchedule(opts) {
   if (!todo.length) { alert('沒有需要對調的換班。'); return; }
   const reviewing = todo.some(r => r.status === 'agreed');   // 這次是「審核並核准」
   if (state.month !== month) {
-    alert(`⚠ 目前畫面是「${state.month}」,但要帶入的是「${month}」的換班。\n\n請先載入 ${month} 的班表再帶入。`);
-    return;
+    // 例:畫面在 11 月,要審的是 12 月的換班 → 直接幫你切到 12 月
+    if (!confirm(`這是「${month}」的換班,畫面目前是「${state.month || '未載入'}」。\n\n要先切換到 ${month} 的班表,再繼續審核嗎?`)) return;
+    try { await loadCloudScheduleDirectly(month); } catch (e) { console.warn(e); }
+    if (state.month !== month) { alert(`沒有切換到 ${month},這次先不審核。`); return; }
+    document.getElementById('swap-modal').classList.add('active');   // 載入後視窗可能被關掉,打開回來
   }
   const byName = {};
   (state.staff || []).forEach(p => { if (p.name) byName[p.name] = p.id; });
@@ -16339,6 +16342,7 @@ function mergeCloudIntoAidePayload(viewData, cloud) {
       for (const day in days) {
         const cf = days[day];
         if (!cf || typeof cf !== 'object') continue;
+        if (cf.swapId) continue;   // 換班申請對調的格子以排班頁為準(復原後不該被補回)
         const hasAny = KEEP.some(k => cf[k] !== undefined && cf[k] !== null && cf[k] !== '');
         if (!hasAny) continue;
         if (!viewData.flags[vpid]) viewData.flags[vpid] = {};

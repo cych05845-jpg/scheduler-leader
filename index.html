@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-11-27-v51 (換班:護理長審核即對調、只限HN/AHN、格子紫框標記、換班報表取代紙本) -->
+<!-- VERSION: 2026-11-27-v52 (換班審核自動切月份;換班格子不被雲端調班規則蓋回) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -7114,8 +7114,11 @@ async function applySwapsToSchedule(opts) {
   if (!todo.length) { alert('沒有需要對調的換班。'); return; }
   const reviewing = todo.some(r => r.status === 'agreed');   // 這次是「審核並核准」
   if (state.month !== month) {
-    alert(`⚠ 目前畫面是「${state.month}」,但要帶入的是「${month}」的換班。\n\n請先載入 ${month} 的班表再帶入。`);
-    return;
+    // 例:畫面在 11 月,要審的是 12 月的換班 → 直接幫你切到 12 月
+    if (!confirm(`這是「${month}」的換班,畫面目前是「${state.month || '未載入'}」。\n\n要先切換到 ${month} 的班表,再繼續審核嗎?`)) return;
+    try { await loadCloudScheduleDirectly(month); } catch (e) { console.warn(e); }
+    if (state.month !== month) { alert(`沒有切換到 ${month},這次先不審核。`); return; }
+    document.getElementById('swap-modal').classList.add('active');   // 載入後視窗可能被關掉,打開回來
   }
   const byName = {};
   (state.staff || []).forEach(p => { if (p.name) byName[p.name] = p.id; });
@@ -17932,7 +17935,9 @@ async function saveScheduleFirebaseOnly(month) {
                   if (cf.dept2) tgt.dept2 = cf.dept2;               // 副科別
               if (cf.tempAdjust && cf.dept && !tgt.dept) tgt.dept = cf.dept;
               // ★ 換班:保留 leader 改後的實際班別 + 換班紀錄(之前這段沒保,班別會被蓋回去)
-              if (cf.shiftChanged) {
+              //   ⚠ 換班申請(swapId)是在排班頁裡對調的,排班頁才是正本 → 不可用雲端蓋回
+              //     (否則護理長核准後再手動改、或按復原,下次存檔又被改回去)
+              if (cf.shiftChanged && !cf.swapId) {
                 tgt.shiftChanged = true;
                 if (cf.origShift !== undefined) tgt.origShift = cf.origShift;
                 if (cf.shiftReview) tgt.shiftReview = cf.shiftReview;
@@ -18091,7 +18096,8 @@ function triggerAutoSync() {
                   // 若 leader 改過科別(臨時),且 index 這格沒科別,採用雲端的
                   if (cf.tempAdjust && cf.dept && !tgt.dept) tgt.dept = cf.dept;
                   // ★ 換班:保留 leader 改後的實際班別 + 換班紀錄
-                  if (cf.shiftChanged) {
+                  //   ⚠ 換班申請(swapId)以排班頁為準,不用雲端蓋回
+                  if (cf.shiftChanged && !cf.swapId) {
                     tgt.shiftChanged = true;
                     if (cf.origShift !== undefined) tgt.origShift = cf.origShift;
                     if (cf.shiftReview) tgt.shiftReview = cf.shiftReview;
