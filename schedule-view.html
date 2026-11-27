@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- VIEW-VERSION: 2026-11-27-v17 (預約改存班表節點底下:修正入口與結果從未顯示) -->
+<!-- VIEW-VERSION: 2026-11-27-v18 (預約抽籤結果:下個月班表還沒公告也看得到) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
@@ -1382,7 +1382,7 @@ async function loadBookingResult() {
   try {
     const btn = document.getElementById('tab-booking-btn');
     const body = document.getElementById('booking-result-body');
-    if (!btn || !body || !state.month) return;
+    if (!btn || !body) return;
 
     // ★ 以前少了這兩行 → 'get is not defined',預約結果分頁從來沒顯示過
     await initFirebase();
@@ -1390,15 +1390,25 @@ async function loadBookingResult() {
 
     // ★ 存放位置改到 schedules/{月}/booking(頂層 bookings/ 被 Firebase 規則擋,從沒讀到過)
     if (state.scheduleType === 'aide') { btn.style.display = 'none'; return; }   // 預約只有護理師
-    const bp = `schedules/${state.month}/booking`;
-    const pubSnap = await get(ref(_fbDb, `${bp}/published`));
-    if (!pubSnap.exists() || !pubSnap.val()) { btn.style.display = 'none'; return; }
+    // ★ 抽籤通常在下個月班表「還沒公告」時就公告結果 → 不能只看畫面上的月份。
+    //   依序找:下個月、畫面上的月份、本月,第一個「已公告抽籤結果」的就顯示。
+    const _now = new Date();
+    const _ym = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const cands = [...new Set([_ym(new Date(_now.getFullYear(), _now.getMonth() + 1, 1)), state.month, _ym(_now)].filter(Boolean))];
+    let bm = '', res = null;
+    for (const m of cands) {
+      try {
+        const pubSnap = await get(ref(_fbDb, `schedules/${m}/booking/published`));
+        if (!pubSnap.exists() || !pubSnap.val()) continue;
+        const rSnap = await get(ref(_fbDb, `schedules/${m}/booking/result`));
+        if (!rSnap.exists()) continue;
+        bm = m; res = rSnap.val() || {}; break;
+      } catch (e) {}
+    }
+    if (!bm) { btn.style.display = 'none'; return; }
 
-    const rSnap = await get(ref(_fbDb, `${bp}/result`));
-    if (!rSnap.exists()) { btn.style.display = 'none'; return; }
-    const res = rSnap.val() || {};
-
-    const mm = state.month.slice(5).replace(/^0/, '');
+    const mm = bm.slice(5).replace(/^0/, '');
+    btn.textContent = `🌴 ${mm}月預約`;
     const t = document.getElementById('br-title');
     if (t) t.textContent = `${mm} 月預約結果`;
 
@@ -1416,7 +1426,7 @@ async function loadBookingResult() {
     sorted.forEach(d => {
       const win = (picked[d] || []).map(n => `<span style="display:inline-block;background:#dcfce7;color:#166534;border-radius:4px;padding:1px 7px;margin:2px 3px 2px 0;font-weight:600">${esc(n)}</span>`).join('');
       const lose = (missed[d] || []).map(n => `<span style="display:inline-block;background:#f3f4f6;color:#6b7280;border-radius:4px;padding:1px 7px;margin:2px 3px 2px 0;text-decoration:underline">${esc(n)}</span>`).join('');
-      const dow = new Date(+state.month.split('-')[0], +state.month.split('-')[1] - 1, d).getDay();
+      const dow = new Date(+bm.split('-')[0], +bm.split('-')[1] - 1, d).getDay();
       const isHol = dow === 0;
       html += `<tr style="border-bottom:1px solid #eef2f7">
         <td style="padding:6px 8px;font-weight:700;${isHol ? 'color:#dc2626' : ''}">${d}日${isHol ? '(日)' : ''}</td>

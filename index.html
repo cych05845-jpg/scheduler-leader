@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-11-27-v60 (AI 改用 Gemini 3.8 Flash,撞限制改 3.6 Flash) -->
+<!-- VERSION: 2026-11-27-v61 (開啟時提醒雲端班表較新(含事務員抽籤寫入);可加入 2027 國定假日) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -2087,6 +2087,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
                 <button onclick="addHoliday()" style="padding: 4px 12px">＋ 新增</button>
               </div>
               <button onclick="loadTaiwanHolidays2026()" style="margin-top: 0.5rem; padding: 4px 12px; font-size: 0.95rem">載入 2026 台灣國定假日</button>
+              <button onclick="addTaiwanHolidays2027()" style="margin-top: 0.5rem; padding: 4px 12px; font-size: 0.95rem">＋ 加入 2027 台灣國定假日</button>
             </div>
           </div>
         </div>
@@ -10502,6 +10503,8 @@ function onMonthChange() {
   updateEmptyStateForMaster();
   // 自動從上個月班表算「月底連續上班天數」帶進本月(跨月接續,不需匯入)
   computePrevMonthConsecFromCloud(state.month);
+  setTimeout(() => { try { checkCloudNewerOnOpen(); } catch (e) {} }, 800);
+  try { warnIfNoHolidaysForYear(); } catch (e) {}
 }
 
 // 從雲端讀上一個月班表,計算每人月底連續上班天數 → 寫入 prevMonthConsec
@@ -12486,6 +12489,56 @@ function loadTaiwanHolidays2026() {
   if (!confirm('將覆蓋目前的假日列表,確定?')) return;
   state.rules.holidays = [...DEFAULT_RULES.holidays];
   renderHolidaysList();
+}
+
+// 116 年(2027)政府行政機關辦公日曆表的放假日(含補假)。加入後可逐筆刪掉不適用的。
+const TW_HOLIDAYS_2027 = [
+  { date: '2027-01-01', name: '元旦' },
+  { date: '2027-02-04', name: '小年夜' },
+  { date: '2027-02-05', name: '春節(除夕)' },
+  { date: '2027-02-06', name: '春節初一' },
+  { date: '2027-02-07', name: '春節初二' },
+  { date: '2027-02-08', name: '春節初三' },
+  { date: '2027-02-09', name: '春節(補)' },
+  { date: '2027-02-10', name: '春節(補)' },
+  { date: '2027-02-28', name: '和平紀念日' },
+  { date: '2027-03-01', name: '和平紀念日(補)' },
+  { date: '2027-04-04', name: '兒童節' },
+  { date: '2027-04-05', name: '清明節' },
+  { date: '2027-04-06', name: '兒童節(補)' },
+  { date: '2027-04-30', name: '勞動節(補)' },
+  { date: '2027-05-01', name: '勞動節' },
+  { date: '2027-06-09', name: '端午節' },
+  { date: '2027-09-15', name: '中秋節' },
+  { date: '2027-09-28', name: '教師節' },
+  { date: '2027-10-10', name: '國慶日' },
+  { date: '2027-10-11', name: '國慶日(補)' },
+  { date: '2027-10-25', name: '光復節' },
+  { date: '2027-12-24', name: '行憲紀念日(補)' },
+  { date: '2027-12-25', name: '行憲紀念日' },
+  { date: '2027-12-31', name: '元旦(補,117 年)' },
+];
+function addTaiwanHolidays2027() {
+  if (!state.rules) return;
+  if (!Array.isArray(state.rules.holidays)) state.rules.holidays = [];
+  const have = new Set(state.rules.holidays.map(h => h.date));
+  const add = TW_HOLIDAYS_2027.filter(h => !have.has(h.date));
+  if (!add.length) { alert('2027 年國定假日都已經在列表裡了。'); return; }
+  if (!confirm(`加入 2027 年國定假日 ${add.length} 天?\n\n原本的假日不會動。加入後可以逐筆按 ✕ 刪掉不適用的(例如教師節、光復節、行憲紀念日)。\n\n記得再按下方的儲存規則。`)) return;
+  state.rules.holidays = state.rules.holidays.concat(add.map(h => ({ ...h })));
+  renderHolidaysList();
+}
+// 換到某個月份,但規則裡完全沒有那一年的國定假日 → 提醒一次(否則假日人力、休假天數都會算錯)
+const _noHolidayWarned = {};
+function warnIfNoHolidaysForYear() {
+  const y = String(state.month || '').slice(0, 4);
+  if (!y || _noHolidayWarned[y]) return;
+  const list = (state.rules && state.rules.holidays) || [];
+  if (list.some(h => String(h.date || '').slice(0, 4) === y)) return;
+  _noHolidayWarned[y] = true;
+  if (typeof _swapToast === 'function') {
+    _swapToast(`📅 規則裡還沒有 <b>${y} 年</b>的國定假日,${y} 年的班表不會把元旦、春節等算成假日。<br><span style="opacity:.85;font-size:.82rem">到「規則設定 → 國定假日日期」${y === '2027' ? '按「加入 2027 台灣國定假日」' : '新增'}。</span>`, null, 0);
+  }
 }
 
 function renderFormulaPreview() {
@@ -18381,6 +18434,47 @@ async function saveScheduleFirebaseOnly(month) {
     return { ok: false, reason: 'error', error: e.message };
   }
 }
+
+// ★ 開啟排班頁/切換月份時:雲端的這個月比這台電腦上的新 → 先提醒載入,再開始改
+//   (例如事務員已把預約抽籤結果寫進雲端班表,或在另一台電腦改過)
+const _openStaleShown = {};
+async function checkCloudNewerOnOpen() {
+  try {
+    const month = state.month;
+    if (!month || !getAuthToken()) return;
+    const cloudAt = await getCloudDataAt(month);
+    const base = getCloudBase(month);
+    if (!cloudAt || cloudAt <= base + 2000) return;
+    if (state.month !== month) return;
+    const key = month + '|' + cloudAt;
+    if (_openStaleShown[key]) return;
+    _openStaleShown[key] = true;
+    let lot = null;
+    try {
+      const { ref, get } = window._fbHelpers;
+      const s = await get(ref(_firebaseDb, `${bookingPath(month)}/result`));
+      if (s && s.exists()) lot = s.val();
+    } catch (e) {}
+    const byLottery = lot && lot.appliedAt && lot.appliedAt > base;
+    let el = document.getElementById('open-stale-warning');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'open-stale-warning';
+      el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99998;background:#b45309;color:#fff;'
+        + 'padding:12px 16px;font-size:14px;line-height:1.6;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.35)';
+      document.body.appendChild(el);
+    }
+    const mm = Number(month.slice(5)) + ' 月';
+    el.innerHTML = '⚠ <strong>雲端的 ' + mm + '班表比這台電腦上的新</strong>(雲端更新時間 ' + new Date(cloudAt).toLocaleString('zh-TW', { hour12: false }) + ')。'
+      + (byLottery ? '<br>📌 ' + escapeHTML(lot.by || '事務員') + ' 已把預約抽籤結果寫進雲端班表(' + ((lot.applied || []).length) + ' 格)。' : '')
+      + '<br>請先載入雲端班表再開始修改,不然存檔時會把雲端的內容蓋掉。 '
+      + '<button onclick="document.getElementById(\'open-stale-warning\').remove(); loadCloudScheduleDirectly(\'' + month + '\')" '
+      + 'style="margin-left:8px;padding:5px 12px;border:0;border-radius:6px;cursor:pointer;font-weight:700">☁ 載入雲端 ' + mm + '班表</button>'
+      + '<button onclick="document.getElementById(\'open-stale-warning\').remove()" '
+      + 'style="margin-left:6px;padding:5px 10px;border:0;border-radius:6px;cursor:pointer;background:rgba(255,255,255,.25);color:#fff">先不要</button>';
+  } catch (e) { /* 靜默 */ }
+}
+window.addEventListener('load', () => setTimeout(() => { try { checkCloudNewerOnOpen(); } catch (e) {} }, 4000));
 
 // debounce 推送:每次改格子呼叫此函式
 // 畫面資料過期的醒目提示(自動同步被擋下時顯示)

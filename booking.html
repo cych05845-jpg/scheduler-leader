@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- BOOKING-VERSION: 2026-11-27-v3 (修正從未能預約:改存班表節點底下;帳號中心登入防冒名) -->
+<!-- BOOKING-VERSION: 2026-11-27-v4 (國定假日算假日額度;進頁面先讀到自己已存的預約,不會被空白蓋掉) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>急診預約假期</title>
@@ -236,6 +236,40 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const daysInMonth = (m) => { const [y, mo] = m.split('-').map(Number); return new Date(y, mo, 0).getDate(); };
 const dowOf = (m, d) => { const [y, mo] = m.split('-').map(Number); return new Date(y, mo - 1, d).getDay(); };
+// 國定假日備用表(人事行政總處 116 年辦公日曆表)。護理長在排班頁「規則 → 國定假日」有設定該年度時,以護理長的為準。
+const OFFICIAL_HOLIDAYS = {
+  '2027': ['01-01', '02-04', '02-05', '02-06', '02-07', '02-08', '02-09', '02-10', '02-28', '03-01', '04-04', '04-05', '04-06',
+           '04-30', '05-01', '06-09', '09-15', '09-28', '10-10', '10-11', '10-25', '12-24', '12-25', '12-31'],
+};
+// 把各種寫法('2027-01-01' / {date:'2027-01-01'} / {day:1} / 1)整理成「這個月的第幾日」
+function holidayDaysOf(list, month) {
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach(h => {
+    if (typeof h === 'number') { out.push(h); return; }
+    const ds = typeof h === 'string' ? h : (h && (h.date || ''));
+    if (ds && String(ds).slice(0, 7) === month) out.push(parseInt(String(ds).slice(8, 10), 10));
+    else if (h && typeof h === 'object' && typeof h.day === 'number' && !h.date) out.push(h.day);
+  });
+  return [...new Set(out.filter(x => x >= 1 && x <= 31))];
+}
+async function loadHolidays() {
+  const y = S.month.slice(0, 4);
+  let hnHasYear = false, days = [];
+  try {
+    // 護理長存在雲端的規則(該月完整班表)
+    const [r1, r2] = await Promise.all([
+      get(ref(db, `schedules/${S.month}/fullBackup/data/rules/holidays`)),
+      get(ref(db, `schedules/${S.month}/fullBackup/data/holidays`)),
+    ]);
+    const lists = [r1.exists() ? r1.val() : [], r2.exists() ? r2.val() : []];
+    lists.forEach(l => {
+      (Array.isArray(l) ? l : []).forEach(h => { const ds = typeof h === 'string' ? h : (h && h.date) || ''; if (String(ds).slice(0, 4) === y) hnHasYear = true; });
+      days = days.concat(holidayDaysOf(l, S.month));
+    });
+  } catch (e) { /* 讀不到就用備用表 */ }
+  if (!hnHasYear) days = (OFFICIAL_HOLIDAYS[y] || []).filter(md => md.slice(0, 2) === S.month.slice(5, 7)).map(md => parseInt(md.slice(3), 10));
+  S.holidays = [...new Set(days)];
+}
 const isHoliday = (d) => dowOf(S.month, d) === 0 || S.holidays.includes(d);
 
 function showStatus(msg) { $('status').innerHTML = msg; $('status').classList.remove('hide'); }
@@ -298,9 +332,6 @@ async function boot() {
         const d = snap.val() || {};
         if (d.staff && d.staff.length) {
           staff = d.staff.filter(p => p && p.name && p.level !== '事' && p.status !== 'left');
-          if (Array.isArray(d.holidays)) {
-            S.holidays = d.holidays.map(h => (typeof h === 'object' ? h.day : h)).filter(x => typeof x === 'number');
-          }
           break;
         }
       }
@@ -311,6 +342,7 @@ async function boot() {
     return;
   }
   S.staff = staff;
+  await loadHolidays();   // 國定假日(元旦、春節…)也算假日額度
 
   // 1.5 讀截止時間(護理長開放後 5 天自動鎖定)
   try {
@@ -323,9 +355,21 @@ async function boot() {
   } catch (e) { /* 讀不到就不鎖 */ }
 
   // 2. 監聽預約資料(即時看到別人預約)
+  // ★ 先讀一次再進畫面:以前只靠即時監聽,登入比資料先回來時,畫面會把「已經存好的預約」顯示成沒選,
+  //   同仁再按儲存就會把原本的蓋掉。
+  try {
+    const es = await get(ref(db, `${bp()}/entries`));
+    S.allBookings = (es.exists() ? es.val() : {}) || {};
+  } catch (e) {}
   onValue(ref(db, `${bp()}/entries`), (snap) => {
     S.allBookings = (snap.exists() ? snap.val() : {}) || {};
-    if (S.myId) { renderCal(); renderQuota(); }
+    if (S.myId) {
+      if (!S.dirty) {   // 沒有未存的變更 → 以雲端為準(例如自己在另一支手機改過)
+        const mine = S.allBookings[S.myId];
+        S.myPicks = (mine && Array.isArray(mine.days)) ? mine.days.slice() : [];
+      }
+      renderCal(); renderQuota();
+    }
   });
 
   // 3. 身分:一律以帳號中心登入的人為準
