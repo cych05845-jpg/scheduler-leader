@@ -37,3 +37,24 @@ self.addEventListener('fetch', (e) => {
     }
   })());
 });
+
+// 🔔 點換班通知 → 把排班頁叫到前面並打開換班視窗;排班頁沒開就開一個新的
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const d = e.notification.data || {};
+  const target = d.url || self.registration.scope;
+  // 「…/scheduler-leader/」和「…/scheduler-leader/index.html」是同一頁
+  const norm = (u) => { u = String(u).split('#')[0].split('?')[0]; return u.endsWith('/') ? u + 'index.html' : u; };
+  const page = norm(target);
+  e.waitUntil((async () => {
+    const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of all) {
+      if (norm(c.url) === page) {
+        try { await c.focus(); } catch (err) {}
+        c.postMessage({ type: 'open-swaps', month: d.month });
+        return;
+      }
+    }
+    if (self.clients.openWindow) await self.clients.openWindow(target);
+  })());
+});

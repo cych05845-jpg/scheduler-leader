@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-11-27-v57 (事務員工作台 clerk.html:預約抽籤直接寫入雲端班表;護理長預約視窗顯示事務員抽籤狀態、防重抽) -->
+<!-- VERSION: 2026-11-27-v58 (換班:指定代理人、即時桌面通知;admin 不再能核准換班) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -1514,6 +1514,10 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
         <strong>核准</strong>:按「🔍 審核並核准」會先跑規則檢查給你看,確定後兩人班別<b>直接對調</b>,不用再另外帶入。<br>
         <strong>備查</strong>:不用紙本,按「📄 換班報表」可列印或存 PDF / Excel。
       </div>
+
+      <div id="swap-proxy-bar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; background:#faf5ff; border:1px solid #ddd6fe; border-radius:8px; padding:8px 12px; margin-bottom:6px"></div>
+      <div id="swap-proxy-editor" style="display:none; background:#fff; border:1px dashed #a78bfa; border-radius:8px; padding:8px 12px; margin-bottom:6px"></div>
+      <div id="swap-notify-bar" style="display:none; background:#f8fafc; border:1px solid var(--line); border-radius:8px; padding:7px 12px; margin-bottom:12px; font-size:0.88rem"></div>
 
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px">
         <label style="font-weight:600">月份:</label>
@@ -4016,6 +4020,7 @@ async function tryLogin() {
       document.getElementById('leader-login-overlay').style.display = 'none';
       document.getElementById('logout-btn').style.display = '';
       showWelcomeMessage(result.name);
+      try { setTimeout(startSwapWatch, 800); } catch (e) {}   // 🔔 登入後開始監看換班
     } else {
       errEl.textContent = '❌ ' + (result.error || '登入失敗');
       pinEl.value = '';
@@ -6975,10 +6980,15 @@ function csApply() {
 //   班表節點底下是可寫的,而且公告頁本來就讀得到,所以搬到這裡。
 const SWAP_BASE = 'schedules';
 const SWAP_SYS = '';            // 換班頁網址參數:護理師不用帶
-// 核准換班 = 直接改班表 → 只限護理長/副護理長(登入名單的角色 hn / admin / ahn)
-const SWAP_APPROVER_ROLES = ['hn', 'admin', 'ahn'];
+// 核准換班 = 直接改班表 → 只限護理長/副護理長(登入名單的角色 hn / ahn),
+//   以及護理長指定、在代理期間內的代理人。
+//   ⚠ admin 不能核准(事務員的排班帳號是 admin,只做行政,不核准換班)
+const SWAP_APPROVER_ROLES = ['hn', 'ahn'];
 function canApproveSwap() {
-  try { return SWAP_APPROVER_ROLES.includes(String(getCurrentUserRole() || '').toLowerCase()); } catch (e) { return false; }
+  try {
+    if (SWAP_APPROVER_ROLES.includes(String(getCurrentUserRole() || '').toLowerCase())) return true;
+    return typeof isActiveSwapProxyMe === 'function' && isActiveSwapProxyMe();
+  } catch (e) { return false; }
 }
 function swapPath(month) { return `${SWAP_BASE}/${String(month).replace(/[.#$\[\]/]/g, '_')}/swaps`; }
 let _swapCache = { month: '', data: {} };
@@ -7008,7 +7018,7 @@ async function loadSwaps() {
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
-    const snap = await get(ref(_firebaseDb, swapPath(month)));
+    const [snap] = await Promise.all([get(ref(_firebaseDb, swapPath(month))), loadSwapProxy()]);
     _swapCache = { month, data: (snap && snap.exists()) ? (snap.val() || {}) : {} };
     renderSwapList();
   } catch (e) {
@@ -7043,6 +7053,7 @@ function renderSwapList() {
   // 工具列小紅點:待你核准的件數
   const dot = document.getElementById('swap-pending-dot');
   if (dot) { dot.textContent = cnt.agreed; dot.style.display = cnt.agreed ? 'inline-block' : 'none'; }
+  if (typeof _swapWatch !== 'undefined' && _swapWatch.started) updateSwapDot();   // 即時監看中 → 以全部月份合計為準
 
   if (!all.length) {
     if (listEl) listEl.innerHTML = '<div style="padding:14px;color:var(--ink-mute);text-align:center">這個月還沒有換班申請。</div>';
@@ -7068,7 +7079,7 @@ function renderSwapList() {
         ? `<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">
         <button onclick="approveSwap('${r.id}')" style="padding:5px 14px;background:#16a34a;color:#fff;border:none;border-radius:5px;font-weight:700" title="先跑規則檢查給你看,確定後兩人班別直接對調">🔍 審核並核准</button>
         <button onclick="rejectSwapByHN('${r.id}')" style="padding:5px 14px;background:#fff;border:1.5px solid #dc2626;color:#dc2626;border-radius:5px;font-weight:700">✗ 退回</button></div>`
-        : '<div style="margin-top:6px;font-size:0.82rem;color:#1e40af">等護理長/副護理長核准</div>';
+        : '<div style="margin-top:6px;font-size:0.82rem;color:#1e40af">等護理長/副護理長(或代理人)核准</div>';
     } else if (r.status === 'approved') {
       acts = r.applied
         ? '<div style="margin-top:6px;font-size:0.82rem;color:#166534">✓ 已核准,班別已對調</div>'
@@ -7094,13 +7105,13 @@ function renderSwapList() {
 
 // ✓ 核准 = 先跑規則檢查給你看 → 你按確定 → 兩人班別直接對調,並標記為已核准
 async function approveSwap(id) {
-  if (!canApproveSwap()) { alert('只有護理長/副護理長可以核准換班。'); return; }
+  if (!canApproveSwap()) { alert('只有護理長/副護理長(或護理長指定的代理人)可以核准換班。'); return; }
   if (!(_swapCache.data || {})[id]) return;
   await applySwapsToSchedule({ ids: [id] });
 }
 
 async function rejectSwapByHN(id) {
-  if (!canApproveSwap()) { alert('只有護理長/副護理長可以退回換班。'); return; }
+  if (!canApproveSwap()) { alert('只有護理長/副護理長(或護理長指定的代理人)可以退回換班。'); return; }
   const r = (_swapCache.data || {})[id];
   if (!r) return;
   const why = prompt(`退回 ${r.fromName} ⇄ ${r.toName} 的換班,原因(雙方看得到):`, '');
@@ -7108,7 +7119,7 @@ async function rejectSwapByHN(id) {
   try {
     await ensureFirebase();
     const { ref, update } = window._fbHelpers;
-    const by = (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '';
+    const by = swapActorLabel();
     await update(ref(_firebaseDb, `${swapPath(_swapCache.month)}/${id}`), { status: 'rejected', rejectReason: why || '(未填)', rejectedAt: Date.now(), rejectedBy: by });
     r.status = 'rejected'; r.rejectReason = why || '(未填)';
     renderSwapList();
@@ -7119,7 +7130,7 @@ async function rejectSwapByHN(id) {
 //    ★ 不會直接改:會先模擬換完的結果、跑規則檢查,把「換完會出的問題」列給你確認,
 //      你按確定才真的留下;按取消就完全還原,班表不會動到。
 async function applySwapsToSchedule(opts) {
-  if (!canApproveSwap()) { alert('只有護理長/副護理長可以核准、對調換班。'); return; }
+  if (!canApproveSwap()) { alert('只有護理長/副護理長(或護理長指定的代理人)可以核准、對調換班。'); return; }
   const { month, data } = _swapCache;
   if (!month) { alert('請先選月份並載入'); return; }
   const todo = (opts && opts.ids)
@@ -7280,7 +7291,7 @@ async function applySwapsToSchedule(opts) {
       const patch = { applied: true, appliedAt: Date.now() };
       if (rec.status === 'agreed') {
         Object.assign(patch, { status: 'approved', approvedAt: Date.now(),
-          approvedBy: (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '' });
+          approvedBy: swapActorLabel() });
       }
       await update(ref(_firebaseDb, `${swapPath(month)}/${id}`), patch);
       Object.assign(rec, patch);
@@ -7365,6 +7376,346 @@ function openSwapReport() {
   };
 }
 
+// ===== 👤 換班代理人 + 🔔 換班即時通知(護理師、技助兩個排班頁共用同一段)=====
+// 代理人:護理長指定一位有排班帳號的人 + 期間,期間內他登入排班頁就能核准/退回換班,時間到自動失效。
+//   存在 schedules/{月}/swapProxy(雲端規則只允許寫在「已建立的月份」底下,所以寫在本月、起訖月份各一份),
+//   讀的時候看上月/本月/下月/畫面月份,取最新設定的那一份。兩個系統共用同一個代理人。
+// 即時通知:排班頁開著時(視窗縮小也可以),有人換班「雙方同意、等核准」→ 跳桌面通知 + 畫面右下提示 + 程式圖示數字。
+//   只通知能核准的人(護理長、副護理長、代理期間的代理人)。關掉排班頁就收不到。
+const SWAP_PROXY_BASE = 'schedules';
+const SWAP_SYSTEMS = [
+  { base: 'schedules', page: 'index.html', label: '護理師' },
+  { base: 'aide-schedules', page: 'scheduler-aide.html', label: '技術員/助理員' },
+];
+const _ymKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+function _todayKey() { const d = new Date(); return `${_ymKey(d)}-${String(d.getDate()).padStart(2, '0')}`; }
+function _relMonth(k) { const n = new Date(); return _ymKey(new Date(n.getFullYear(), n.getMonth() + k, 1)); }
+const _empNorm = (v) => String(v == null ? '' : v).trim().replace(/^0+/, '');
+window._swapProxy = window._swapProxy || null;
+
+function swapProxyStatus(p) {
+  if (!p || !p.from || !p.to) return 'none';
+  const t = _todayKey();
+  if (t < p.from) return 'upcoming';
+  if (t > p.to) return 'ended';
+  return 'active';
+}
+function isActiveSwapProxyMe() {
+  const p = window._swapProxy;
+  if (swapProxyStatus(p) !== 'active') return false;
+  let me = '';
+  try { me = getCurrentUserId(); } catch (e) {}
+  return !!me && _empNorm(me) === _empNorm(p.employeeId);
+}
+function swapActorLabel() {
+  let n = '';
+  try { n = getCurrentUserName() || ''; } catch (e) {}
+  return isActiveSwapProxyMe() && !SWAP_APPROVER_ROLES.includes(String(getCurrentUserRole() || '').toLowerCase()) ? `${n}(代理)` : n;
+}
+function _proxyReadMonths() {
+  return [...new Set([_relMonth(-1), _relMonth(0), _relMonth(1), (typeof state !== 'undefined' && state.month) || ''].filter(Boolean))];
+}
+async function loadSwapProxy() {
+  try {
+    await ensureFirebase();
+    const { ref, get } = window._fbHelpers;
+    const months = _proxyReadMonths();
+    const snaps = await Promise.all(months.map(m => get(ref(_firebaseDb, `${SWAP_PROXY_BASE}/${m}/swapProxy`)).catch(() => null)));
+    let best = null; const found = [];
+    snaps.forEach((s, i) => {
+      if (!s || !s.exists()) return;
+      const v = s.val();
+      if (!v) return;
+      found.push(months[i]);
+      if (!best || (v.at || 0) > (best.at || 0)) best = v;
+    });
+    window._swapProxy = best;
+    window._swapProxyFound = found;
+  } catch (e) { console.warn('[代理人] 讀取失敗', e); }
+  renderSwapProxyBar();
+  return window._swapProxy;
+}
+
+function renderSwapProxyBar() {
+  const el = document.getElementById('swap-proxy-bar');
+  if (!el) return;
+  const p = window._swapProxy;
+  const st = swapProxyStatus(p);
+  const isHN = String(getCurrentUserRole() || '').toLowerCase() === 'hn';
+  const md = (s) => s ? `${Number(s.slice(5, 7))}/${Number(s.slice(8, 10))}` : '';
+  const tag = { active: ['代理中', '#dcfce7', '#166534'], upcoming: ['尚未開始', '#fef3c7', '#92400e'], ended: ['已結束', '#f1f5f9', '#475569'] }[st];
+  let html = '<div style="flex:1;min-width:220px"><b>👤 代理人</b> ';
+  html += st === 'none'
+    ? '<span style="color:var(--ink-mute)">未設定</span>'
+    : `${escapeHTML(p.name)}(${escapeHTML(p.employeeId)})${md(p.from)}–${md(p.to)} <span style="font-size:.76rem;padding:1px 8px;border-radius:20px;font-weight:700;background:${tag[1]};color:${tag[2]}">${tag[0]}</span>`;
+  if (isActiveSwapProxyMe()) html += '<div style="color:#166534;font-size:.85rem;margin-top:2px">✓ 你目前是護理長指定的代理人,可以核准、退回換班。</div>';
+  else html += '<div style="color:var(--ink-mute);font-size:.8rem;margin-top:2px">代理期間內,代理人登入排班頁就能核准換班;時間到自動失效。</div>';
+  html += '</div>';
+  if (isHN) {
+    html += `<button onclick="openSwapProxyEditor()" style="padding:6px 12px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-weight:700">${st === 'none' || st === 'ended' ? '指定代理人' : '變更'}</button>`;
+    if (st === 'active' || st === 'upcoming') html += '<button onclick="clearSwapProxy()" style="padding:6px 12px;background:#fff;color:#dc2626;border:1.5px solid #dc2626;border-radius:6px;font-weight:700">取消代理</button>';
+  }
+  el.innerHTML = html;
+  renderSwapNotifyBar();
+}
+
+async function openSwapProxyEditor() {
+  const ed = document.getElementById('swap-proxy-editor');
+  if (!ed) return;
+  ed.style.display = '';
+  ed.innerHTML = '<span style="color:var(--ink-mute)">⏳ 讀取排班帳號...</span>';
+  let users = [];
+  try { users = await loadUsers(); } catch (e) {}
+  const meId = _empNorm(getCurrentUserId());
+  const seen = new Set();
+  const opts = (users || []).filter(u => {
+    if (!u || !u.employeeId || u.role === 'sv' || u.role === 'hn') return false;
+    const k = _empNorm(u.employeeId);
+    if (k === meId || seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+  if (!opts.length) { ed.innerHTML = '<span style="color:#b91c1c">讀不到排班帳號清單,請重新登入排班系統後再試。</span>'; return; }
+  const p = window._swapProxy;
+  const keep = p && swapProxyStatus(p) !== 'ended';
+  const t = new Date(), t7 = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 6);
+  const dk = (d) => `${_ymKey(d)}-${String(d.getDate()).padStart(2, '0')}`;
+  ed.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <select id="sp-user" style="padding:6px 8px;border:1px solid var(--line);border-radius:6px">
+        ${opts.map(u => `<option value="${escapeHTML(u.employeeId)}" data-name="${escapeHTML(u.name)}"${keep && _empNorm(p.employeeId) === _empNorm(u.employeeId) ? ' selected' : ''}>${escapeHTML(u.name)}(${escapeHTML(u.employeeId)})</option>`).join('')}
+      </select>
+      <input type="date" id="sp-from" value="${keep ? p.from : dk(t)}" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px">
+      <span>到</span>
+      <input type="date" id="sp-to" value="${keep ? p.to : dk(t7)}" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px">
+      <button onclick="saveSwapProxy()" style="padding:6px 14px;background:#16a34a;color:#fff;border:none;border-radius:6px;font-weight:700">儲存</button>
+      <button onclick="document.getElementById('swap-proxy-editor').style.display='none'" style="padding:6px 12px">取消</button>
+    </div>
+    <div style="font-size:.8rem;color:var(--ink-mute);margin-top:4px">清單是有排班系統帳號的人。代理人要用自己的帳號登入排班頁才能核准。</div>`;
+}
+
+async function _writeSwapProxy(rec) {
+  await ensureFirebase();
+  const { ref, get, set } = window._fbHelpers;
+  const store = rec ? [...new Set([_relMonth(0), rec.from.slice(0, 7), rec.to.slice(0, 7)])] : [];
+  const ok = [];
+  for (const m of store) {
+    try {
+      const meta = await get(ref(_firebaseDb, `${SWAP_PROXY_BASE}/${m}/meta`));
+      if (meta && meta.exists()) { await set(ref(_firebaseDb, `${SWAP_PROXY_BASE}/${m}/swapProxy`), rec); ok.push(m); }
+    } catch (e) { console.warn('[代理人] 寫入失敗', m, e); }
+  }
+  // 其他月份留著的舊設定一併清掉,免得讀到兩份
+  const stale = [...new Set([...(window._swapProxyFound || []), ..._proxyReadMonths()])].filter(m => !ok.includes(m));
+  for (const m of stale) {
+    try {
+      const s = await get(ref(_firebaseDb, `${SWAP_PROXY_BASE}/${m}/swapProxy`));
+      if (s && s.exists()) await set(ref(_firebaseDb, `${SWAP_PROXY_BASE}/${m}/swapProxy`), null);
+    } catch (e) {}
+  }
+  return ok;
+}
+
+async function saveSwapProxy() {
+  if (String(getCurrentUserRole() || '').toLowerCase() !== 'hn') { alert('只有護理長可以指定代理人。'); return; }
+  const sel = document.getElementById('sp-user');
+  const from = (document.getElementById('sp-from') || {}).value;
+  const to = (document.getElementById('sp-to') || {}).value;
+  if (!sel || !sel.value) { alert('請選代理人。'); return; }
+  if (!from || !to || from > to) { alert('請確認日期:結束日不能早於開始日。'); return; }
+  if (to < _todayKey()) { alert('結束日已經過了,請重新選日期。'); return; }
+  const name = sel.selectedOptions[0].dataset.name || '';
+  if (!confirm(`指定 ${name} 為換班代理人?\n\n期間:${from} 到 ${to}\n期間內 ${name} 登入排班頁就能核准、退回換班(護理師與技術員/助理員都可以),時間到自動失效。`)) return;
+  const rec = { employeeId: sel.value, name, from, to, by: getCurrentUserName() || '', byId: getCurrentUserId() || '', at: Date.now() };
+  const ok = await _writeSwapProxy(rec);
+  if (!ok.length) { alert('沒存上雲端:這段期間的月份班表都還沒建立。請先建立本月班表再設定。'); return; }
+  const ed = document.getElementById('swap-proxy-editor'); if (ed) ed.style.display = 'none';
+  await loadSwapProxy();
+  if (typeof renderSwapList === 'function' && _swapCache && _swapCache.month) renderSwapList();
+  alert(`✓ 已指定 ${name} 為代理人(${from} ~ ${to})`);
+}
+
+async function clearSwapProxy() {
+  if (String(getCurrentUserRole() || '').toLowerCase() !== 'hn') { alert('只有護理長可以取消代理人。'); return; }
+  const p = window._swapProxy;
+  if (!p) return;
+  if (!confirm(`取消 ${p.name} 的代理?取消後他就不能再核准換班。`)) return;
+  await _writeSwapProxy(null);
+  await loadSwapProxy();
+  if (typeof renderSwapList === 'function' && _swapCache && _swapCache.month) renderSwapList();
+}
+
+// ---------- 🔔 即時通知 ----------
+const _swapWatch = { started: false, unsubs: {}, init: {}, seen: new Set(), counts: {}, timer: null, hashDone: false };
+
+function renderSwapNotifyBar() {
+  const el = document.getElementById('swap-notify-bar');
+  if (!el) return;
+  if (!canApproveSwap()) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+  const txt = {
+    granted: '<span style="color:#166534">已開啟</span>:排班頁開著時(縮小也可以),有人換班雙方同意就會跳通知。',
+    default: '<span style="color:#b45309">未開啟</span> <button onclick="enableSwapNotify()" style="padding:4px 12px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-weight:700">開啟桌面通知</button>',
+    denied: '<span style="color:#b91c1c">被瀏覽器封鎖</span>:請點網址列左邊的鎖頭圖示 → 通知 → 允許,再重新整理。',
+    unsupported: '這個瀏覽器不支援桌面通知,只會在畫面右下角提示。',
+  }[perm];
+  el.innerHTML = `<b>🔔 桌面通知</b> ${txt}`;
+}
+
+async function enableSwapNotify() {
+  if (!('Notification' in window)) { alert('這個瀏覽器不支援桌面通知。'); return; }
+  try { await Notification.requestPermission(); } catch (e) {}
+  renderSwapNotifyBar();
+  if (Notification.permission === 'granted') _showSystemNotice('🔔 換班通知已開啟', '之後有人換班雙方同意、等你核准時,會在這裡通知你。', null);
+}
+
+function _swapToast(html, onClick, ms) {
+  let box = document.getElementById('swap-toast-box');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'swap-toast-box';
+    box.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99998;display:flex;flex-direction:column;gap:8px;max-width:340px';
+    document.body.appendChild(box);
+  }
+  const t = document.createElement('div');
+  t.style.cssText = 'background:#4c1d95;color:#fff;padding:10px 34px 10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.3);font-size:.9rem;line-height:1.5;cursor:pointer;position:relative';
+  t.innerHTML = html + '<span style="position:absolute;right:10px;top:6px;opacity:.7" data-x>✕</span>';
+  t.addEventListener('click', (e) => {
+    if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-x')) { t.remove(); return; }
+    if (e.target && e.target.tagName === 'BUTTON') return;
+    t.remove(); if (onClick) onClick();
+  });
+  box.appendChild(t);
+  if (ms !== 0) setTimeout(() => t.remove(), ms || 12000);
+  return t;
+}
+
+function _sysUrl(sys, month) {
+  return location.href.replace(/[?#].*$/, '').replace(/[^/]*$/, '') + sys.page + '#swaps=' + month;
+}
+function _openSwapsFor(sys, month) {
+  if (sys.base === SWAP_BASE) { try { window.focus(); } catch (e) {} openSwapModalFor(month); }
+  else window.open(_sysUrl(sys, month), '_blank');
+}
+function openSwapModalFor(month) {
+  const modal = document.getElementById('swap-modal');
+  if (!modal) return;
+  modal.classList.add('active');
+  const mi = document.getElementById('swap-month');
+  if (mi && month) mi.value = month;
+  loadSwaps();
+}
+
+async function _showSystemNotice(title, body, info) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const opt = { body, icon: 'icons/leader-192.png', tag: info ? `swap-${info.sys.base}-${info.id}` : 'swap-hello',
+                data: info ? { url: _sysUrl(info.sys, info.month), month: info.month, base: info.sys.base } : {} };
+  try {
+    const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+    if (reg && reg.showNotification) { await reg.showNotification(title, opt); return; }
+  } catch (e) {}
+  try {
+    const n = new Notification(title, opt);
+    n.onclick = () => { try { window.focus(); } catch (e) {} n.close(); if (info) _openSwapsFor(info.sys, info.month); };
+  } catch (e) {}
+}
+
+function _swapDesc(r) {
+  const d = (r.days || []).map(x => `${x.day}日`).join('、');
+  return r.self ? `${r.fromName} 自己調換 ${d}` : `${r.fromName} ⇄ ${r.toName} ${d}`;
+}
+
+function updateSwapDot() {
+  let own = 0, all = 0; const hit = [];
+  for (const k in _swapWatch.counts) {
+    const [base, m] = k.split('|');
+    const c = _swapWatch.counts[k] || 0;
+    all += c;
+    if (base === SWAP_BASE) { own += c; if (c) hit.push(m); }
+  }
+  window._swapPendingMonths = hit.sort();
+  const dot = document.getElementById('swap-pending-dot');
+  if (dot) {
+    dot.textContent = own; dot.style.display = own ? 'inline-block' : 'none';
+    dot.title = own ? ('等核准:' + hit.map(m => Number(m.slice(5)) + '月').join('、')) : '';
+  }
+  try {
+    if (canApproveSwap() && navigator.setAppBadge) { all ? navigator.setAppBadge(all) : navigator.clearAppBadge(); }
+  } catch (e) {}
+}
+
+function _onSwapSnap(sys, m, data) {
+  const key = sys.base + '|' + m;
+  const agreed = Object.values(data || {}).filter(r => r && r.status === 'agreed');
+  _swapWatch.counts[key] = agreed.length;
+  const first = !_swapWatch.init[key];
+  _swapWatch.init[key] = true;
+  const fresh = agreed.filter(r => !_swapWatch.seen.has(key + '|' + r.id));
+  agreed.forEach(r => _swapWatch.seen.add(key + '|' + r.id));
+  updateSwapDot();
+  // 換班視窗開著、正好在看這個月 → 清單即時更新
+  const modal = document.getElementById('swap-modal');
+  if (sys.base === SWAP_BASE && modal && modal.classList.contains('active') && _swapCache && _swapCache.month === m) {
+    _swapCache.data = data || {};
+    renderSwapList();
+  }
+  if (!canApproveSwap()) return;
+  const mm = Number(m.slice(5)) + '月';
+  if (first) {
+    if (agreed.length) _swapToast(`📬 <b>${mm}${sys.label}</b>有 ${agreed.length} 筆換班等你核准<br><span style="opacity:.8;font-size:.8rem">點這裡打開</span>`, () => _openSwapsFor(sys, m));
+    return;
+  }
+  fresh.forEach(r => {
+    const body = `${mm}${sys.label}:${_swapDesc(r)}`;
+    _swapToast(`🔄 <b>換班等你核准</b><br>${escapeHTML(body)}<br><span style="opacity:.8;font-size:.8rem">點這裡打開</span>`, () => _openSwapsFor(sys, m), 0);
+    _showSystemNotice('🔄 換班等你核准', body, { sys, month: m, id: r.id });
+  });
+}
+
+function _refreshSwapWatchMonths() {
+  if (!_swapWatch.started || !window._fbHelpers || !window._fbHelpers.onValue) return;
+  const { ref, onValue } = window._fbHelpers;
+  const months = [...new Set([_relMonth(0), _relMonth(1), (typeof state !== 'undefined' && state.month) || ''].filter(Boolean))];
+  SWAP_SYSTEMS.forEach(sys => months.forEach(m => {
+    const key = sys.base + '|' + m;
+    if (_swapWatch.unsubs[key]) return;
+    const path = `${sys.base}/${String(m).replace(/[.#$\[\]/]/g, '_')}/swaps`;
+    try { _swapWatch.unsubs[key] = onValue(ref(_firebaseDb, path), (snap) => _onSwapSnap(sys, m, snap && snap.exists() ? snap.val() : {}), () => {}); } catch (e) {}
+  }));
+}
+
+async function startSwapWatch() {
+  if (_swapWatch.started) { _refreshSwapWatchMonths(); return; }
+  let tok = null;
+  try { tok = getAuthToken(); } catch (e) {}
+  if (!tok) return;                       // 沒登入排班系統的人不監看
+  _swapWatch.started = true;
+  try { await ensureFirebase(); } catch (e) { _swapWatch.started = false; return; }
+  await loadSwapProxy();
+  _refreshSwapWatchMonths();
+  // 每小時:重讀代理人設定、跨月時補監看新月份
+  _swapWatch.timer = setInterval(async () => { await loadSwapProxy(); _refreshSwapWatchMonths(); updateSwapDot(); }, 3600 * 1000);
+  // 從通知點進來(網址帶 #swaps=YYYY-MM)→ 直接打開換班視窗
+  const mh = (location.hash || '').match(/swaps=(\d{4}-\d{2})/);
+  if (mh && !_swapWatch.hashDone) { _swapWatch.hashDone = true; setTimeout(() => openSwapModalFor(mh[1]), 600); }
+  // 能核准、但還沒決定要不要桌面通知 → 提示一次(7 天內不再問)
+  try {
+    if (canApproveSwap() && ('Notification' in window) && Notification.permission === 'default') {
+      const last = Number(localStorage.getItem('swapNotifyAskedAt') || 0);
+      if (Date.now() - last > 7 * 86400000) {
+        localStorage.setItem('swapNotifyAskedAt', String(Date.now()));
+        _swapToast('🔔 要開啟換班的桌面通知嗎?有人換班等你核准時會跳出提醒。<div style="margin-top:6px"><button onclick="enableSwapNotify();this.closest(\'div\').parentNode.remove()" style="padding:4px 12px;background:#fff;color:#4c1d95;border:none;border-radius:6px;font-weight:700">開啟</button></div>', null, 0);
+      }
+    }
+  } catch (e) {}
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'open-swaps') openSwapModalFor(e.data.month);
+  });
+}
+window.addEventListener('load', () => setTimeout(() => { try { startSwapWatch(); } catch (e) {} }, 2500));
+
 // 開啟系統時順手查有沒有待核准的換班(顯示小紅點)
 async function checkPendingSwaps() {
   // 本月 + 下個月 + 畫面上的月份都查:例如畫面在 11 月,但 12 月有人等核准,也要亮紅點
@@ -7383,6 +7734,7 @@ async function checkPendingSwaps() {
       } catch (e) {}
     }
     window._swapPendingMonths = hit;
+    try { startSwapWatch(); } catch (e) {}   // 🔔 開始即時監看(只會啟動一次)
     const dot = document.getElementById('swap-pending-dot');
     if (dot) {
       dot.textContent = total; dot.style.display = total ? 'inline-block' : 'none';
