@@ -7118,7 +7118,7 @@ async function applySwapsToSchedule(opts) {
     if (!confirm(`這是「${month}」的換班,畫面目前是「${state.month || '未載入'}」。\n\n要先切換到 ${month} 的班表,再繼續審核嗎?`)) return;
     try { await loadCloudScheduleDirectly(month); } catch (e) { console.warn(e); }
     if (state.month !== month) { alert(`沒有切換到 ${month},這次先不審核。`); return; }
-    document.getElementById('swap-modal').classList.add('active');   // 載入後視窗可能被關掉,打開回來
+    const _sm = document.getElementById('swap-modal'); if (_sm) _sm.classList.add('active');   // 載入後視窗可能被關掉,打開回來
   }
   const byName = {};
   (state.staff || []).forEach(p => { if (p.name) byName[p.name] = p.id; });
