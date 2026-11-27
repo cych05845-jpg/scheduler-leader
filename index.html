@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-11-27-v55 (載入班表時不再把換班申請列成 leader 調整) -->
+<!-- VERSION: 2026-11-27-v56 (預約假期改存班表節點底下:修正從未能運作;開放前檢查月份已建立) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -7408,9 +7408,11 @@ function openBookingModal() {
 
 
 // 🌴 開放/關閉同仁預約
-// 只用一個位置 bookings/_openMonth 記「現在開放哪個月」:
-//   有值 → 公告頁顯示預約入口、預約頁可填;沒值 → 都關閉。
-const BOOKING_OPEN_PATH = 'bookings/_openMonth';
+// ★ 存放位置:schedules/{月}/booking/{open, meta, entries/{人}, result, published}
+//   以前放在頂層 bookings/,但 Firebase 安全規則沒開放 → 從來沒有真正運作過。
+//   班表節點底下可寫,但「月份要先在雲端建立」,所以開放前會先檢查。
+//   公告頁/預約頁會看本月與下個月,哪個月 open=true 就顯示那個月的預約入口。
+function bookingPath(month) { return `schedules/${String(month).replace(/[.#$\[\]/]/g, '_')}/booking`; }
 const BOOKING_OPEN_DAYS = 5;   // 開放預約後幾天自動鎖定(同仁不能再改)
 
 async function refreshBookingOpenState() {
@@ -7420,17 +7422,19 @@ async function refreshBookingOpenState() {
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
-    const snap = await get(ref(_firebaseDb, BOOKING_OPEN_PATH));
-    const openMonth = (snap && snap.exists()) ? String(snap.val() || '') : '';
-    const isThisMonthOpen = openMonth && openMonth === month;
+    if (!month) return;
+    const snap = await get(ref(_firebaseDb, `${bookingPath(month)}/open`));
+    const isThisMonthOpen = !!(snap && snap.exists() && snap.val() === true);
+    let deadlineTxt = '';
+    try {
+      const ms = await get(ref(_firebaseDb, `${bookingPath(month)}/meta`));
+      const dl = ms && ms.exists() ? (ms.val() || {}).deadline : 0;
+      if (dl) deadlineTxt = Date.now() > dl ? `(已過截止 ${new Date(dl).toLocaleDateString()},同仁不能再改)` : `(截止 ${new Date(dl).toLocaleString()})`;
+    } catch (e) {}
     if (statusEl) {
-      if (!openMonth) {
-        statusEl.innerHTML = '<span style="color:var(--ink-mute)">目前未開放。開放後,公告頁會出現「預約假期」按鈕給同仁。</span>';
-      } else if (isThisMonthOpen) {
-        statusEl.innerHTML = `<span style="color:#0f766e;font-weight:700">✓ ${escapeHTML(openMonth)} 開放中</span> — 公告頁已顯示預約入口`;
-      } else {
-        statusEl.innerHTML = `<span style="color:#b45309">目前開放的是 ${escapeHTML(openMonth)}(不是你選的 ${escapeHTML(month)})</span>`;
-      }
+      statusEl.innerHTML = isThisMonthOpen
+        ? `<span style="color:#0f766e;font-weight:700">✓ ${escapeHTML(month)} 開放中</span> ${escapeHTML(deadlineTxt)} — 公告頁已顯示預約入口`
+        : '<span style="color:var(--ink-mute)">目前未開放。開放後,公告頁會出現「預約假期」按鈕給同仁。</span>';
     }
     if (btn) {
       if (isThisMonthOpen) { btn.textContent = '關閉預約'; btn.style.background = '#dc2626'; }
@@ -7452,16 +7456,22 @@ async function toggleBookingOpen() {
   if (!confirm(msg)) return;
   try {
     await ensureFirebase();
-    const { ref, set, remove } = window._fbHelpers;
+    const { ref, set, get } = window._fbHelpers;
     if (closing) {
-      if (remove) await remove(ref(_firebaseDb, BOOKING_OPEN_PATH));
-      else await set(ref(_firebaseDb, BOOKING_OPEN_PATH), '');
+      await set(ref(_firebaseDb, `${bookingPath(month)}/open`), false);
     } else {
-      await set(ref(_firebaseDb, BOOKING_OPEN_PATH), month);
+      // ★ 月份要先在雲端建立(有 meta)才能寫入;還沒建立就請護理長先建立/存檔一次
+      const mk = month.replace(/[.#$\[\]/]/g, '_');
+      const metaSnap = await get(ref(_firebaseDb, `schedules/${mk}/meta`));
+      if (!metaSnap || !metaSnap.exists()) {
+        alert(`「${month}」的班表還沒在雲端建立,預約資料沒有地方存。\n\n請先切到 ${month}(建立新月份),按一次「☁ 存到雲端」,再回來開放預約。\n\n(這也符合「下個月開始排班,預約才開放」的流程。)`);
+        return;
+      }
+      await set(ref(_firebaseDb, `${bookingPath(month)}/open`), true);
       // ★ 同時記錄開放時間與截止(開放起算 5 天),預約頁會自動鎖定
       const openedAt = Date.now();
       const deadline = openedAt + BOOKING_OPEN_DAYS * 24 * 60 * 60 * 1000;
-      await set(ref(_firebaseDb, `bookings/${month}_meta`), {
+      await set(ref(_firebaseDb, `${bookingPath(month)}/meta`), {
         openedAt, deadline, openDays: BOOKING_OPEN_DAYS,
         openedBy: (typeof getCurrentUserName === 'function') ? getCurrentUserName() : '',
       });
@@ -7494,12 +7504,12 @@ async function loadBookings() {
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
-    const snap = await get(ref(_firebaseDb, `bookings/${month}`));
+    const snap = await get(ref(_firebaseDb, `${bookingPath(month)}/entries`));
     const data = (snap && snap.exists()) ? (snap.val() || {}) : {};
     _bookingCache = { month, data, lottery: null };
     // 也讀已抽過的結果
     try {
-      const ls = await get(ref(_firebaseDb, `bookings/${month}_result`));
+      const ls = await get(ref(_firebaseDb, `${bookingPath(month)}/result`));
       if (ls && ls.exists()) _bookingCache.lottery = ls.val();
     } catch (e) {}
     renderBookingList();
@@ -7576,15 +7586,15 @@ async function publishBookingResult() {
   try {
     await ensureFirebase();
     const { ref, get, set } = window._fbHelpers;
-    const cur = await get(ref(_firebaseDb, `bookings/${month}_published`));
+    const cur = await get(ref(_firebaseDb, `${bookingPath(month)}/published`));
     const already = cur.exists() && cur.val();
     if (already) {
       if (!confirm(`${month} 的預約結果目前是「已公告」。\n\n要改成「不公告」(同仁看不到)嗎?`)) return;
-      await set(ref(_firebaseDb, `bookings/${month}_published`), false);
+      await set(ref(_firebaseDb, `${bookingPath(month)}/published`), false);
       alert('已取消公告,同仁的公告頁不會再顯示預約結果。');
     } else {
       if (!confirm(`確定公告 ${month} 的預約結果?\n\n同仁在公告頁會看到「🌴 預約」分頁,\n可以查誰抽中(OFF)、誰沒抽中(off)。`)) return;
-      await set(ref(_firebaseDb, `bookings/${month}_published`), true);
+      await set(ref(_firebaseDb, `${bookingPath(month)}/published`), true);
       alert('✅ 已公告\n\n同仁打開公告頁就看得到預約結果了。');
     }
     refreshBookingPublishBtn();
@@ -7599,7 +7609,7 @@ async function refreshBookingPublishBtn() {
   try {
     await ensureFirebase();
     const { ref, get } = window._fbHelpers;
-    const s = await get(ref(_firebaseDb, `bookings/${month}_published`));
+    const s = await get(ref(_firebaseDb, `${bookingPath(month)}/published`));
     if (s.exists() && s.val()) { btn.textContent = '📢 已公告(點此取消)'; btn.style.background = '#64748b'; }
     else { btn.textContent = '📢 公告預約結果'; btn.style.background = '#0f766e'; }
   } catch (e) {}
@@ -7659,7 +7669,7 @@ async function runBookingLottery() {
   try {
     await ensureFirebase();
     const { ref, set } = window._fbHelpers;
-    await set(ref(_firebaseDb, `bookings/${month}_result`), result);
+    await set(ref(_firebaseDb, `${bookingPath(month)}/result`), result);
     _bookingCache.lottery = result;
     renderBookingList();
     let winN = 0, loseN = 0;

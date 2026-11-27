@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- VIEW-VERSION: 2026-11-27-v16 (換班格子改為框+角標,說明滑鼠移過去/點一下才顯示) -->
+<!-- VIEW-VERSION: 2026-11-27-v17 (預約改存班表節點底下:修正入口與結果從未顯示) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
@@ -1388,10 +1388,13 @@ async function loadBookingResult() {
     await initFirebase();
     const { ref, get } = _fbHelpers;
 
-    const pubSnap = await get(ref(_fbDb, `bookings/${state.month}_published`));
+    // ★ 存放位置改到 schedules/{月}/booking(頂層 bookings/ 被 Firebase 規則擋,從沒讀到過)
+    if (state.scheduleType === 'aide') { btn.style.display = 'none'; return; }   // 預約只有護理師
+    const bp = `schedules/${state.month}/booking`;
+    const pubSnap = await get(ref(_fbDb, `${bp}/published`));
     if (!pubSnap.exists() || !pubSnap.val()) { btn.style.display = 'none'; return; }
 
-    const rSnap = await get(ref(_fbDb, `bookings/${state.month}_result`));
+    const rSnap = await get(ref(_fbDb, `${bp}/result`));
     if (!rSnap.exists()) { btn.style.display = 'none'; return; }
     const res = rSnap.val() || {};
 
@@ -1447,13 +1450,22 @@ function showSwapEntry() {
   } catch (e) { console.warn('[換班入口] 失敗:', e); }
 }
 
-// 🌴 檢查護理長有沒有開放預約(只讀一個位置 bookings/_openMonth)
+// 🌴 檢查護理長有沒有開放預約:看本月、下個月的 schedules/{月}/booking/open,
+//    兩個都開就顯示下個月(預約通常是給下個月用)
 async function checkBookingOpen() {
   try {
     await initFirebase();
     const { ref, get } = _fbHelpers;
-    const snap = await get(ref(_fbDb, 'bookings/_openMonth'));
-    const openMonth = (snap && snap.exists()) ? String(snap.val() || '') : '';
+    const now = new Date();
+    const ym = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const cands = [ym(new Date(now.getFullYear(), now.getMonth() + 1, 1)), ym(now)];
+    let openMonth = '';
+    for (const m of cands) {
+      try {
+        const s = await get(ref(_fbDb, `schedules/${m}/booking/open`));
+        if (s && s.exists() && s.val() === true) { openMonth = m; break; }
+      } catch (e) {}
+    }
     const box = document.getElementById('booking-entry');
     if (!box) return;
     if (!openMonth || !/^\d{4}-\d{2}$/.test(openMonth)) { box.style.display = 'none'; return; }
@@ -1655,7 +1667,7 @@ async function loadData(forceMonth) {
         // (班別顯示:o 一律寫 off,在下面各處用)
         // ★ 資料到了才知道有沒有公告 → 這時才決定換班入口要不要出現
         //   (以前只在剛進入、資料還沒載完時檢查一次,入口永遠是隱藏的)
-        setTimeout(() => { try { showSwapEntry(); } catch (e) {} }, 0);
+        setTimeout(() => { try { showSwapEntry(); } catch (e) {} try { loadBookingResult(); } catch (e) {} }, 0);
 
         // === 排序保險:HN 最上 → D/E/N → 半日墊底 ===
         // ★ 只對護理師班表生效。技助班表是按職類(技→助含工讀→事)+ 護理長手動編的

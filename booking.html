@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- BOOKING-VERSION: 2026-09-29-v2 (開放後5天自動截止鎖定) -->
+<!-- BOOKING-VERSION: 2026-11-27-v3 (修正從未能預約:改存班表節點底下;帳號中心登入防冒名) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>急診預約假期</title>
@@ -109,9 +109,13 @@
 <body>
 
 <header>
-  <div class="wrap">
-    <h1>🌴 急診預約假期</h1>
-    <div class="sub" id="hd-sub">載入中...</div>
+  <div class="wrap" style="display:flex; align-items:center; gap:10px">
+    <a href="schedule-view.html?app=1" onclick="if(history.length>1&&document.referrer.includes('schedule-view')){history.back();return false;}"
+       style="color:#fff; text-decoration:none; font-size:0.9rem; border:1px solid rgba(255,255,255,.45); border-radius:8px; padding:5px 10px; white-space:nowrap">← 回班表</a>
+    <div style="flex:1">
+      <h1>🌴 急診預約假期</h1>
+      <div class="sub" id="hd-sub">載入中...</div>
+    </div>
   </div>
 </header>
 
@@ -120,11 +124,18 @@
   <!-- 狀態 -->
   <div id="status" class="status">⏳ 載入中...</div>
 
-  <!-- 選人 -->
-  <div id="pick-person" class="card hide">
-    <h2>請選擇你的名字</h2>
-    <select id="person-select"><option value="">— 選擇 —</option></select>
-    <div style="margin-top:10px"><button class="btn" onclick="confirmPerson()">確定</button></div>
+  <!-- 🔐 預約要登入(只能預約自己的) -->
+  <div id="login-card" class="card hide">
+    <h2>🔐 預約假期要先登入</h2>
+    <div class="muted" style="font-size:0.9rem">用<b>帳號中心</b>的員編 + PIN 登入(跟換班、ED-Board 同一組)。<br>
+      登入後只能預約你自己的日子,別人無法替你登記或改掉。</div>
+    <div id="login-err" class="muted" style="color:var(--err); margin-top:6px"></div>
+    <div style="margin-top:12px"><button class="btn" onclick="goLogin()">登入</button></div>
+  </div>
+  <div id="notfound-card" class="card hide">
+    <h2>找不到你的名字</h2>
+    <div class="muted" style="font-size:0.9rem" id="notfound-msg"></div>
+    <div style="margin-top:12px"><button class="btn ghost" onclick="logoutAcct()">換一個帳號登入</button></div>
   </div>
 
   <!-- 主畫面 -->
@@ -136,7 +147,7 @@
           <h2 style="margin:0" id="my-name">—</h2>
           <div class="muted" id="my-month">—</div>
         </div>
-        <button class="btn ghost small" onclick="switchPerson()">換人</button>
+        <button class="btn ghost small" onclick="logoutAcct()" title="登出帳號中心(所有急診程式都會一起登出)">登出</button>
       </div>
       <div class="quota">
         <div class="quota-item" id="q-total">
@@ -167,7 +178,7 @@
       <strong>預約規則</strong><br>
       • 每人每月最多 <strong>3 天</strong>,其中假日最多 <strong>1 天</strong><br>
       • 截止前可隨時修改<br>
-      • 截止後由系統抽籤:抽中的確定放假,未抽中的會標記為 <strong>O</strong>(仍會盡量安排)
+      • 截止後由系統抽籤:抽中的排 <strong>OFF</strong>(確定放假),沒抽中的標記為底線 <strong><u>off</u></strong>(仍會盡量安排)
     </div>
 
   </div>
@@ -181,6 +192,8 @@
   </div>
 </div>
 
+<!-- 帳號中心(員編+PIN,與其他急診程式共用登入) -->
+<script src="https://cych05845-jpg.github.io/ed-account/account-sdk.js"></script>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import { getDatabase, ref, get, set, onValue } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
@@ -200,7 +213,10 @@ const db = getDatabase(app);
 
 const MAX_TOTAL = 3;    // 每人每月額度
 const MAX_HOLIDAY = 1;  // 假日最多幾天
-const LS_KEY = 'booking.myPersonId.v1';
+// ★ 存放位置:schedules/{月}/booking/{open, meta, entries/{人}}
+//   以前放在頂層 bookings/,Firebase 安全規則沒開放 → 從沒寫進去過。
+const bp = () => `schedules/${S.month}/booking`;
+const ymOf = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
 
 const S = {
   deadline: 0, locked: false,
@@ -240,10 +256,18 @@ async function boot() {
   S.days = daysInMonth(S.month);
   $('hd-sub').textContent = S.month.replace('-', ' 年 ') + ' 月';
 
-  // 0. 先看護理長有沒有開放這個月的預約
+  // 0. 先看護理長有沒有開放預約(網址帶的月份優先,否則看下個月、本月)
   try {
-    const os = await get(ref(db, 'bookings/_openMonth'));
-    const openMonth = (os && os.exists()) ? String(os.val() || '') : '';
+    const now = new Date();
+    const want = new URLSearchParams(location.search).get('m');
+    const cands = [...new Set([want, ymOf(new Date(now.getFullYear(), now.getMonth() + 1, 1)), ymOf(now)].filter(m => m && /^\d{4}-\d{2}$/.test(m)))];
+    let openMonth = '';
+    for (const m of cands) {
+      try {
+        const s = await get(ref(db, `schedules/${m}/booking/open`));
+        if (s && s.exists() && s.val() === true) { openMonth = m; break; }
+      } catch (e) {}
+    }
     if (!openMonth) {
       showStatus('<div style="font-size:2rem">🔒</div><div style="margin-top:8px;font-weight:700">目前未開放預約</div><div style="margin-top:4px">護理長開放後,公告頁會出現預約按鈕,再進來登記即可。</div>');
       return;
@@ -290,7 +314,7 @@ async function boot() {
 
   // 1.5 讀截止時間(護理長開放後 5 天自動鎖定)
   try {
-    const ms = await get(ref(db, `bookings/${S.month}_meta`));
+    const ms = await get(ref(db, `${bp()}/meta`));
     if (ms.exists()) {
       const meta = ms.val() || {};
       S.deadline = meta.deadline || 0;
@@ -299,43 +323,54 @@ async function boot() {
   } catch (e) { /* 讀不到就不鎖 */ }
 
   // 2. 監聽預約資料(即時看到別人預約)
-  onValue(ref(db, `bookings/${S.month}`), (snap) => {
+  onValue(ref(db, `${bp()}/entries`), (snap) => {
     S.allBookings = (snap.exists() ? snap.val() : {}) || {};
     if (S.myId) { renderCal(); renderQuota(); }
   });
 
-  // 3. 記住的人
-  const savedId = localStorage.getItem(LS_KEY);
-  const me = savedId && S.staff.find(p => p.id === savedId);
-  if (me) { enterAs(me); }
-  else { showPersonPicker(); }
+  // 3. 身分:一律以帳號中心登入的人為準
+  await resolveIdentity();
 }
 
-function showPersonPicker() {
+const normName = (s) => String(s || '').replace(/\s+/g, '');
+async function verifyAccount() {
+  if (!window.ACCOUNT) return { ok: false, error: '帳號中心載入失敗,請檢查網路後重新整理' };
+  try { return await window.ACCOUNT.verify(); } catch (e) { return { ok: false, error: e.message || '帳號中心連線失敗' }; }
+}
+async function resolveIdentity() {
+  const r = await verifyAccount();
+  if (!r.ok || !r.user) {
+    hideStatus(); $('main').classList.add('hide'); $('bottom').classList.add('hide');
+    $('login-err').textContent = (r.error && r.error !== '尚未登入') ? r.error : '';
+    $('login-card').classList.remove('hide');
+    return;
+  }
+  S.acct = r.user;
+  const me = S.staff.find(p => normName(p.name) === normName(r.user.name));
+  if (me) { enterAs(me); return; }
   hideStatus();
-  $('main').classList.add('hide');
-  $('bottom').classList.add('hide');
-  const sel = $('person-select');
-  sel.innerHTML = '<option value="">— 選擇 —</option>' +
-    S.staff.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${p.level ? ' (' + esc(p.level) + ')' : ''}</option>`).join('');
-  $('pick-person').classList.remove('hide');
+  $('notfound-msg').innerHTML = `你登入的帳號是「<b>${esc(r.user.name)}</b>」(員編 ${esc(r.user.empId || '—')}),`
+    + `但護理師名單裡沒有這個名字。<br>如果名字有錯字,請告訴護理長。`;
+  $('notfound-card').classList.remove('hide');
 }
-
-window.confirmPerson = function () {
-  const id = $('person-select').value;
-  if (!id) { alert('請先選擇你的名字'); return; }
-  const p = S.staff.find(x => x.id === id);
-  if (!p) return;
-  try { localStorage.setItem(LS_KEY, id); } catch (e) {}
-  enterAs(p);
+window.goLogin = function () {
+  if (!window.ACCOUNT) { alert('帳號中心載入失敗,請檢查網路後重新整理。'); return; }
+  window.ACCOUNT.goLogin();
 };
-
-window.switchPerson = function () {
-  if (S.dirty && !confirm('你有未儲存的預約,換人會放棄這些變更。確定嗎?')) return;
-  try { localStorage.removeItem(LS_KEY); } catch (e) {}
-  S.myId = ''; S.myPicks = []; S.dirty = false;
-  showPersonPicker();
+window.logoutAcct = function () {
+  if (S.dirty && !confirm('你有未儲存的預約,登出會放棄這些變更。確定嗎?')) return;
+  if (!confirm('登出帳號中心?\n\n(同一台裝置上的急診程式都會一起登出)')) return;
+  try { window.ACCOUNT && window.ACCOUNT.logout(); } catch (e) {}
+  S.dirty = false;
+  location.reload();
 };
+async function ensureMe() {
+  const r = await verifyAccount();
+  if (!r.ok || !r.user) { alert('登入已過期,請重新登入。'); window.goLogin(); return false; }
+  if (normName(r.user.name) !== normName(S.myName)) { alert('登入的帳號跟畫面上的人不同,請重新整理頁面。'); return false; }
+  S.acct = r.user;
+  return true;
+}
 
 function enterAs(p) {
   S.myId = p.id; S.myName = p.name;
@@ -343,11 +378,11 @@ function enterAs(p) {
   S.myPicks = (mine && Array.isArray(mine.days)) ? mine.days.slice() : [];
   S.dirty = false;
   hideStatus();
-  $('pick-person').classList.add('hide');
+  ['login-card', 'notfound-card'].forEach(id => $(id).classList.add('hide'));
   $('main').classList.remove('hide');
   $('bottom').classList.remove('hide');
   $('my-name').textContent = p.name;
-  $('my-month').textContent = S.month.replace('-', ' 年 ') + ' 月預約';
+  $('my-month').textContent = S.month.replace('-', ' 年 ') + ' 月預約 · 🔐 已登入' + (S.acct && S.acct.empId ? ' 員編 ' + S.acct.empId : '');
   renderCal(); renderQuota(); markSaved(); renderDeadline();
 }
 
@@ -451,12 +486,14 @@ function markSaved() {
 window.saveBooking = async function () {
   if (!S.myId) return;
   if (S.locked) { alert('預約已經截止,無法儲存。'); return; }
+  if (!(await ensureMe())) return;
   const btn = $('save-btn');
   btn.disabled = true; btn.textContent = '⏳ 儲存中...';
   try {
     const days = S.myPicks.slice().sort((a, b) => a - b);
-    await set(ref(db, `bookings/${S.month}/${S.myId}`), {
+    await set(ref(db, `${bp()}/entries/${S.myId}`), {
       name: S.myName,
+      empId: (S.acct && S.acct.empId) || '',
       days: days,
       savedAt: Date.now(),
     });
