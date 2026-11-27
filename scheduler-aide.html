@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- AIDE-VERSION: 2026-11-27-v18 (換班代理人可設定多段/不同人;通知列加測試按鈕) -->
+<!-- AIDE-VERSION: 2026-11-27-v19 (AI 改用 Gemini 3.8 Flash,撞限制改 3.6 Flash) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診技助事員排班工具 | ED Aide Scheduling</title>
@@ -2418,7 +2418,7 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
           <details style="border-bottom: 1px solid var(--rule); padding: 0.6rem 0">
             <summary style="cursor: pointer; font-weight: 600; font-size: 0.98rem">Q7. AI 限額用完了會怎樣?</summary>
             <div style="padding: 0.5rem 0 0.3rem 1rem; font-size: 0.92rem; color: var(--ink-soft); line-height: 1.7">
-              Gemini 2.5 Flash 用完 → 自動切 Flash-Lite。都不行 → 跳訊息「Gemini 限制中,請等 X 秒」 → 等一下再試。Tier 1 額度足夠每月排班用。
+              Gemini 3.8 Flash 用完 → 自動切 Gemini 3.6 Flash。都不行 → 跳訊息「Gemini 限制中,請等 X 秒」 → 等一下再試。Tier 1 額度足夠每月排班用。
             </div>
           </details>
 
@@ -3611,19 +3611,15 @@ td.cell.viol-consec { outline: 2px dashed var(--err); outline-offset: -2px; }
           <div style="display: flex; gap: 1.2rem; font-size: 0.88rem; flex-wrap: wrap">
             <label style="cursor: pointer">
               <input type="radio" name="gemini-model" value="auto" checked onchange="onGeminiModelChange()">
-              <strong>自動</strong>(Pro 優先,撞限制自動降級)
-            </label>
-            <label style="cursor: pointer" title="最強推理,適合 SOP 嚴謹的調班建議;速度較慢、成本較高">
-              <input type="radio" name="gemini-model" value="pro" onchange="onGeminiModelChange()">
-              <strong>Pro 2.5</strong>(最聰明,推薦複雜調班)
+              <strong>自動</strong>(Gemini 3.8 Flash,撞限制自動改 3.6 Flash)
             </label>
             <label style="cursor: pointer">
               <input type="radio" name="gemini-model" value="flash" onchange="onGeminiModelChange()">
-              Flash(中等,10/分鐘)
+              <strong>Gemini 3.8 Flash</strong>(最新)
             </label>
             <label style="cursor: pointer">
               <input type="radio" name="gemini-model" value="flash-lite" onchange="onGeminiModelChange()">
-              Flash Lite(較快,30/分鐘)
+              Gemini 3.6 Flash
             </label>
           </div>
         </div>
@@ -13447,22 +13443,20 @@ ${historyText}
         usedModel = result.modelUsed || 'gemini';
         if (result.fallback) {
           // Show fallback indicator (用降階模型)
-          const fallbackNote = `\n\n_(已切換到 Flash Lite)_`;
+          const fallbackNote = `\n\n_(已切換到 ${result.modelUsed === 'gemini-3.6-flash' ? 'Gemini 3.6 Flash' : '備用模型'})_`;
           aiText += fallbackNote;
         }
         // Skip the direct-call code below
       } else {
       // ========== Personal edition: direct call to Gemini ==========
+      // Gemini 3.6–3.8 只有 Flash:3.8 為主,撞限制改 3.6
       let modelsToTry;
-      if (modelChoice === 'pro') {
-        modelsToTry = ['gemini-2.5-pro'];
-      } else if (modelChoice === 'flash') {
-        modelsToTry = ['gemini-2.5-flash'];
-      } else if (modelChoice === 'flash-lite') {
-        modelsToTry = ['gemini-2.5-flash-lite'];
+      if (modelChoice === 'flash-lite') {
+        modelsToTry = ['gemini-3.6-flash'];
+      } else if (modelChoice === 'flash' || modelChoice === 'pro') {
+        modelsToTry = ['gemini-3.8-flash'];
       } else {
-        // Auto: Pro 先試,撞限制降到 Flash,再撞限制降到 Flash Lite
-        modelsToTry = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+        modelsToTry = ['gemini-3.8-flash', 'gemini-3.6-flash'];
       }
 
       let lastError = null;
@@ -13478,9 +13472,8 @@ ${historyText}
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
-              maxOutputTokens: 8000,
-              temperature: 0.7,
-              thinkingConfig: { thinkingBudget: 0 },
+              maxOutputTokens: 16384,                     // Gemini 3:思考 token 也算在輸出上限內
+              thinkingConfig: { thinkingLevel: 'low' },   // 溫度用預設 1.0(Google 建議不要調低)
             },
           }),
         });
@@ -13501,14 +13494,14 @@ ${historyText}
 
         // If 429 and we have more models to try, fall back
         if (response.status === 429 && mi < modelsToTry.length - 1) {
-          continue;  // try next (flash-lite)
+          continue;  // 換下一個模型(3.6 Flash)
         }
 
         // Otherwise, throw friendly error
         if (response.status === 429) {
           const retryMatch = errMsg.match(/retry in ([\d.]+)s/i);
           const seconds = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) : 60;
-          throw new Error(`⏱ 太快了!Gemini 免費版每分鐘有上限\n\n請等 ${seconds} 秒後再試,或在「Gemini 模型」選「Flash Lite」(較寬鬆)`);
+          throw new Error(`⏱ 太快了!Gemini 免費版每分鐘有上限\n\n請等 ${seconds} 秒後再試`);
         }
         throw new Error(`Gemini API 錯誤 (${response.status}): ${errMsg}`);
       }
@@ -13517,17 +13510,15 @@ ${historyText}
         throw new Error(`所有 Gemini 模型都失敗:${lastError?.message || 'unknown'}`);
       }
 
-      aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '(沒有回應)';
+      aiText = (geminiData.candidates?.[0]?.content?.parts || []).filter(p => p && p.text && !p.thought).map(p => p.text).join('') || '(沒有回應)';
       inputTokens = geminiData.usageMetadata?.promptTokenCount || 0;
       outputTokens = geminiData.usageMetadata?.candidatesTokenCount || 0;
       usedModel = usedModel2;
 
       // Show fallback indicator if not using preferred model
       if (modelChoice === 'auto') {
-        if (usedModel === 'gemini-2.5-flash') {
-          aiText = `[ℹ Pro 撞限制,自動降級到 Flash]\n\n${aiText}`;
-        } else if (usedModel === 'gemini-2.5-flash-lite') {
-          aiText = `[ℹ Pro 和 Flash 撞限制,自動降級到 Flash Lite — 此模型較弱,複雜建議可能不夠精準]\n\n${aiText}`;
+        if (usedModel === 'gemini-3.6-flash') {
+          aiText = `[ℹ Gemini 3.8 Flash 撞限制,自動改用 3.6 Flash]\n\n${aiText}`;
         }
       }
       } // end of personal edition Gemini block
@@ -17893,19 +17884,19 @@ function toggleSidePanelCollapse() {
       const key = localStorage.getItem('geminiApiKey') || localStorage.getItem('aiApiKey');
       if (!key) throw new Error('請先設定 Gemini API Key');
       const modelChoice = (typeof getGeminiModelChoice === 'function') ? getGeminiModelChoice() : 'auto';
-      const model = (modelChoice && modelChoice !== 'auto') ? `gemini-2.5-${modelChoice}` : 'gemini-2.5-flash';
+      const model = modelChoice === 'flash-lite' ? 'gemini-3.6-flash' : 'gemini-3.8-flash';
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
       const r = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 3000, temperature: 0.5, thinkingConfig: { thinkingBudget: 0 } },
+          generationConfig: { maxOutputTokens: 8000, thinkingConfig: { thinkingLevel: 'low' } },
         }),
       });
       if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0,200)}`);
       const d = await r.json();
-      return d.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      return (d.candidates?.[0]?.content?.parts || []).filter(p => p && p.text && !p.thought).map(p => p.text).join('');
     }
   }
 
