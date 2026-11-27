@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<!-- VERSION: 2026-11-27-v54 (換班格子改為框+角標,滑鼠移過去才顯示說明) -->
+<!-- VERSION: 2026-11-27-v55 (載入班表時不再把換班申請列成 leader 調整) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>急診排班輔助工具 | ED Scheduling Assistant</title>
@@ -4896,7 +4896,8 @@ async function loadCloudScheduleDirectly(month) {
     if (adj.ok && adj.items.length > 0) {
       const applied = applyLeaderAdjustmentsToState(adj);
       if (applied > 0) {
-        leaderMsg = `\n\n🔔 已自動套用 leader 現場調整 ${applied} 筆:\n${formatLeaderAdjustments(adj.items)}`;
+        leaderMsg = `\n\n🔔 已自動套用 leader 現場調整 ${applied} 筆:\n${formatLeaderAdjustments(adj.items, 6)}`
+          + (adj.items.length > 6 ? `\n(完整清單在側欄「🔁 換班/調班轉錄清單」)` : '');
         console.log('[leader調整] 已套用', applied, '筆', adj.items);
       }
     }
@@ -17817,7 +17818,10 @@ async function fetchLeaderAdjustments(month) {
       for (const day in daysObj) {
         const cf = daysObj[day];
         if (!cf || typeof cf !== 'object') continue;
-        const isShift = cf.shiftChanged === true;
+        // ★ 換班申請(swapId)是護理長在排班頁核准時就對調好的,本來就在班表上,
+        //   不是 leader 現場調整 → 不重新套用、也不列在載入視窗(換班一個月很多筆,會長到不行)
+        if (cf.swapId && !cf.leaveMarked && !cf.hoursNote) continue;
+        const isShift = cf.shiftChanged === true && !cf.swapId;
         const isLeave = cf.leaveMarked === true;
         const isHours = !!cf.hoursNote;
         if (!isShift && !isLeave && !isHours) continue;
